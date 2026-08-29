@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.366] - 2026-08-29
+
+### Playback, scheduler, and scanner hardening
+- **Process-tree-safe FFmpeg teardown**: serialize capture lifecycle transitions, retain and observe stderr/health tasks, close redirected streams, terminate descendant processes, and bound cleanup so playback restarts cannot strand child processes or pipe readers.
+- **Manual one-time cue completion**: successful Run Now executions now disable one-time schedules through the existing persistence-retry path, increment run state, and prevent later automatic replay.
+- **Semgrep scanner freshness**: update the hash-locked scanner to Semgrep 1.175.0 with the reviewed compatible dependency refresh and keep both blocking workflows on the same pin.
+- **Regression coverage**: exercise FFmpeg process-tree cleanup and manual one-time schedule replay prevention.
+
 ## [1.5.365] - 2026-08-28
 
 ### Runtime, dependency, and runner safety hardening

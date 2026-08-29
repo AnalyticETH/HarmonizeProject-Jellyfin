@@ -23,7 +23,7 @@ permissions:
 env:
   GITLEAKS_VERSION: '8.30.1'
   GITLEAKS_CHECKSUMS_SHA256: '061476c21adaf5441516f96f185c1a4706a83cd6329b9b38762271b3d4a52fae'
-  SEMGREP_VERSION: '1.174.0'
+  SEMGREP_VERSION: '1.175.0'
   # Registry aliases are fetched as reviewed, SHA-256-pinned snapshots. A changed
   # ruleset fails closed instead of silently changing the security policy.
   SEMGREP_DEFAULT_CONFIG_URL: 'https://semgrep.dev/c/p/default'

@@ -1,5 +1,9 @@
+using System.Diagnostics;
+using System.Reflection;
 using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Video;
+using Microsoft.Extensions.Logging;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.Hue.Tests;
@@ -223,5 +227,135 @@ public sealed class FfmpegStreamerTests
                 "pipe:1"
             },
             arguments);
+    }
+
+    [Fact]
+    public async Task Stop_ClosesOutputAndStopsTheEntireProcessTree()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        using var temporaryDirectory = new TemporaryDirectory();
+        var childPidPath = Path.Combine(temporaryDirectory.Path, "child.pid");
+        var scriptPath = Path.Combine(temporaryDirectory.Path, "fake-ffmpeg.sh");
+        var mediaPath = Path.Combine(temporaryDirectory.Path, "input.mkv");
+        File.WriteAllText(
+            scriptPath,
+            $"#!/bin/sh\n(sleep 30) &\nchild_pid=$!\nprintf '%s' \"$child_pid\" > '{childPidPath}'\nprintf x\nprintf 'fake stderr\\n' >&2\nwhile :; do sleep 1; done\n");
+        File.SetUnixFileMode(
+            scriptPath,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+            UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        File.WriteAllBytes(mediaPath, Array.Empty<byte>());
+
+        var streamer = new FfmpegStreamer(Mock.Of<ILogger<FfmpegStreamer>>());
+        Stream? output = null;
+        var mainProcessId = 0;
+        var childProcessId = 0;
+        try
+        {
+            output = streamer.StartFfmpeg(
+                mediaPath,
+                fps: 1,
+                useGpu: false,
+                ffmpegPath: scriptPath);
+
+            Assert.NotNull(output);
+            Assert.Equal((byte)'x', output!.ReadByte());
+            childProcessId = await WaitForPidAsync(childPidPath);
+
+            var process = GetPrivateField<Process>(streamer, "_ffmpegProcess");
+            Assert.NotNull(process);
+            mainProcessId = process!.Id;
+
+            var stderrTask = GetPrivateField<Task>(streamer, "_stderrReaderTask");
+            var healthTask = GetPrivateField<Task>(streamer, "_healthMonitorTask");
+            Assert.NotNull(stderrTask);
+            Assert.NotNull(healthTask);
+
+            streamer.Stop();
+
+            Assert.NotNull(Record.Exception(() => output.ReadByte()));
+            Assert.True(stderrTask!.IsCompleted);
+            Assert.True(healthTask!.IsCompleted);
+            Assert.True(await WaitForProcessExitAsync(mainProcessId));
+            Assert.True(await WaitForProcessExitAsync(childProcessId));
+        }
+        finally
+        {
+            streamer.Stop();
+            output?.Dispose();
+            if (mainProcessId > 0)
+                await WaitForProcessExitAsync(mainProcessId);
+            if (childProcessId > 0)
+                await WaitForProcessExitAsync(childProcessId);
+        }
+    }
+
+    private static T? GetPrivateField<T>(FfmpegStreamer streamer, string name)
+    {
+        return (T?)typeof(FfmpegStreamer)
+            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?.GetValue(streamer);
+    }
+
+    private static async Task<int> WaitForPidAsync(string path)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (File.Exists(path) && int.TryParse(File.ReadAllText(path), out var pid))
+                return pid;
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException("The fake FFmpeg process did not publish its child PID.");
+    }
+
+    private static async Task<bool> WaitForProcessExitAsync(int processId)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                using var process = Process.GetProcessById(processId);
+                if (process.HasExited)
+                    return true;
+            }
+            catch (ArgumentException)
+            {
+                return true;
+            }
+
+            await Task.Delay(25);
+        }
+
+        return false;
+    }
+
+    private sealed class TemporaryDirectory : IDisposable
+    {
+        public TemporaryDirectory()
+        {
+            Path = Directory.CreateTempSubdirectory("hue-ffmpeg-test-").FullName;
+        }
+
+        public string Path { get; }
+
+        public void Dispose()
+        {
+            try
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+            catch (IOException)
+            {
+                // The test has already asserted process cleanup; leave a diagnostic
+                // directory in place if the host has not released it yet.
+            }
+        }
     }
 }

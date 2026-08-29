@@ -17,11 +17,18 @@ namespace Jellyfin.Plugin.Hue.Video
     public class FfmpegStreamer
     {
         private readonly ILogger<FfmpegStreamer> _logger;
+        // Start/stop are synchronous API calls, so serialize the complete process
+        // lifecycle.  In particular, a replacement capture must not publish its
+        // process while an earlier Stop() is still disposing redirected streams.
+        private readonly object _lifecycleLock = new();
         private Process? _ffmpegProcess;
+        private Stream? _outputStream;
         private DateTime _lastFrameTime;
         private DateTime _startTime;          // When StartFfmpeg was called
         private long _framesProcessed = 0;
         private CancellationTokenSource? _monitorCts;
+        private Task? _stderrReaderTask;
+        private Task? _healthMonitorTask;
         private readonly object _stateLock = new object();
 
         // FFmpeg typically takes 1-3 seconds to start producing frames (codec init, seek, etc.).
@@ -31,6 +38,7 @@ namespace Jellyfin.Plugin.Hue.Video
         private const int MinStallTimeoutSeconds = 1;
         private const int MaxStallTimeoutSeconds = 60;
         private const int MaxCustomFlagTextLength = 768;
+        private static readonly TimeSpan ProcessCleanupTimeout = TimeSpan.FromSeconds(1);
         private static readonly HashSet<string> SafeCustomFlags = new(StringComparer.OrdinalIgnoreCase)
         {
             "-c:v",
@@ -459,6 +467,11 @@ namespace Jellyfin.Plugin.Hue.Video
                 var timeSinceLastFrame = DateTime.UtcNow - lastFrameTime;
                 return timeSinceLastFrame.TotalSeconds < stallTimeoutSeconds;
             }
+            catch (ObjectDisposedException)
+            {
+                // The process may be disposed concurrently by Stop().
+                return false;
+            }
             catch (InvalidOperationException)
             {
                 // The process may be disposed concurrently by Stop().
@@ -533,36 +546,39 @@ namespace Jellyfin.Plugin.Hue.Video
                 return null;
             }
 
-            // A streamer owns one FFmpeg process. Stop any previous process before
-            // validating/replacing the command so an invalid new request cannot leave
-            // an older capture running unexpectedly.
-            Stop();
-
-            // NOTE: We deliberately omit -re here.
-            // -re reads input at native frame rate which would throttle a 24fps source to only
-            // 24 frames/sec even if targetFps is 20 — this causes the sync loop to block on reads.
-            // Instead we let FFmpeg decode as fast as possible; the RunSyncLoop delay enforces timing.
-            IReadOnlyList<string> arguments;
-            try
+            lock (_lifecycleLock)
             {
-                arguments = BuildFfmpegArguments(
-                    videoPath,
-                    fps,
-                    useGpu,
-                    customFlags,
-                    seekPositionSeconds,
-                    frameWidth,
-                    frameHeight,
-                    scalingMode,
-                    deinterlaceMode);
-            }
-            catch (FormatException ex)
-            {
-                _logger.LogError(ex, "Invalid FFmpeg custom flags; refusing to start the process.");
-                return null;
-            }
+                // A streamer owns one FFmpeg process. Stop any previous process before
+                // validating/replacing the command so an invalid new request cannot leave
+                // an older capture running unexpectedly.
+                StopCore();
 
-            return StartProcess(arguments, videoPath, ffmpegPath);
+                // NOTE: We deliberately omit -re here.
+                // -re reads input at native frame rate which would throttle a 24fps source to only
+                // 24 frames/sec even if targetFps is 20 — this causes the sync loop to block on reads.
+                // Instead we let FFmpeg decode as fast as possible; the RunSyncLoop delay enforces timing.
+                IReadOnlyList<string> arguments;
+                try
+                {
+                    arguments = BuildFfmpegArguments(
+                        videoPath,
+                        fps,
+                        useGpu,
+                        customFlags,
+                        seekPositionSeconds,
+                        frameWidth,
+                        frameHeight,
+                        scalingMode,
+                        deinterlaceMode);
+                }
+                catch (FormatException ex)
+                {
+                    _logger.LogError(ex, "Invalid FFmpeg custom flags; refusing to start the process.");
+                    return null;
+                }
+
+                return StartProcess(arguments, videoPath, ffmpegPath);
+            }
         }
 
         /// <summary>
@@ -595,28 +611,31 @@ namespace Jellyfin.Plugin.Hue.Video
                 seekPositionSeconds = 0;
             }
 
-            // Stop an earlier video/audio capture before parsing a replacement command;
-            // malformed custom flags must not leave the previous process alive.
-            Stop();
-
-            IReadOnlyList<string> arguments;
-            try
+            lock (_lifecycleLock)
             {
-                arguments = BuildAudioFfmpegArguments(
-                    audioPath,
-                    useGpu,
-                    customFlags,
-                    seekPositionSeconds,
-                    sampleRate,
-                    channels);
-            }
-            catch (FormatException ex)
-            {
-                _logger.LogError(ex, "Invalid FFmpeg custom flags; refusing to start the audio process.");
-                return null;
-            }
+                // Stop an earlier video/audio capture before parsing a replacement command;
+                // malformed custom flags must not leave the previous process alive.
+                StopCore();
 
-            return StartProcess(arguments, audioPath, ffmpegPath);
+                IReadOnlyList<string> arguments;
+                try
+                {
+                    arguments = BuildAudioFfmpegArguments(
+                        audioPath,
+                        useGpu,
+                        customFlags,
+                        seekPositionSeconds,
+                        sampleRate,
+                        channels);
+                }
+                catch (FormatException ex)
+                {
+                    _logger.LogError(ex, "Invalid FFmpeg custom flags; refusing to start the audio process.");
+                    return null;
+                }
+
+                return StartProcess(arguments, audioPath, ffmpegPath);
+            }
         }
 
         private Stream? StartProcess(
@@ -637,120 +656,386 @@ namespace Jellyfin.Plugin.Hue.Video
 
             _logger.LogInformation("Starting FFmpeg process for {0}", mediaPath);
 
+            Process? process = null;
+            Stream? outputStream = null;
+            CancellationTokenSource? monitorCts = null;
             try
             {
-                // Dispose any leftover CTS from a previous run (Stop() intentionally defers disposal)
-                _monitorCts?.Dispose();
+                process = new Process { StartInfo = startInfo };
+                if (!process.Start())
+                    throw new InvalidOperationException("FFmpeg did not start.");
 
-                _ffmpegProcess = new Process { StartInfo = startInfo };
-                _ffmpegProcess.Start();
+                outputStream = process.StandardOutput.BaseStream;
+                monitorCts = new CancellationTokenSource();
+                var monitorToken = monitorCts.Token;
+
                 lock (_stateLock)
                 {
+                    _ffmpegProcess = process;
                     _lastFrameTime = DateTime.UtcNow;
                     _startTime = DateTime.UtcNow;
                     Interlocked.Exchange(ref _framesProcessed, 0);
                 }
-                _monitorCts = new CancellationTokenSource();
-                var monitorToken = _monitorCts.Token;
+                _outputStream = outputStream;
+                _monitorCts = monitorCts;
 
-                // Capture a local reference so the background tasks don't race with Stop() nulling the field
-                var capturedProcess = _ffmpegProcess;
+                // Capture a local reference so the background tasks do not race with
+                // Stop() detaching the current process.  Do not pass the monitor token
+                // to Task.Run: if cancellation wins before a worker is scheduled, the
+                // task still needs to run and be retained/observed by Stop().
+                var capturedProcess = process;
 
                 // Log stderr asynchronously to help with debugging
-                _ = Task.Run(() =>
-                {
-                    try
-                    {
-                        using var reader = capturedProcess.StandardError;
-                        while (!reader.EndOfStream)
-                        {
-                            var line = reader.ReadLine();
-                            if (!string.IsNullOrEmpty(line))
-                                _logger.LogDebug("FFmpeg: {0}", line);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Error reading FFmpeg stderr");
-                    }
-                }, monitorToken);
+                _stderrReaderTask = Task.Run(
+                    () => DrainStandardError(capturedProcess, monitorToken),
+                    CancellationToken.None);
 
                 // Monitor process health — uses capturedProcess to avoid the race where
                 // Stop() sets _ffmpegProcess = null while this task is still running.
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        while (!capturedProcess.HasExited && !monitorToken.IsCancellationRequested)
-                        {
-                            await Task.Delay(10000, monitorToken).ConfigureAwait(false);
-                            DateTime startTime;
-                            DateTime lastFrameTime;
-                            lock (_stateLock)
-                            {
-                                startTime = _startTime;
-                                lastFrameTime = _lastFrameTime;
-                            }
+                _healthMonitorTask = Task.Run(
+                    () => MonitorProcessHealthAsync(capturedProcess, monitorToken),
+                    CancellationToken.None);
 
-                            if (!monitorToken.IsCancellationRequested &&
-                                !IsHealthy(capturedProcess, startTime, lastFrameTime, NormalizeStallTimeout(StallTimeoutSeconds)))
-                            {
-                                _logger.LogWarning(
-                                    "FFmpeg appears stalled — no media samples in {0}+ seconds. Processed {1} samples total.",
-                                    NormalizeStallTimeout(StallTimeoutSeconds),
-                                    FramesProcessed);
-                            }
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                    }
-                    catch (InvalidOperationException)
-                    {
-                    }
-                }, monitorToken);
-
-                return capturedProcess.StandardOutput.BaseStream;
+                return outputStream;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to start FFmpeg process. Ensure ffmpeg is installed and in PATH.");
-                try
-                { if (_ffmpegProcess != null && !_ffmpegProcess.HasExited) _ffmpegProcess.Kill(); }
-                catch { }
-                _ffmpegProcess?.Dispose();
-                _ffmpegProcess = null;
+                if (process != null && IsCurrentProcess(process))
+                {
+                    StopCore();
+                }
+                else
+                {
+                    CleanupProcess(process, outputStream, monitorCts, null, null);
+                }
+
                 return null;
             }
         }
 
         public void Stop()
         {
+            lock (_lifecycleLock)
+            {
+                try
+                {
+                    StopCore();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error stopping FFmpeg process");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Detaches and tears down the current process. The caller must hold
+        /// <see cref="_lifecycleLock"/> so concurrent starts and stops cannot interleave.
+        /// </summary>
+        private void StopCore()
+        {
+            Process? process;
+            Stream? outputStream;
+            CancellationTokenSource? monitorCts;
+            Task? stderrReaderTask;
+            Task? healthMonitorTask;
+
+            lock (_stateLock)
+            {
+                process = _ffmpegProcess;
+                _ffmpegProcess = null;
+            }
+
+            outputStream = _outputStream;
+            _outputStream = null;
+            monitorCts = _monitorCts;
+            _monitorCts = null;
+            stderrReaderTask = _stderrReaderTask;
+            _stderrReaderTask = null;
+            healthMonitorTask = _healthMonitorTask;
+            _healthMonitorTask = null;
+
+            CleanupProcess(process, outputStream, monitorCts, stderrReaderTask, healthMonitorTask);
+        }
+
+        private bool IsCurrentProcess(Process process)
+        {
+            lock (_stateLock)
+            {
+                return ReferenceEquals(_ffmpegProcess, process);
+            }
+        }
+
+        private void CleanupProcess(
+            Process? process,
+            Stream? outputStream,
+            CancellationTokenSource? monitorCts,
+            Task? stderrReaderTask,
+            Task? healthMonitorTask)
+        {
+            var cleanupDeadline = Stopwatch.GetTimestamp() +
+                (long)(ProcessCleanupTimeout.TotalSeconds * Stopwatch.Frequency);
+
             try
             {
-                // Cancel the health monitor and stderr reader tasks.
-                // Don't dispose immediately — background tasks may still be checking the token.
-                // The CTS will be disposed on the next StartFfmpeg call or by GC.
-                var oldCts = _monitorCts;
-                _monitorCts = null;
-                oldCts?.Cancel();
-
-                if (_ffmpegProcess != null && !_ffmpegProcess.HasExited)
-                {
-                    _ffmpegProcess.Kill();
-                    if (!_ffmpegProcess.WaitForExit(1000))
-                    {
-                        _logger.LogWarning("FFmpeg process did not exit within 1 second after Kill()");
-                    }
-                    _logger.LogInformation("FFmpeg process stopped");
-                }
-                _ffmpegProcess?.Dispose();
-                _ffmpegProcess = null;
+                monitorCts?.Cancel();
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error stopping FFmpeg process");
+                _logger.LogDebug(ex, "Could not cancel the FFmpeg monitor token during cleanup");
             }
+
+            if (process != null)
+            {
+                try
+                {
+                    if (!process.HasExited)
+                        process.Kill(entireProcessTree: true);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Another cleanup path may have already disposed the process.
+                }
+                catch (InvalidOperationException)
+                {
+                    // The process may have exited between HasExited and Kill().
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Could not terminate the FFmpeg process tree");
+                }
+            }
+
+            // Closing the pipes is required even after Kill(): a child that inherited
+            // the descriptors can otherwise keep the retained stderr task blocked.
+            CloseProcessStreams(process, outputStream);
+
+            if (process != null)
+            {
+                try
+                {
+                    var remaining = GetRemainingCleanupTime(cleanupDeadline);
+                    if (remaining > TimeSpan.Zero && !process.HasExited &&
+                        !process.WaitForExit(ToTimeoutMilliseconds(remaining)))
+                    {
+                        _logger.LogWarning("FFmpeg process did not exit within the cleanup deadline after Kill()");
+                    }
+                }
+                catch (ObjectDisposedException)
+                {
+                    // The process may have already been disposed by an earlier cleanup.
+                }
+                catch (InvalidOperationException)
+                {
+                    // The process may have won the exit/dispose race.
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Could not wait for the FFmpeg process during cleanup");
+                }
+            }
+
+            var backgroundTasks = new List<Task>(2);
+            if (stderrReaderTask != null)
+                backgroundTasks.Add(stderrReaderTask);
+            if (healthMonitorTask != null)
+                backgroundTasks.Add(healthMonitorTask);
+
+            var allBackgroundTasks = Task.WhenAll(backgroundTasks);
+            ObserveTaskFailure(allBackgroundTasks);
+            foreach (var backgroundTask in backgroundTasks)
+                ObserveTaskFailure(backgroundTask);
+
+            try
+            {
+                var remaining = GetRemainingCleanupTime(cleanupDeadline);
+                if (remaining > TimeSpan.Zero && !allBackgroundTasks.Wait(remaining))
+                {
+                    _logger.LogWarning("FFmpeg background cleanup tasks did not finish within the cleanup deadline");
+                }
+            }
+            catch (AggregateException ex)
+            {
+                _logger.LogDebug(ex.GetBaseException(), "An FFmpeg background cleanup task ended with an exception");
+            }
+            catch (ObjectDisposedException)
+            {
+                // A task's process/stream dependency may have been disposed as part
+                // of cleanup; the task continuation still observes its result.
+            }
+
+            DisposeProcess(process);
+            if (monitorCts != null)
+            {
+                if (allBackgroundTasks.IsCompleted)
+                {
+                    monitorCts.Dispose();
+                }
+                else
+                {
+                    // Stop() is deliberately bounded. If a platform keeps a
+                    // redirected descriptor alive past the deadline, finish disposing
+                    // the CTS when the retained tasks eventually settle.
+                    _ = allBackgroundTasks.ContinueWith(
+                        completedTask =>
+                        {
+                            _ = completedTask.Exception;
+                            monitorCts.Dispose();
+                        },
+                        CancellationToken.None,
+                        TaskContinuationOptions.ExecuteSynchronously,
+                        TaskScheduler.Default);
+                }
+            }
+
+            if (process != null)
+                _logger.LogInformation("FFmpeg process stopped");
+        }
+
+        private void DrainStandardError(Process process, CancellationToken cancellationToken)
+        {
+            try
+            {
+                using var reader = process.StandardError;
+                while (!cancellationToken.IsCancellationRequested && !reader.EndOfStream)
+                {
+                    var line = reader.ReadLine();
+                    if (!string.IsNullOrEmpty(line))
+                        _logger.LogDebug("FFmpeg: {0}", line);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (InvalidOperationException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error reading FFmpeg stderr");
+            }
+        }
+
+        private async Task MonitorProcessHealthAsync(Process process, CancellationToken cancellationToken)
+        {
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested && !process.HasExited)
+                {
+                    await Task.Delay(10000, cancellationToken).ConfigureAwait(false);
+                    DateTime startTime;
+                    DateTime lastFrameTime;
+                    lock (_stateLock)
+                    {
+                        startTime = _startTime;
+                        lastFrameTime = _lastFrameTime;
+                    }
+
+                    if (!cancellationToken.IsCancellationRequested &&
+                        !IsHealthy(process, startTime, lastFrameTime, NormalizeStallTimeout(StallTimeoutSeconds)))
+                    {
+                        _logger.LogWarning(
+                            "FFmpeg appears stalled — no media samples in {0}+ seconds. Processed {1} samples total.",
+                            NormalizeStallTimeout(StallTimeoutSeconds),
+                            FramesProcessed);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+                // Stop() may dispose the process after its bounded wait.
+            }
+            catch (InvalidOperationException)
+            {
+                // Stop() may dispose the process after its bounded wait.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "FFmpeg health monitor failed");
+            }
+        }
+
+        private static TimeSpan GetRemainingCleanupTime(long cleanupDeadline)
+        {
+            var remainingTicks = cleanupDeadline - Stopwatch.GetTimestamp();
+            return remainingTicks <= 0
+                ? TimeSpan.Zero
+                : TimeSpan.FromSeconds((double)remainingTicks / Stopwatch.Frequency);
+        }
+
+        private static int ToTimeoutMilliseconds(TimeSpan timeout)
+        {
+            if (timeout <= TimeSpan.Zero)
+                return 0;
+
+            return (int)Math.Min(int.MaxValue, Math.Max(1, timeout.TotalMilliseconds));
+        }
+
+        private void CloseProcessStreams(Process? process, Stream? outputStream)
+        {
+            try
+            {
+                outputStream?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not close the FFmpeg output stream");
+            }
+
+            if (process == null)
+                return;
+
+            try
+            {
+                process.StandardOutput.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not close the FFmpeg standard output stream");
+            }
+
+            try
+            {
+                process.StandardError.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not close the FFmpeg standard error stream");
+            }
+        }
+
+        private void DisposeProcess(Process? process)
+        {
+            if (process == null)
+                return;
+
+            try
+            {
+                process.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not dispose the FFmpeg process handle");
+            }
+        }
+
+        private static void ObserveTaskFailure(Task task)
+        {
+            _ = task.ContinueWith(
+                completedTask => _ = completedTask.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
         }
     }
 }

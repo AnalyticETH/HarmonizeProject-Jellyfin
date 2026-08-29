@@ -486,7 +486,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.365 (Current)
+### Version 1.5.366 (Current)
+
+- **Process-tree-safe FFmpeg teardown**: serialized capture lifecycle transitions retain and observe stderr/health tasks, close redirected streams, terminate descendants, and bound cleanup so playback restarts cannot strand child processes or pipe readers.
+
+- **Manual one-time cue completion**: successful Run Now executions now disable one-time schedules through the existing persistence-retry path, increment run state, and prevent later automatic replay.
+
+- **Semgrep scanner freshness**: the hash-locked scanner is updated to Semgrep 1.175.0 with reviewed compatible dependency hashes, and both blocking workflows use the same pin.
+
+- **Regression coverage**: FFmpeg process-tree cleanup and manual one-time schedule replay prevention are covered by focused tests.
 
 - **Playback-device discovery resilience**: invalid user filters fail with `400`, session enumeration failures return a sanitized `503`, null session lists remain empty, and credential-free device routes stay deterministically sorted and bounded to 256 results.
 

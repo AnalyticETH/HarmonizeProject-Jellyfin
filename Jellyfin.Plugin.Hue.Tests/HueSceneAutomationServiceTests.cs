@@ -1255,6 +1255,61 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunScheduleAsync_ManualOneTimeSuccessDisablesCueAndPreventsAutomaticReplay()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "manual-one-time-app-secret",
+            HueClientKey = "manual-one-time-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Manual one-time scene", Red = 21, Green = 22, Blue = 23, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "manual-one-time-cue",
+                    Name = "Manual one-time cue",
+                    PresetName = "Manual one-time scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    RunDate = "2026-08-19",
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var manualResult = await service.RunScheduleAsync("manual-one-time-cue");
+
+        Assert.True(manualResult.Succeeded);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.Single(streamTester.Invocations);
+
+        var dueUtc = new DateTime(2026, 8, 19, 7, 5, 30, DateTimeKind.Utc);
+        await service.RunDueSchedulesAsync(
+            TimeZoneInfo.ConvertTimeFromUtc(dueUtc, TimeZoneInfo.Local),
+            CancellationToken.None);
+
+        Assert.Single(streamTester.Invocations);
+        Assert.Single(service.GetHistory());
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_HigherPriorityCueRunsFirstAndEqualPriorityKeepsSavedOrder()
     {
         var configuration = new PluginConfiguration

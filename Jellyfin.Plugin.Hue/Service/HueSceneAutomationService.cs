@@ -2104,11 +2104,15 @@ public sealed class HueSceneAutomationService : BackgroundService
         {
             try
             {
-                return await RunScheduleTrackedAsync(
+                var result = await RunScheduleTrackedAsync(
                     config!,
                     schedule,
                     runCancellation.Token,
                     schedulerBarrierHeld: true).ConfigureAwait(false);
+                if (result.Succeeded)
+                    DisableCompletedOneTimeSchedule(config!, schedule);
+
+                return result;
             }
             catch (OperationCanceledException) when (
                 runCancellation.IsCancellationRequested &&
