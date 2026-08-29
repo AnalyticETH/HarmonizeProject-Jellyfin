@@ -499,6 +499,8 @@ Benchmarks measure:
 
 - **Regression coverage**: configuration contracts cover cancellation identity, page lifecycle races, unsafe area IDs, and scheduler boundary conditions.
 
+- **Semgrep snapshot integrity**: the blocking default ruleset pin is refreshed after the registry rotation and continues to fail closed on any unreviewed snapshot change.
+
 - **Long-interval recurrence visibility**: internal next-run and Skip Next resolution now search beyond the public 366-day preview horizon, so valid weekly, monthly, and yearly cues with large configured intervals remain actionable.
 
 - **Stale certificate trust-prompt cancellation**: approving a bridge certificate prompt after the configuration page is hidden now fails closed without mutating the server trust store.

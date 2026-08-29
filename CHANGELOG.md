@@ -17,6 +17,7 @@ No unreleased changes.
 - **Recurrence search hardening**: cached normalized exclusion dates avoid reparsing exclusions for every candidate, and a maximum `DateTime` boundary guard prevents overflow with stale skip markers.
 - **Selector and accessibility hardening**: persisted entertainment-area IDs are matched without selector interpolation, and diagnostics/mapping tables expose captions and column scopes.
 - **Regression coverage**: configuration contracts cover cancellation identity, page lifecycle races, unsafe area IDs, and scheduler boundary conditions.
+- **Semgrep snapshot integrity**: refresh the reviewed SHA-256 pin for the current default ruleset snapshot after the registry rotated; blocking scans continue to fail closed on any unreviewed change.
 
 ## [1.5.373] - 2026-08-29
 
