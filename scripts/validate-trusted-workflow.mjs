@@ -2,6 +2,7 @@ import fs from "node:fs";
 
 const ciPath = ".github/workflows/dotnet-ci.yml";
 const securityPath = ".github/workflows/security-scan.yml";
+const MAX_TIMEOUT_MINUTES = 30;
 const ci = fs.readFileSync(ciPath, "utf8");
 const security = fs.readFileSync(securityPath, "utf8");
 const allowedActionRepositories = new Set([
@@ -14,13 +15,128 @@ const allowedActionRepositories = new Set([
   "codecov/codecov-action"
 ]);
 
+function withoutComment(line) {
+  const commentIndex = line.indexOf("#");
+  return commentIndex < 0 ? line : line.slice(0, commentIndex);
+}
+
+function getJobBlocks(workflow, name) {
+  const lines = workflow.split(/\r?\n/);
+  const blocks = [];
+  let inJobs = false;
+  let current = null;
+
+  for (const line of lines) {
+    if (!inJobs) {
+      if (/^jobs:\s*$/.test(withoutComment(line).trimEnd())) {
+        inJobs = true;
+      }
+      continue;
+    }
+
+    const jobHeader = line.match(/^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$/);
+    if (jobHeader) {
+      if (current) blocks.push(current);
+      current = { name: jobHeader[1], lines: [line] };
+      continue;
+    }
+
+    if (current) current.lines.push(line);
+  }
+  if (current) blocks.push(current);
+  if (blocks.length === 0) {
+    throw new Error(`${name} does not declare any parseable jobs under jobs:`);
+  }
+  return blocks;
+}
+
+function getJobPermissionLines(block) {
+  const lines = [];
+  let inPermissions = false;
+  for (const rawLine of block.lines) {
+    const line = withoutComment(rawLine);
+    const indent = line.match(/^\s*/)[0].length;
+    const permissions = line.match(/^ {4}permissions:\s*(.*)$/);
+    if (permissions) {
+      if (inPermissions) {
+        throw new Error(`job ${block.name} declares multiple permissions blocks`);
+      }
+      inPermissions = true;
+      if (permissions[1].trim()) lines.push(permissions[1].trim());
+      continue;
+    }
+    if (inPermissions) {
+      if (!line.trim()) continue;
+      if (indent <= 4) {
+        inPermissions = false;
+        continue;
+      }
+      lines.push(line.trim());
+    }
+  }
+  return lines;
+}
+
+function getTopLevelPermissionLines(workflow) {
+  const lines = workflow.split(/\r?\n/);
+  const permissionIndex = lines.findIndex(line => /^permissions:\s*$/.test(withoutComment(line)));
+  if (permissionIndex < 0) return [];
+
+  const permissions = [];
+  for (let index = permissionIndex + 1; index < lines.length; index += 1) {
+    const line = withoutComment(lines[index]);
+    if (!line.trim()) continue;
+    if (!/^\s+/.test(line)) break;
+    permissions.push(line.trim());
+  }
+  return permissions;
+}
+
+function getWritePermissionNames(permissionLines) {
+  const names = [];
+  for (const line of permissionLines) {
+    const inlineNames = [...line.matchAll(/\b([A-Za-z0-9_-]+)\s*:\s*write(?:-all)?\b/g)]
+      .map(match => match[1]);
+    names.push(...inlineNames);
+    if (inlineNames.length === 0 && /\bwrite-all\b/.test(line)) {
+      names.push("*");
+    }
+  }
+  return names;
+}
+
+function isReusableWorkflowJob(block) {
+  return block.lines.some(line => /^ {4}uses:\s*\.\//.test(withoutComment(line)));
+}
+
+function validateJobTimeout(block, workflowName) {
+  const timeoutLines = block.lines
+    .map(withoutComment)
+    .filter(line => /^ {4}timeout-minutes:\s*/.test(line));
+  if (timeoutLines.length !== 1) {
+    throw new Error(
+      `${workflowName} job ${block.name} must declare exactly one timeout-minutes value`
+    );
+  }
+
+  const value = timeoutLines[0].replace(/^ {4}timeout-minutes:\s*/, "").trim();
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`${workflowName} job ${block.name} timeout-minutes must be a positive integer`);
+  }
+  const timeoutMinutes = Number(value);
+  if (timeoutMinutes < 1 || timeoutMinutes > MAX_TIMEOUT_MINUTES) {
+    throw new Error(
+      `${workflowName} job ${block.name} timeout-minutes must be between 1 and ${MAX_TIMEOUT_MINUTES}`
+    );
+  }
+}
+
 for (const marker of [
   "on:\n  push:\n    branches: [ main ]",
   "workflow_dispatch:",
   "runs-on: [\"self-hosted\", \"Linux\", \"X64\", \"harmonizeproject-jellyfin\"]",
   "runs-on: [\"self-hosted\", \"Linux\", \"X64\", \"harmonizeproject-jellyfin-release\"]",
   "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
-  "permissions:\n      contents: write",
   "uses: ./.github/workflows/security-scan.yml",
   "Validate pinned .NET SDK parity",
   "node scripts/validate-dotnet-sdk.mjs",
@@ -48,6 +164,8 @@ for (const marker of [
   "CANONICAL_PACKAGE_DIR=\"$RUNNER_TEMP/trusted-release-package\"",
   "Validate workflow inventory and runner boundaries",
   "node scripts/validate-workflow-inventory.mjs",
+  "Test workflow security contracts",
+  "node scripts/test-workflow-contracts.mjs",
   "needs: [create-release-package, validate-release-helper]",
   "local_zip_digest=",
   "local_checksum_digest=",
@@ -114,6 +232,54 @@ if (mainGuardCount !== 3) {
 const securityGuardCount = (security.match(/if: github\.ref == 'refs\/heads\/main'/g) || []).length;
 if (securityGuardCount !== 2) {
   throw new Error(`${securityPath} must keep both main-only scanner guards (found ${securityGuardCount})`);
+}
+
+const ciJobs = getJobBlocks(ci, ciPath);
+const securityJobs = getJobBlocks(security, securityPath);
+for (const [workflowName, jobs] of [[ciPath, ciJobs], [securityPath, securityJobs]]) {
+  for (const job of jobs) {
+    // GitHub's reusable-workflow caller syntax does not accept timeout-minutes;
+    // the called workflow's concrete jobs carry their own bounded timeouts.
+    if (!isReusableWorkflowJob(job)) {
+      validateJobTimeout(job, workflowName);
+    }
+  }
+}
+
+const ciPermissionWrites = [];
+for (const job of ciJobs) {
+  const writes = getWritePermissionNames(getJobPermissionLines(job));
+  if (job.name === "create-github-release") {
+    if (writes.length !== 1 || writes[0] !== "contents") {
+      throw new Error(`${ciPath} job create-github-release must grant only contents: write`);
+    }
+  } else if (writes.length > 0) {
+    ciPermissionWrites.push(job.name);
+  }
+}
+if (ciPermissionWrites.length > 0) {
+  throw new Error(
+    `${ciPath} jobs other than create-github-release must not grant write permissions: ${ciPermissionWrites.join(", ")}`
+  );
+}
+
+const securityPermissionWrites = [];
+for (const job of securityJobs) {
+  const writes = getWritePermissionNames(getJobPermissionLines(job));
+  if (writes.length > 0) securityPermissionWrites.push(job.name);
+}
+if (securityPermissionWrites.length > 0) {
+  throw new Error(
+    `${securityPath} jobs must not grant write permissions: ${securityPermissionWrites.join(", ")}`
+  );
+}
+
+for (const [workflowName, workflow] of [[ciPath, ci], [securityPath, security]]) {
+  const topLevelPermissions = getTopLevelPermissionLines(workflow);
+  if (!topLevelPermissions.some(line => /\bcontents\s*:\s*read\b/.test(line)) ||
+      getWritePermissionNames(topLevelPermissions).length > 0) {
+    throw new Error(`${workflowName} must declare read-only top-level permissions`);
+  }
 }
 
 for (const [file, workflow] of [[ciPath, ci], [securityPath, security]]) {

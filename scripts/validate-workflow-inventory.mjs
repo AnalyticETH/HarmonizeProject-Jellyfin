@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const workflowDirectory = ".github/workflows";
+const MAX_TIMEOUT_MINUTES = 30;
 const expectedWorkflows = new Set([
   "dotnet-ci.yml",
   "pull-request-validation.yml",
@@ -120,6 +121,32 @@ function getRunsOnValues(block) {
   return values;
 }
 
+function isReusableWorkflowJob(block) {
+  return block.lines.some(line => /^ {4}uses:\s*\S+/.test(withoutComment(line)));
+}
+
+function validateJobTimeout(block, workflowName) {
+  const timeoutLines = block.lines
+    .map(withoutComment)
+    .filter(line => /^ {4}timeout-minutes:\s*/.test(line));
+  if (timeoutLines.length !== 1) {
+    throw new Error(
+      `${workflowName} job ${block.name} must declare exactly one timeout-minutes value`
+    );
+  }
+
+  const value = timeoutLines[0].replace(/^ {4}timeout-minutes:\s*/, "").trim();
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`${workflowName} job ${block.name} timeout-minutes must be a positive integer`);
+  }
+  const timeoutMinutes = Number(value);
+  if (timeoutMinutes < 1 || timeoutMinutes > MAX_TIMEOUT_MINUTES) {
+    throw new Error(
+      `${workflowName} job ${block.name} timeout-minutes must be between 1 and ${MAX_TIMEOUT_MINUTES}`
+    );
+  }
+}
+
 for (const name of workflowFiles) {
   const workflow = workflowText(name);
   for (const match of workflow.matchAll(/^\s*uses:\s*([^\s#]+)(?:\s+#.*)?$/gm)) {
@@ -144,6 +171,11 @@ for (const name of workflowFiles) {
 
   const jobs = getJobBlocks(workflow, name);
   for (const job of jobs) {
+    // GitHub's reusable-workflow caller syntax does not accept timeout-minutes;
+    // the called workflow's concrete jobs carry their own bounded timeouts.
+    if (!isReusableWorkflowJob(job)) {
+      validateJobTimeout(job, name);
+    }
     const runsOnValues = getRunsOnValues(job);
     if (runsOnValues.some(value => value.includes("${{"))) {
       throw new Error(`${name} job ${job.name} uses a dynamic runner expression; review it explicitly`);

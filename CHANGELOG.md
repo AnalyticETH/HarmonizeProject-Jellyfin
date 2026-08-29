@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.395] - 2026-08-29
+
+### Runtime, administrator, and workflow boundary hardening
+- **Scheduled cleanup arbitration**: cleanup recovery now uses the canonical bridge/area lease, preventing a saved-scene recovery from mutating an area owned by active playback or diagnostics.
+- **Pending cleanup fairness**: recovery scans past coordination-blocked entries while retaining a four-bridge-work cap, so blocked records cannot starve later due cleanups.
+- **Bulk saved-scene deletion lifecycle**: confirmation and POST requests are page-generation-owned, canceled on teardown, duplicate-suppressed, and guarded against stale completion updates.
+- **Job-aware workflow permissions and timeouts**: trusted workflow validation now isolates `contents: write` to release publication and requires every concrete job to use a positive timeout of at most 30 minutes.
+- **Regression coverage**: scheduler arbitration/fairness, administrator bulk deletion, and executable negative workflow-contract fixtures cover the new boundaries.
+
 ## [1.5.394] - 2026-08-29
 
 ### Runtime and administrator lifecycle hardening

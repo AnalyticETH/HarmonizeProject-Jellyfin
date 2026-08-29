@@ -102,6 +102,9 @@ jobs:
       - name: Validate trusted workflow boundary
         run: node scripts/validate-trusted-workflow.mjs
 
+      - name: Test workflow security contracts
+        run: node scripts/test-workflow-contracts.mjs
+
       - name: Validate deterministic release package
         run: node scripts/validate-release-package.mjs
 

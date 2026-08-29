@@ -8008,6 +8008,159 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_DoesNotReplayPendingCleanupWhileMatchingPlaybackIsActive()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = false,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "recovery-app-secret",
+            EntertainmentAreaId = "area-1"
+        };
+        InstallConfiguration(configuration);
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var journal = new HueScheduledCleanupJournal(lifecycleGate);
+        using (journal.BeginScope(new HueScheduledCleanupScope
+        {
+            CleanupId = "cleanup-recovery-playback-conflict-1",
+            ScheduleId = "schedule-recovery-playback-conflict-1",
+            BridgeIp = configuration.HueBridgeIp,
+            EntertainmentAreaId = configuration.EntertainmentAreaId
+        }))
+        {
+            Assert.True(journal.Capture(new[]
+            {
+                new HueClient.LightState("light-1", true, 45, 0.2, 0.3)
+            }));
+        }
+
+        configuration.PersistedSceneAutomationPendingCleanups[0].NextAttemptAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        var handler = new CleanupRecoveryHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate,
+            journal);
+        using var playbackLease = lifecycleGate.TryEnterPlayback(
+            HueSyncService.GetPlaybackResourceKey(
+                configuration,
+                configuration.HueBridgeIp,
+                configuration.EntertainmentAreaId));
+
+        Assert.NotNull(playbackLease);
+        await service.RunDueSchedulesAsync(DateTime.Now, CancellationToken.None);
+
+        Assert.Single(configuration.PersistedSceneAutomationPendingCleanups);
+        Assert.Equal(0, handler.SuccessfulPutCount);
+
+        playbackLease!.Dispose();
+        await service.RunDueSchedulesAsync(DateTime.Now, CancellationToken.None);
+
+        Assert.Empty(configuration.PersistedSceneAutomationPendingCleanups);
+        Assert.Equal(2, handler.SuccessfulPutCount);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_ScansPastBlockedPendingCleanupsToRecoverFreeTarget()
+    {
+        var targetSpecs = Enumerable.Range(1, 5)
+            .Select(index => new
+            {
+                UserId = $"cleanup-user-{index}",
+                CleanupId = $"cleanup-recovery-queue-{index}",
+                BridgeIp = $"192.168.1.{100 + index}",
+                AreaId = $"area-{index}"
+            })
+            .ToArray();
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = false,
+            UserMappings = targetSpecs
+                .Select(target => new UserBridgeMapping
+                {
+                    UserId = target.UserId,
+                    UserName = target.UserId,
+                    SyncEnabled = true,
+                    HueBridgeIp = target.BridgeIp,
+                    HueAppKey = $"{target.UserId}-app-secret",
+                    HueClientKey = $"{target.UserId}-client-secret",
+                    EntertainmentAreaId = target.AreaId
+                })
+                .ToList()
+        };
+        InstallConfiguration(configuration);
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var journal = new HueScheduledCleanupJournal(lifecycleGate);
+        var capturedAtUtc = DateTime.UtcNow.AddMinutes(-5);
+        var dueAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        foreach (var (target, index) in targetSpecs.Select((target, index) => (target, index)))
+        {
+            using (journal.BeginScope(new HueScheduledCleanupScope
+            {
+                CleanupId = target.CleanupId,
+                ScheduleId = $"schedule-{target.CleanupId}",
+                TargetUserId = target.UserId,
+                BridgeIp = target.BridgeIp,
+                EntertainmentAreaId = target.AreaId
+            }))
+            {
+                Assert.True(journal.Capture(new[]
+                {
+                    new HueClient.LightState($"light-{index + 1}", true, 45, 0.2, 0.3)
+                }));
+            }
+
+            var entry = Assert.Single(
+                configuration.PersistedSceneAutomationPendingCleanups,
+                candidate => string.Equals(candidate.CleanupId, target.CleanupId, StringComparison.OrdinalIgnoreCase));
+            entry.NextAttemptAtUtc = dueAtUtc;
+            entry.CapturedAtUtc = capturedAtUtc.AddSeconds(index);
+        }
+
+        var handler = new CleanupRecoveryHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate,
+            journal);
+        var blockedLeases = new List<IDisposable>();
+        try
+        {
+            foreach (var target in targetSpecs.Take(4))
+            {
+                var lease = lifecycleGate.TryEnterPlayback(
+                    HueSyncService.GetPlaybackResourceKey(
+                        configuration,
+                        target.BridgeIp,
+                        target.AreaId));
+                Assert.NotNull(lease);
+                blockedLeases.Add(lease!);
+            }
+
+            await service.RunDueSchedulesAsync(DateTime.Now, CancellationToken.None);
+        }
+        finally
+        {
+            foreach (var lease in blockedLeases)
+                lease.Dispose();
+        }
+
+        Assert.Equal(4, configuration.PersistedSceneAutomationPendingCleanups.Count);
+        Assert.All(
+            configuration.PersistedSceneAutomationPendingCleanups,
+            entry => Assert.Equal(0, entry.AttemptCount));
+        Assert.DoesNotContain(
+            configuration.PersistedSceneAutomationPendingCleanups,
+            entry => string.Equals(entry.CleanupId, targetSpecs[4].CleanupId, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(2, handler.SuccessfulPutCount);
+        Assert.Contains(handler.RequestUris, uri => uri.Contains("area-5", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task RunDueSchedules_ReplaysPendingCleanupWhenAreaIdCasingDiffers()
     {
         var configuration = new PluginConfiguration

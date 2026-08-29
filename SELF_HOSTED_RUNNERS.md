@@ -89,8 +89,12 @@ The build, security-scan, and pull-request workflows also run
 `scripts/validate-workflow-inventory.mjs`. It fails closed if a new workflow file is
 added without updating the reviewed inventory, if an action is outside the selected
 allowlist or is not pinned to a full commit SHA, or if a new workflow routes code to a
-persistent runner without the trusted `main` guard. This keeps the runner-boundary
-invariant enforceable when workflows change.
+persistent runner without the trusted `main` guard. It also requires every concrete job to
+declare a positive `timeout-minutes` value no greater than 30; local reusable-workflow
+caller jobs are exempt because GitHub's caller syntax does not accept that key, while the
+called workflow's concrete jobs remain bounded. `scripts/test-workflow-contracts.mjs`
+exercises temporary negative fixtures for write-permission leakage and missing timeouts.
+This keeps the runner-boundary invariant enforceable when workflows change.
 
 ## Version maintenance
 

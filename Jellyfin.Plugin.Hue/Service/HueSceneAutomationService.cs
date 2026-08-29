@@ -4747,11 +4747,18 @@ public sealed class HueSceneAutomationService : BackgroundService
                 NormalizeUtcInstant(entry.NextAttemptAtUtc.Value) <= nowUtc)
             .OrderBy(entry => entry.NextAttemptAtUtc ?? DateTime.MinValue)
             .ThenBy(entry => entry.CapturedAtUtc)
-            .Take(MaxPendingCleanupRecoveriesPerPass)
             .ToArray();
 
+        // Snapshot() already applies the journal's global pending-entry bound. Keep the
+        // per-pass bridge-work bound, but do not let a coordination skip consume it: a
+        // playback-held entry can remain due indefinitely, so scan past it until four
+        // recoveries have actually acquired a diagnostic lease.
+        var recoveryCount = 0;
         foreach (var entry in pendingEntries)
         {
+            if (recoveryCount >= MaxPendingCleanupRecoveriesPerPass)
+                break;
+
             cancellationToken.ThrowIfCancellationRequested();
             if (!TryResolvePendingCleanupTarget(config, entry, out var target, out var targetError))
             {
@@ -4782,7 +4789,14 @@ public sealed class HueSceneAutomationService : BackgroundService
                 continue;
             }
 
-            var resourceKey = GetTargetIdentity(config, target);
+            // Cleanup mutates the same bridge/area resource as live playback and previews.
+            // Keep channel-profile identity for target de-duplication, but use the
+            // canonical bridge/area key for lifecycle arbitration so a recovery cannot
+            // overlap an active stream that selected a different channel profile.
+            var resourceKey = HueSyncService.GetPlaybackResourceKey(
+                config,
+                target.BridgeIp,
+                target.EntertainmentAreaId);
             using var diagnosticLease = _bridgeLifecycleGate.TryEnterDiagnostic(
                 resourceKey,
                 out _);
@@ -4794,6 +4808,8 @@ public sealed class HueSceneAutomationService : BackgroundService
                 // bounded backoff window.
                 continue;
             }
+
+            recoveryCount++;
 
             var warnings = new List<string>();
             var targetHueClient = _hueClient.CreatePlaybackClient();
