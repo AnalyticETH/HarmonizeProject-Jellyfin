@@ -7706,6 +7706,122 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(configuration.SceneSchedules[0].TargetAllEnabledMappings);
     }
 
+    [Fact]
+    public void SceneSchedules_PartialUpdatePreservesOmittedLegacyTargetUserId()
+    {
+        const string userId = "partial-legacy-target-user";
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId, UserName = "Living Room", SyncEnabled = true }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "partial-legacy-target-cue",
+                    Name = "Mapped cue",
+                    PresetName = "Welcome",
+                    TargetUserId = userId
+                }
+            }
+        });
+        var request = JsonSerializer.Deserialize<HueSceneScheduleRequest>("""
+            {"id":"partial-legacy-target-cue","name":"Renamed cue","presetName":"Welcome","enabled":false}
+            """)!;
+        Assert.False(request.TargetUserIdSpecified);
+
+        var action = CreateController().SaveSceneSchedule(request);
+
+        var result = Assert.IsType<HueSceneScheduleResult>(Assert.IsType<OkObjectResult>(action.Result).Value);
+        Assert.Equal(userId, result.TargetUserId);
+        Assert.Equal("Living Room", result.TargetLabel);
+        Assert.Equal(userId, configuration.SceneSchedules[0].TargetUserId);
+        Assert.False(configuration.SceneSchedules[0].Enabled);
+    }
+
+    [Fact]
+    public void SceneSchedules_ExplicitSelectedTargetClearsExistingLegacyTargetUserId()
+    {
+        const string legacyUserId = "explicit-legacy-target-user";
+        const string selectedUserId = "explicit-selected-target-user";
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = legacyUserId, UserName = "Legacy room", SyncEnabled = true },
+                new() { UserId = selectedUserId, UserName = "Selected room", SyncEnabled = true }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "explicit-target-switch-cue",
+                    Name = "Legacy cue",
+                    PresetName = "Welcome",
+                    TargetUserId = legacyUserId
+                }
+            }
+        });
+
+        var action = CreateController().SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Id = "explicit-target-switch-cue",
+            Name = "Selected cue",
+            PresetName = "Welcome",
+            TargetUserIds = new List<string> { selectedUserId }
+        });
+
+        var result = Assert.IsType<HueSceneScheduleResult>(Assert.IsType<OkObjectResult>(action.Result).Value);
+        Assert.Equal(string.Empty, result.TargetUserId);
+        Assert.Equal(new[] { selectedUserId }, result.TargetUserIds);
+        Assert.Equal("1 selected target(s)", result.TargetLabel);
+        Assert.Equal(string.Empty, configuration.SceneSchedules[0].TargetUserId);
+    }
+
+    [Fact]
+    public void SceneSchedules_ExplicitEmptyTargetUserIdSelectsGlobalTarget()
+    {
+        const string userId = "explicit-empty-target-user";
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId, UserName = "Mapped room", SyncEnabled = true }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "explicit-empty-target-cue",
+                    Name = "Mapped cue",
+                    PresetName = "Welcome",
+                    TargetUserId = userId
+                }
+            }
+        });
+
+        var action = CreateController().SaveSceneSchedule(new HueSceneScheduleRequest
+        {
+            Id = "explicit-empty-target-cue",
+            Name = "Global cue",
+            PresetName = "Welcome",
+            TargetUserId = string.Empty
+        });
+
+        var result = Assert.IsType<HueSceneScheduleResult>(Assert.IsType<OkObjectResult>(action.Result).Value);
+        Assert.True(string.IsNullOrEmpty(result.TargetUserId));
+        Assert.Empty(result.TargetUserIds);
+        Assert.Empty(result.TargetRoutes);
+        Assert.False(result.IncludeDefaultTarget);
+        Assert.False(result.TargetAllEnabledMappings);
+        Assert.Equal(string.Empty, configuration.SceneSchedules[0].TargetUserId);
+    }
+
     [Theory]
     [InlineData("legacy-user")]
     [InlineData("selected-user")]
@@ -16622,6 +16738,49 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.False(imported.IncludeDefaultTarget);
         Assert.Equal("Selected cue", imported.Name);
         Assert.NotSame(existingSchedule, imported);
+    }
+
+    [Fact]
+    public void ConfigurationImport_PartialScheduleMergePreservesOmittedLegacyTargetUserId()
+    {
+        const string userId = "import-partial-legacy-target-user";
+        var existingSchedule = new HueSceneSchedule
+        {
+            Id = "import-partial-legacy-target-cue",
+            Name = "Mapped cue",
+            PresetName = "Welcome",
+            TargetUserId = userId
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new() { UserId = userId, UserName = "Imported living room", SyncEnabled = true }
+            },
+            SceneSchedules = new List<HueSceneSchedule> { existingSchedule }
+        });
+        var request = CreateConfigurationImportRequest(configuration);
+        request.ReplaceMappings = false;
+        request.ReplaceColorPresets = false;
+        request.ReplaceSceneSchedules = false;
+        request.SceneSchedules = new List<HueSceneScheduleRequest>
+        {
+            new()
+            {
+                Id = existingSchedule.Id,
+                Name = "Renamed imported cue",
+                PresetName = "Welcome"
+            }
+        };
+        Assert.False(request.SceneSchedules[0].TargetUserIdSpecified);
+
+        var action = ImportWithValidation(configuration, request);
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        var imported = Assert.Single(configuration.SceneSchedules);
+        Assert.Equal("Renamed imported cue", imported.Name);
+        Assert.Equal(userId, imported.TargetUserId);
     }
 
     [Fact]

@@ -3856,7 +3856,12 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 if (!token.IsCancellationRequested && (streamEnded || streamFailed))
                 {
-                    ObserveTask(FinalizeSyncLoopAsync(token, expectedSyncCts, playSessionId, streamEnded));
+                    ObserveTask(FinalizeSyncLoopAsync(
+                        token,
+                        expectedSyncCts,
+                        playSessionId,
+                        streamEnded,
+                        isAudioPlayback: false));
                 }
             }
         }
@@ -4639,7 +4644,12 @@ namespace Jellyfin.Plugin.Hue.Service
                 catch { }
 
                 if (!token.IsCancellationRequested && (streamEnded || streamFailed))
-                    ObserveTask(FinalizeSyncLoopAsync(token, expectedSyncCts, playSessionId, streamEnded));
+                    ObserveTask(FinalizeSyncLoopAsync(
+                        token,
+                        expectedSyncCts,
+                        playSessionId,
+                        streamEnded,
+                        isAudioPlayback: true));
             }
         }
 
@@ -4660,7 +4670,8 @@ namespace Jellyfin.Plugin.Hue.Service
             CancellationToken token,
             CancellationTokenSource expectedSyncCts,
             string playSessionId,
-            bool streamEnded)
+            bool streamEnded,
+            bool isAudioPlayback)
         {
             if (token.IsCancellationRequested)
                 return;
@@ -4717,11 +4728,12 @@ namespace Jellyfin.Plugin.Hue.Service
                         sessionOutcome: streamEnded ? "Ended" : "Error").ConfigureAwait(false);
                     if (streamEnded)
                     {
+                        var streamLabel = isAudioPlayback ? "Audio" : "Video";
                         SetRuntimeStatus(
                             "Idle",
                             GetRuntimeStatus().CleanupWarning == null
-                                ? "Video stream ended; lights were restored."
-                                : "Video stream ended; cleanup completed with warnings.");
+                                ? $"{streamLabel} stream ended; lights were restored."
+                                : $"{streamLabel} stream ended; cleanup completed with warnings.");
                     }
                 }
                 finally

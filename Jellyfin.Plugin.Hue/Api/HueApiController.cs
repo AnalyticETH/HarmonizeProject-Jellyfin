@@ -1215,19 +1215,19 @@ namespace Jellyfin.Plugin.Hue.Api
             HueSceneScheduleRequest request,
             bool existingTargetAllEnabledMappings)
         {
-            var hasSpecificTarget =
-                !string.IsNullOrWhiteSpace(request.TargetUserId) ||
+            var hasTargetSelection =
+                request.TargetUserIdSpecified ||
                 request.TargetUserIds?.Count > 0 ||
                 request.TargetRoutes?.Count > 0 ||
                 request.IncludeDefaultTarget == true;
-            if (!hasSpecificTarget || request.TargetAllEnabledMappings == true)
+            if (!hasTargetSelection || request.TargetAllEnabledMappings == true)
                 return;
 
-            // A specific target selection is an explicit mode switch unless the request
-            // explicitly asks for broadcast too. Preserve that mixed state for validation
-            // instead of silently changing the administrator's explicit broadcast choice.
-            // For partial edits, this prevents an inherited broadcast flag from remaining
-            // combined with the newly selected user, route, or default target.
+            // An explicit target selection is a mode switch unless the request explicitly
+            // asks for broadcast too. Preserve that mixed state for validation instead of
+            // silently changing the administrator's explicit broadcast choice. For partial
+            // edits, this prevents an inherited broadcast flag from remaining combined with
+            // the newly selected user, route, default target, or global target.
             schedule.TargetAllEnabledMappings = false;
 
             if (!existingTargetAllEnabledMappings)
@@ -1242,6 +1242,15 @@ namespace Jellyfin.Plugin.Hue.Api
                 schedule.TargetRoutes = new List<HueSceneScheduleTargetRoute>();
             if (!request.IncludeDefaultTarget.HasValue)
                 schedule.IncludeDefaultTarget = false;
+        }
+
+        private static bool HasExplicitSceneScheduleTarget(HueSceneScheduleRequest request)
+        {
+            return request.TargetUserIdSpecified ||
+                request.TargetAllEnabledMappings.HasValue ||
+                request.TargetUserIds != null ||
+                request.TargetRoutes != null ||
+                request.IncludeDefaultTarget.HasValue;
         }
 
         private static string BuildDuplicateSceneScheduleName(
@@ -5252,17 +5261,19 @@ namespace Jellyfin.Plugin.Hue.Api
                     schedule.Enabled = candidateSchedules[existingIndex].Enabled;
                 if (!request.TargetAllEnabledMappings.HasValue)
                     schedule.TargetAllEnabledMappings = candidateSchedules[existingIndex].TargetAllEnabledMappings;
+                if (!HasExplicitSceneScheduleTarget(request))
+                    schedule.TargetUserId = candidateSchedules[existingIndex].TargetUserId;
                 if (request.TargetUserIds == null)
                 {
                     schedule.TargetUserIds = request.TargetAllEnabledMappings == true ||
-                        !string.IsNullOrWhiteSpace(request.TargetUserId)
+                        request.TargetUserIdSpecified
                         ? new List<string>()
                         : candidateSchedules[existingIndex].TargetUserIds?.ToList() ?? new List<string>();
                 }
                 if (request.TargetRoutes == null)
                 {
                     schedule.TargetRoutes = request.TargetAllEnabledMappings == true ||
-                        !string.IsNullOrWhiteSpace(request.TargetUserId) ||
+                        request.TargetUserIdSpecified ||
                         request.TargetUserIds != null
                         ? new List<HueSceneScheduleTargetRoute>()
                         : candidateSchedules[existingIndex].TargetRoutes?.Where(route => route != null)
@@ -5275,7 +5286,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 if (!request.IncludeDefaultTarget.HasValue)
                 {
                     schedule.IncludeDefaultTarget = request.TargetAllEnabledMappings == true ||
-                        !string.IsNullOrWhiteSpace(request.TargetUserId)
+                        request.TargetUserIdSpecified
                         ? false
                         : candidateSchedules[existingIndex].IncludeDefaultTarget;
                 }
@@ -8869,17 +8880,19 @@ namespace Jellyfin.Plugin.Hue.Api
                         schedule.SkipNextOccurrence = candidateSchedules[existingIndex].SkipNextOccurrence;
                     if (scheduleRequest != null && !scheduleRequest.TargetAllEnabledMappings.HasValue)
                         schedule.TargetAllEnabledMappings = candidateSchedules[existingIndex].TargetAllEnabledMappings;
+                    if (scheduleRequest != null && !HasExplicitSceneScheduleTarget(scheduleRequest))
+                        schedule.TargetUserId = candidateSchedules[existingIndex].TargetUserId;
                     if (scheduleRequest?.TargetUserIds == null)
                     {
                         schedule.TargetUserIds = scheduleRequest?.TargetAllEnabledMappings == true ||
-                            !string.IsNullOrWhiteSpace(scheduleRequest?.TargetUserId)
+                            scheduleRequest?.TargetUserIdSpecified == true
                             ? new List<string>()
                             : candidateSchedules[existingIndex].TargetUserIds?.ToList() ?? new List<string>();
                     }
                     if (scheduleRequest?.TargetRoutes == null)
                     {
                         schedule.TargetRoutes = scheduleRequest?.TargetAllEnabledMappings == true ||
-                            !string.IsNullOrWhiteSpace(scheduleRequest?.TargetUserId) ||
+                            scheduleRequest?.TargetUserIdSpecified == true ||
                             scheduleRequest?.TargetUserIds != null
                             ? new List<HueSceneScheduleTargetRoute>()
                             : candidateSchedules[existingIndex].TargetRoutes?.Where(route => route != null)
@@ -8892,7 +8905,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     if (scheduleRequest?.IncludeDefaultTarget == null)
                     {
                         schedule.IncludeDefaultTarget = scheduleRequest?.TargetAllEnabledMappings == true ||
-                            !string.IsNullOrWhiteSpace(scheduleRequest?.TargetUserId)
+                            scheduleRequest?.TargetUserIdSpecified == true
                             ? false
                             : candidateSchedules[existingIndex].IncludeDefaultTarget;
                     }
@@ -13739,8 +13752,26 @@ namespace Jellyfin.Plugin.Hue.Api
         [JsonPropertyName("playbackPolicy")]
         public string? PlaybackPolicy { get; set; }
 
+        private string _targetUserId = string.Empty;
+        private bool _targetUserIdSpecified;
+
+        /// <summary>
+        /// Legacy single-user target. An explicit empty value selects the global bridge;
+        /// when all target selectors are omitted during an update, the existing value is retained.
+        /// </summary>
         [JsonPropertyName("targetUserId")]
-        public string TargetUserId { get; set; } = string.Empty;
+        public string TargetUserId
+        {
+            get => _targetUserId;
+            set
+            {
+                _targetUserIdSpecified = true;
+                _targetUserId = value ?? string.Empty;
+            }
+        }
+
+        [JsonIgnore]
+        public bool TargetUserIdSpecified => _targetUserIdSpecified;
 
         [JsonPropertyName("targetAllEnabledMappings")]
         public bool? TargetAllEnabledMappings { get; set; }

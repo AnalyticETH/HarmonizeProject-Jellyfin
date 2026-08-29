@@ -502,6 +502,49 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task AudioSyncLoopEnd_ReportsAudioStreamStatus()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        var syncCts = new CancellationTokenSource();
+        SetPrivateField(service, "_syncCts", syncCts);
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+
+        var finalizeMethod = typeof(HueSyncService).GetMethod(
+            "FinalizeSyncLoopAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var finalizeTask = Assert.IsAssignableFrom<Task>(finalizeMethod.Invoke(service, new object?[]
+        {
+            syncCts.Token,
+            syncCts,
+            "session-a",
+            true,
+            true
+        }));
+
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await finalizeTask;
+        await WaitForRuntimeStatusAsync(
+            service,
+            "Idle",
+            "Audio stream ended; lights were restored.");
+
+        Assert.Equal("Audio stream ended; lights were restored.", service.GetRuntimeStatus().Message);
+        Assert.Null(GetPrivateField(service, "_syncCts"));
+        Assert.Null(GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task SyncLoopFailure_RestoresLightsAndPreservesErrorStatus()
     {
         var handler = new BlockingHueHandler();

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.372] - 2026-08-29
+
+### Playback lifecycle and schedule target integrity
+- **Audio terminal status**: naturally completed audio playback now reports an audio stream ending after shared cleanup instead of the video terminal message.
+- **Legacy schedule target preservation**: partial schedule edits and configuration imports retain an omitted legacy `targetUserId`; explicit target selectors, including an explicit empty value for the global bridge, remain mode switches.
+- **Regression coverage**: lifecycle and API tests cover audio cleanup status, omitted legacy target retention, selected-target switching, explicit global targeting, and partial-import parity.
+
 ## [1.5.371] - 2026-08-29
 
 ### Current-light capture documentation

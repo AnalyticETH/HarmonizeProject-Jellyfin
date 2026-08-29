@@ -486,7 +486,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.371 (Current)
+### Version 1.5.372 (Current)
+
+- **Audio terminal status**: naturally completed audio playback now reports an audio stream ending after shared cleanup instead of the video terminal message.
+
+- **Legacy schedule target preservation**: partial schedule edits and configuration imports retain an omitted legacy `targetUserId`; explicit target selectors, including an explicit empty value for the global bridge, remain mode switches.
+
+- **Regression coverage**: lifecycle and API tests cover audio cleanup status, omitted legacy target retention, selected-target switching, explicit global targeting, and partial-import parity.
 
 - **Nested device-route API parity**: the current-light capture documentation now shows single-target `targetDeviceId` and batch `targetRoutes` request shapes, including the owning Jellyfin user and exact playback-device ID.
 
