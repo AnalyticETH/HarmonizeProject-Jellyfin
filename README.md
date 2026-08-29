@@ -488,7 +488,9 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.391 (Current)
+### Version 1.5.392 (Current)
+
+- **Release-helper fail-closed shell**: the Linux release helper now enables `pipefail` alongside `errexit`, so pipeline failures stop packaging.
 
 - **One-time cancellation recovery**: automatic one-time cues restore their enabled state when host cancellation interrupts bridge work, retain deferred occurrences, and remain eligible for a safe retry after restart.
 

@@ -122,6 +122,7 @@ for (const [name, script] of [["build-release.sh", releaseShell], ["build-releas
   ];
   if (name === "build-release.sh") {
     markers.push(
+      "set -euo pipefail",
       "rm -rf ./publish",
       "git -c safe.directory=\"$PWD\" rev-parse --verify HEAD",
       "git -c safe.directory=\"$PWD\" status --porcelain=v1 --untracked-files=all",

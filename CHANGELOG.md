@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.392] - 2026-08-29
+
+### Release-helper hardening
+- **Release-helper fail-closed shell**: the Linux release helper now enables `pipefail` alongside `errexit`, so pipeline failures stop packaging.
+
 ## [1.5.391] - 2026-08-29
 
 ### Scheduler, lifecycle, and CI contract hardening

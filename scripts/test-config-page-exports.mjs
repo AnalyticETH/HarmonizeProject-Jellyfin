@@ -1972,6 +1972,142 @@ async function testColorPresetDeleteLifecycleGuards() {
     assert.equal(currentPage._huePageRequests.colorPresetDelete, undefined, "current color preset delete removes its settled lifecycle record");
 }
 
+function configureColorPresetRenameHarness(harness) {
+    const { page } = harness;
+    page.querySelector("#previewPresetSelect").value = "Scene One";
+    page.querySelector("#previewPresetName").value = "Renamed Scene";
+    page.querySelector("#sceneScheduleSelect").value = "cue-1";
+    return {
+        button: page.querySelector("#renamePreviewPresetBtn"),
+        status: page.querySelector("#previewPresetStatus"),
+        name: page.querySelector("#previewPresetName"),
+        presetLoads: 0,
+        playlistLoads: 0,
+        scheduleLoads: 0,
+        buttonUpdates: 0
+    };
+}
+
+async function testColorPresetRenameLifecycleGuards() {
+    const staleHarness = makeHarness();
+    const staleState = configureColorPresetRenameHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    staleApi.loadColorPresets = () => {
+        staleState.presetLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.loadScenePlaylists = () => {
+        staleState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.loadSceneSchedules = () => {
+        staleState.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.updatePresetButtons = () => {
+        staleState.buttonUpdates += 1;
+    };
+
+    const staleRename = staleApi.renameColorPreset(stalePage);
+    assert.ok(staleRename && typeof staleRename.then === "function", "color preset rename returns a tracked promise");
+    assert.equal(staleHarness.requests.length, 1, "color preset rename starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "POST", "color preset rename uses POST");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/ColorPresets/Scene%20One/Rename", "color preset rename scopes the request to the selected scene");
+    assert.deepEqual(JSON.parse(staleHarness.requests[0].options.data), { newName: "Renamed Scene" }, "color preset rename sends the requested new name");
+    assert.equal(stalePage._hueColorPresetRenaming, true, "color preset rename marks the page busy");
+    assert.equal(staleState.button.disabled, true, "color preset rename disables its button");
+    assert.ok(stalePage._huePageRequests.colorPresetRename, "color preset rename is tracked by the page lifecycle");
+
+    staleState.status.textContent = "unchanged after pagehide";
+    staleState.name.value = "current draft";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight color preset rename");
+    assert.equal(stalePage._huePageRequests.colorPresetRename, undefined, "pagehide removes the color preset rename request record");
+    assert.equal(stalePage._hueColorPresetRenaming, false, "pagehide clears color preset rename state");
+    assert.equal(staleState.button.disabled, false, "pagehide restores the color preset rename button");
+    staleHarness.requests[0].resolve({ name: "Stale Scene" });
+    await staleRename;
+    assert.equal(staleState.status.textContent, "unchanged after pagehide", "stale color preset rename cannot write hidden-page status");
+    assert.equal(staleState.name.value, "current draft", "stale color preset rename cannot overwrite a reused page form");
+    assert.equal(staleState.presetLoads, 0, "stale color preset rename cannot reload saved scenes");
+    assert.equal(staleState.playlistLoads, 0, "stale color preset rename cannot reload playlists");
+    assert.equal(staleState.scheduleLoads, 0, "stale color preset rename cannot reload schedules");
+    assert.equal(staleState.buttonUpdates, 0, "stale color preset rename cannot update current-page controls");
+    assert.equal(staleHarness.dashboard.alerts.length, 0, "stale color preset rename cannot show an alert");
+
+    const currentHarness = makeHarness();
+    const currentState = configureColorPresetRenameHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    currentApi.loadColorPresets = (_page, selectedName) => {
+        currentState.presetLoads += 1;
+        assert.equal(selectedName, "Renamed Scene", "current color preset rename reloads the returned scene");
+        return Promise.resolve();
+    };
+    currentApi.loadScenePlaylists = () => {
+        currentState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    currentApi.loadSceneSchedules = (_page, selectedId) => {
+        currentState.scheduleLoads += 1;
+        assert.equal(selectedId, "cue-1", "current color preset rename preserves the selected cue");
+        return Promise.resolve();
+    };
+    currentApi.updatePresetButtons = () => {
+        currentState.buttonUpdates += 1;
+    };
+
+    const currentRename = currentApi.renameColorPreset(currentPage);
+    assert.equal(currentHarness.requests.length, 1, "current color preset rename starts one request");
+    currentHarness.requests[0].resolve({ name: "Renamed Scene" });
+    await currentRename;
+    assert.equal(currentState.status.textContent, "Scene 'Scene One' renamed to 'Renamed Scene'; playlist and scheduled-cue references were migrated.", "current color preset rename reports success");
+    assert.equal(currentState.name.value, "Renamed Scene", "current color preset rename updates the scene form");
+    assert.equal(currentState.presetLoads, 1, "current color preset rename reloads saved scenes once");
+    assert.equal(currentState.playlistLoads, 1, "current color preset rename reloads playlists once");
+    assert.equal(currentState.scheduleLoads, 1, "current color preset rename reloads schedules once");
+    assert.equal(currentPage._hueColorPresetRenaming, false, "current color preset rename clears the busy state");
+    assert.equal(currentState.button.disabled, false, "current color preset rename re-enables its button");
+    assert.equal(currentState.buttonUpdates, 1, "current color preset rename refreshes current-page controls");
+    assert.equal(currentPage._huePageRequests.colorPresetRename, undefined, "current color preset rename removes its settled lifecycle record");
+
+    const duplicateHarness = makeHarness();
+    const duplicateState = configureColorPresetRenameHarness(duplicateHarness);
+    const duplicatePage = duplicateHarness.page;
+    const duplicateApi = duplicateHarness.api;
+    duplicateApi.loadColorPresets = () => {
+        duplicateState.presetLoads += 1;
+        return Promise.resolve();
+    };
+    duplicateApi.loadScenePlaylists = () => {
+        duplicateState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    duplicateApi.loadSceneSchedules = () => {
+        duplicateState.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    duplicateApi.updatePresetButtons = () => {
+        duplicateState.buttonUpdates += 1;
+    };
+
+    const first = duplicateApi.renameColorPreset(duplicatePage);
+    const second = duplicateApi.renameColorPreset(duplicatePage);
+    assert.equal(duplicateHarness.requests.length, 1, "duplicate color preset rename keeps one in-flight request");
+    assert.ok(second && typeof second.then === "function", "duplicate color preset rename returns a settled no-op");
+    assert.equal(duplicatePage._hueColorPresetRenaming, true, "duplicate color preset rename remains marked busy");
+    duplicateHarness.requests[0].resolve({ name: "Renamed Scene" });
+    await Promise.all([first, second]);
+    assert.equal(duplicateState.presetLoads, 1, "duplicate color preset rename reloads saved scenes once");
+    assert.equal(duplicateState.playlistLoads, 1, "duplicate color preset rename reloads playlists once");
+    assert.equal(duplicateState.scheduleLoads, 1, "duplicate color preset rename reloads schedules once");
+    assert.equal(duplicateState.buttonUpdates, 1, "duplicate color preset rename refreshes controls once");
+    assert.equal(duplicatePage._hueColorPresetRenaming, false, "duplicate color preset rename clears the busy state");
+    assert.equal(duplicateState.button.disabled, false, "duplicate color preset rename re-enables its button");
+    assert.equal(duplicatePage._huePageRequests.colorPresetRename, undefined, "duplicate color preset rename removes its settled lifecycle record");
+}
+
 function configureScenePlaylistSaveHarness(harness) {
     const { page, api } = harness;
     api.getScenePlaylistTargetSelection = () => ({
@@ -2810,6 +2946,7 @@ await testConfigurationSaveDuplicateSubmitIsBounded();
 await testColorPresetSaveLifecycleGuards();
 await testColorPresetDuplicateLifecycleGuards();
 await testColorPresetDeleteLifecycleGuards();
+await testColorPresetRenameLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
 await testSceneScheduleSaveLifecycleGuards();
 await testSceneScheduleDeleteLifecycleGuards();
@@ -2824,4 +2961,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/scene save/delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/rename/scene save/delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

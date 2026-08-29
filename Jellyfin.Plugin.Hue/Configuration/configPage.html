@@ -2965,6 +2965,7 @@
                         userMappingSave: { property: '_hueUserMappingSaving', selector: '#addMappingBtn' },
                         colorPresetSave: { property: '_hueColorPresetSaving', selector: '#savePreviewPresetBtn' },
                         colorPresetDuplicate: { property: '_hueColorPresetDuplicating', selector: '#duplicatePreviewPresetBtn' },
+                        colorPresetRename: { property: '_hueColorPresetRenaming', selector: '#renamePreviewPresetBtn' },
                         scenePlaylistSave: { property: '_hueScenePlaylistSaving', selector: '#saveScenePlaylistBtn' },
                         sceneScheduleSave: { property: '_hueSceneScheduleSaving', selector: '#saveSceneScheduleBtn' }
                     }[key];
@@ -3099,6 +3100,7 @@
                     page._hueColorPresetDeleteButton = null;
                     page._hueColorPresetSaving = false;
                     page._hueColorPresetDuplicating = false;
+                    page._hueColorPresetRenaming = false;
                     page._hueDiagnosticsLoading = false;
                     page._hueTargetDiagnosticsLoading = false;
                     page._hueDiagnosticsRequest = null;
@@ -5602,6 +5604,10 @@
                     });
                 },
                 renameColorPreset: function (page) {
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueColorPresetRenaming) return Promise.resolve();
                     var selectEl = page.querySelector('#previewPresetSelect');
                     var nameEl = page.querySelector('#previewPresetName');
                     var statusEl = page.querySelector('#previewPresetStatus');
@@ -5623,18 +5629,28 @@
                     var button = page.querySelector('#renamePreviewPresetBtn');
                     var selectedSchedule = page.querySelector('#sceneScheduleSelect');
                     var selectedScheduleId = selectedSchedule ? selectedSchedule.value : '';
+                    page._hueColorPresetRenaming = true;
                     if (button) button.disabled = true;
                     if (statusEl) {
                         statusEl.textContent = "Renaming scene and migrating its references...";
                         statusEl.style.color = "";
                     }
-                    ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("HueSync/ColorPresets/" + encodeURIComponent(name) + "/Rename"),
-                        data: JSON.stringify({ newName: newName }),
-                        contentType: "application/json",
-                        dataType: "json"
-                    }).then(function (response) {
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'colorPresetRename',
+                        ApiClient.getUrl("HueSync/ColorPresets/" + encodeURIComponent(name) + "/Rename"),
+                        {
+                            type: "POST",
+                            data: JSON.stringify({ newName: newName }),
+                            contentType: "application/json",
+                            dataType: "json"
+                        });
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request.then(function (response) {
+                        if (!isCurrent()) return;
                         var renamedName = response && (response.name || response.Name) || newName;
                         if (nameEl) nameEl.value = renamedName;
                         if (statusEl) {
@@ -5642,11 +5658,14 @@
                             statusEl.style.color = "#8bc34a";
                         }
                         return HueConfigurationPage.loadColorPresets(page, renamedName).then(function () {
+                            if (!isCurrent()) return;
                             return HueConfigurationPage.loadScenePlaylists(page).then(function () {
+                                if (!isCurrent()) return;
                                 return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
                             });
                         });
                     }).catch(function (err) {
+                        if (!isCurrent()) return;
                         console.error("Failed to rename color preset:", err);
                         if (statusEl) {
                             statusEl.textContent = "Unable to rename the saved scene. Check that the new name is valid and not already in use.";
@@ -5654,7 +5673,16 @@
                         }
                         HueConfigurationPage.updatePresetButtons(page);
                     }).finally(function () {
-                        HueConfigurationPage.updatePresetButtons(page);
+                        var current = isCurrent();
+                        var requestRecord = request && request._huePageRequestRecord;
+                        var tracked = page && page._huePageRequests &&
+                            page._huePageRequests.colorPresetRename === requestRecord;
+                        if (current || tracked) {
+                            page._hueColorPresetRenaming = false;
+                            if (button) button.disabled = false;
+                            if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'colorPresetRename');
+                            if (current) HueConfigurationPage.updatePresetButtons(page);
+                        }
                     });
                 },
                 inspectColorPresetDependencies: function (page) {
