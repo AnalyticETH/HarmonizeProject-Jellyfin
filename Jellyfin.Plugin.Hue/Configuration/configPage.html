@@ -2974,6 +2974,10 @@
                 invalidatePageLifecycle: function (page) {
                     if (!page) return;
                     HueConfigurationPage.ensurePageLifecycle(page);
+                    var hadPreviewLifecycle = !!(
+                        page._huePreviewRequest ||
+                        page._hueCaptureRequest ||
+                        page._huePreviewCancellationRequest);
                     if (page._hueCertificatePreflights) {
                         Object.keys(page._hueCertificatePreflights).forEach(function (key) {
                             page._hueCertificatePreflights[key].canceled = true;
@@ -2995,6 +2999,20 @@
                         HueConfigurationPage.cancelPageLifecycleRequest(page, key);
                     });
                     page._huePageRequests = {};
+                    page._huePreviewRequest = null;
+                    page._hueCaptureRequest = null;
+                    page._huePreviewCancellationRequest = null;
+                    page._huePreviewStatusElement = null;
+                    page._hueSceneScheduleRequest = null;
+                    page._hueSceneScheduleActiveId = null;
+                    page._hueSceneScheduleCancellationRequest = null;
+                    page._hueSceneScheduleBulkRequest = null;
+                    page._hueSceneScheduleBulkActiveIds = null;
+                    page._hueSceneScheduleBulkCancellationRequest = null;
+                    if (hadPreviewLifecycle) {
+                        HueConfigurationPage.setPreviewBusy(page, false);
+                        Dashboard.hideLoadingMsg();
+                    }
                     page._hueSessionHistoryLoading = false;
                     page._hueSceneScheduleRuntimeStatusLoading = false;
                     page._hueSceneScheduleConflictsLoading = false;
@@ -3060,6 +3078,51 @@
                     var trackedRequest = Promise.resolve(request);
                     trackedRequest._huePageRequestRecord = record;
                     return trackedRequest;
+                },
+                trackPreviewRequest: function (page, generation, request) {
+                    if (!page || !request) return request;
+                    HueConfigurationPage.ensurePageLifecycle(page);
+                    var requests = page._huePageRequests;
+                    var previous = requests.preview;
+                    if (previous && previous.request !== request) {
+                        HueConfigurationPage.abortPageLifecycleRequest(previous);
+                    }
+                    var record = {
+                        key: 'preview',
+                        generation: generation,
+                        controller: null,
+                        request: request,
+                        aborted: false,
+                        targetFingerprint: ''
+                    };
+                    requests.preview = record;
+                    try {
+                        request._huePageRequestRecord = record;
+                    } catch (err) {
+                        // Native and Jellyfin request promises are normally extensible;
+                        // the record is still retained on the page for invalidation.
+                    }
+                    var trackedRequest = Promise.resolve(request);
+                    trackedRequest._huePageRequestRecord = record;
+                    return trackedRequest;
+                },
+                finishPreviewRequest: function (page, generation, request) {
+                    var current = HueConfigurationPage.isPageLifecycleRequestCurrent(page, generation, request);
+                    var ownsRequest = !!page && page._huePreviewRequest === request;
+                    if (!ownsRequest) return false;
+                    if (!current) {
+                        page._huePreviewRequest = null;
+                        if (page._hueCaptureRequest === request) page._hueCaptureRequest = null;
+                        page._huePreviewStatusElement = null;
+                        return false;
+                    }
+                    page._huePreviewRequest = null;
+                    if (page._hueCaptureRequest === request) page._hueCaptureRequest = null;
+                    page._huePreviewStatusElement = null;
+                    HueConfigurationPage.setPreviewBusy(page, false);
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'preview');
+                    Dashboard.hideLoadingMsg();
+                    return true;
                 },
                 initializePreviewTargetMetadata: function (page) {
                     if (!page) return;
@@ -4351,6 +4414,7 @@
                 },
                 cancelPreview: function (page) {
                     if (!page || !page._huePreviewRequest || page._huePreviewCancellationRequest) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     var preflights = page._hueCertificatePreflights || {};
                     if (preflights.preview) {
                         // A diagnostic may still be waiting for the administrator to
@@ -4382,7 +4446,15 @@
                             url: ApiClient.getUrl("HueSync/Preview/Cancel"),
                             dataType: "json"
                         };
-                    page._huePreviewCancellationRequest = ApiClient.ajax(cancellationRequest).then(function (response) {
+                    var cancellationRequestPromise = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'previewCancellation',
+                        cancellationRequest.url,
+                        cancellationRequest);
+                    page._huePreviewCancellationRequest = cancellationRequestPromise;
+                    cancellationRequestPromise.then(function (response) {
+                        if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, cancellationRequestPromise)) return;
                         var canceled = response && (response.canceled !== undefined ? response.canceled : response.Canceled);
                         var message = response && (response.message || response.Message);
                         if (!canceled && statusEl) {
@@ -4391,6 +4463,7 @@
                             statusEl.style.background = "#8a6d3b";
                         }
                     }).catch(function (err) {
+                        if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, cancellationRequestPromise)) return;
                         console.error(capturingCurrentColor ? "Current-light capture cancellation error:" : "Preview cancellation error:", err);
                         if (statusEl) {
                             statusEl.textContent = capturingCurrentColor
@@ -4400,8 +4473,13 @@
                             statusEl.style.background = "#8a3d3d";
                         }
                     }).finally(function () {
+                        var current = HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, cancellationRequestPromise);
+                        if (page._huePreviewCancellationRequest !== cancellationRequestPromise) return;
                         page._huePreviewCancellationRequest = null;
-                        if (page._huePreviewRequest) {
+                        if (current) {
+                            HueConfigurationPage.cancelPageLifecycleRequest(page, 'previewCancellation');
+                        }
+                        if (current && page._huePreviewRequest) {
                             var activeCancelButton = page.querySelector('#cancelPreviewBtn');
                             if (activeCancelButton) activeCancelButton.disabled = false;
                         }
@@ -4450,8 +4528,9 @@
                         : "Saving light state and sending preview...";
                     statusEl.style.color = "";
                     Dashboard.showLoadingMsg();
+                    var request;
                     var startPreview = function () {
-                        return HueConfigurationPage.fetchColorPreview(
+                        var actionRequest = HueConfigurationPage.fetchColorPreview(
                             bridgeIp,
                             appKey,
                             clientKey,
@@ -4470,6 +4549,9 @@
                             values.transitionCurve,
                             false,
                             targetSelection);
+                        var trackedActionRequest = HueConfigurationPage.trackPreviewRequest(page, pageGeneration, actionRequest);
+                        if (request) request._huePageRequestRecord = trackedActionRequest._huePageRequestRecord;
+                        return trackedActionRequest;
                     };
                     var preflightTarget = {
                         bridgeIp: bridgeIp,
@@ -4506,20 +4588,23 @@
                     // each configured target. A single default-target preview uses
                     // the entered/stored bridge credentials and must pin its bridge
                     // before the request is sent.
-                    var request = usesMultiTargetSelection
+                    request = usesMultiTargetSelection
                         ? startPreview()
                         : HueConfigurationPage.runWithBridgeCertificate(page, bridgeIp, statusEl, startPreview, 'preview', isCredentialInputCurrent);
+                    if (!usesMultiTargetSelection) request = HueConfigurationPage.trackPreviewRequest(page, pageGeneration, request);
                     page._huePreviewRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
                     request
                         .then(function (response) {
-                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
+                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                                !HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                             var result = HueConfigurationPage.previewMessage(response, usesMultiTargetSelection);
                             statusEl.textContent = result.text;
                             statusEl.style.color = result.tone === "success" ? "#8bc34a" : "#d9534f";
                         })
                         .catch(function (err) {
-                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
+                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                                !HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                             console.error("Default color preview error:", err);
                             statusEl.textContent = usesMultiTargetSelection
                                 ? "Color preview failed. Verify each selected target in System Diagnostics and stop active playback before retrying."
@@ -4527,12 +4612,7 @@
                             statusEl.style.color = "#d9534f";
                         })
                         .finally(function () {
-                            if (page._huePreviewRequest === request) {
-                                page._huePreviewRequest = null;
-                                page._huePreviewStatusElement = null;
-                                HueConfigurationPage.setPreviewBusy(page, false);
-                            }
-                            Dashboard.hideLoadingMsg();
+                            HueConfigurationPage.finishPreviewRequest(page, pageGeneration, request);
                         });
                 },
                 previewAllEnabledTargets: function (page) {
@@ -4541,6 +4621,7 @@
                         Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
                         return;
                     }
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
 
                     var button = page.querySelector('#previewAllTargetsBtn');
                     var statusEl = page.querySelector('#previewColorStatus');
@@ -4558,7 +4639,7 @@
                     statusEl.textContent = "Saving each target's light state and sending the sequential preview...";
                     statusEl.style.color = "";
                     Dashboard.showLoadingMsg();
-                    var request = HueConfigurationPage.fetchColorPreview(
+                    var request = HueConfigurationPage.trackPreviewRequest(page, pageGeneration, HueConfigurationPage.fetchColorPreview(
                         "",
                         "",
                         "",
@@ -4575,27 +4656,26 @@
                         values.effect,
                         values.effectSpeedPercent,
                         values.transitionCurve,
-                        true);
+                        true));
                     page._huePreviewRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
                     request
                         .then(function (response) {
+                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                                !HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                             var result = HueConfigurationPage.previewMessage(response, true);
                             statusEl.textContent = result.text;
                             statusEl.style.color = result.tone === "success" ? "#8bc34a" : "#d9534f";
                         })
                         .catch(function (err) {
+                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                                !HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                             console.error("All-target color preview error:", err);
                             statusEl.textContent = "All-target preview failed. Verify every enabled target in System Diagnostics and stop active playback before retrying.";
                             statusEl.style.color = "#d9534f";
                         })
                         .finally(function () {
-                            if (page._huePreviewRequest === request) {
-                                page._huePreviewRequest = null;
-                                page._huePreviewStatusElement = null;
-                                HueConfigurationPage.setPreviewBusy(page, false);
-                            }
-                            Dashboard.hideLoadingMsg();
+                            HueConfigurationPage.finishPreviewRequest(page, pageGeneration, request);
                         });
                 },
                 captureCurrentColor: function (page) {
@@ -4605,6 +4685,7 @@
                         Dashboard.alert("A preview or current-light capture is already running. Cancel it or wait for it to finish first.");
                         return;
                     }
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
 
                     var targetSelection = HueConfigurationPage.getCurrentLightCaptureTargetSelection(page);
                     var statusEl = page.querySelector('#previewColorStatus');
@@ -4631,14 +4712,16 @@
                         statusEl.style.background = "";
                     }
                     Dashboard.showLoadingMsg();
-                    var request = isBatch
+                    var request = HueConfigurationPage.trackPreviewRequest(page, pageGeneration, isBatch
                         ? HueConfigurationPage.fetchCurrentLightColors(targetSelection)
-                        : HueConfigurationPage.fetchCurrentLightColor(targetSelection);
+                        : HueConfigurationPage.fetchCurrentLightColor(targetSelection));
                     page._huePreviewRequest = request;
                     page._hueCaptureRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
                     request
                         .then(function (response) {
+                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                                !HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                             var succeeded = HueConfigurationPage.readStatusField(response, "Succeeded", false);
                             var message = HueConfigurationPage.readStatusField(response, "Message", "");
                             var captures = isBatch
@@ -4684,6 +4767,8 @@
                             }
                         })
                         .catch(function (err) {
+                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                                !HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                             console.error("Current-light color capture error:", err);
                             if (statusEl) {
                                 statusEl.textContent = "Current-light color capture failed. Verify the selected target in System Diagnostics and stop active playback before retrying.";
@@ -4691,13 +4776,7 @@
                             }
                         })
                         .finally(function () {
-                            if (page._huePreviewRequest === request) {
-                                page._huePreviewRequest = null;
-                                page._hueCaptureRequest = null;
-                                page._huePreviewStatusElement = null;
-                                HueConfigurationPage.setPreviewBusy(page, false);
-                            }
-                            Dashboard.hideLoadingMsg();
+                            HueConfigurationPage.finishPreviewRequest(page, pageGeneration, request);
                         });
                 },
                 normalizeSavedPresetTargetSelection: function (page) {
@@ -4889,6 +4968,7 @@
                         Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
                         return;
                     }
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
 
                     var selectEl = page.querySelector('#previewPresetSelect');
                     var name = selectEl ? selectEl.value : '';
@@ -4915,16 +4995,21 @@
                                 : "Saving the default target's light state and previewing the saved scene...";
                     statusEl.style.color = "";
                     Dashboard.showLoadingMsg();
-                    var request = HueConfigurationPage.fetchSavedColorPreview(name, targetSelection);
+                    var request = HueConfigurationPage.trackPreviewRequest(
+                        page,
+                        pageGeneration,
+                        HueConfigurationPage.fetchSavedColorPreview(name, targetSelection));
                     page._huePreviewRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
                     request
                         .then(function (response) {
+                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                             var result = HueConfigurationPage.previewMessage(response, allTargets || targetSelection.targetAllEnabledMappings || targetSelection.targetUserIds.length > 0 || targetSelection.targetRoutes.length > 0 || targetSelection.includeDefaultTarget);
                             statusEl.textContent = result.text;
                             statusEl.style.color = result.tone === "success" ? "#8bc34a" : "#d9534f";
                         })
                         .catch(function (err) {
+                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                             console.error("Saved color preview error:", err);
                             statusEl.textContent = allTargets || targetSelection.targetAllEnabledMappings
                                 ? "Saved-scene preview failed. Verify every enabled target in System Diagnostics and stop active playback before retrying."
@@ -4934,12 +5019,7 @@
                             statusEl.style.color = "#d9534f";
                         })
                         .finally(function () {
-                            if (page._huePreviewRequest === request) {
-                                page._huePreviewRequest = null;
-                                page._huePreviewStatusElement = null;
-                                HueConfigurationPage.setPreviewBusy(page, false);
-                            }
-                            Dashboard.hideLoadingMsg();
+                            HueConfigurationPage.finishPreviewRequest(page, pageGeneration, request);
                         });
                 },
                 loadColorPresets: function (page, selectedName) {
@@ -5161,6 +5241,7 @@
                         Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
                         return;
                     }
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     var names = HueConfigurationPage.getSelectedColorPresetBulkNames(page);
                     var statusEl = page.querySelector('#previewPresetBulkStatus');
                     if (!names.length) {
@@ -5184,7 +5265,8 @@
                         allTargets ? "Preview Selected Scenes on All Targets" : "Preview Selected Scenes",
                         function (confirmed) {
                             if (!confirmed) return;
-                            if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
+                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                                !HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
                             var button = page.querySelector(allTargets ? '#previewSelectedPreviewPresetsAllBtn' : '#previewSelectedPreviewPresetsBtn');
                             if (button) button.disabled = true;
                             if (statusEl) {
@@ -5199,7 +5281,7 @@
                             }
                             page._huePreviewStatusElement = statusEl;
                             Dashboard.showLoadingMsg();
-                            var request = ApiClient.ajax({
+                            var request = HueConfigurationPage.trackPreviewRequest(page, pageGeneration, ApiClient.ajax({
                                 type: "POST",
                                 url: ApiClient.getUrl("HueSync/ColorPresets/BulkPreview"),
                                 data: JSON.stringify({
@@ -5212,10 +5294,11 @@
                                 }),
                                 contentType: "application/json",
                                 dataType: "json"
-                            });
+                            }));
                             page._huePreviewRequest = request;
                             HueConfigurationPage.setPreviewBusy(page, true);
                             request.then(function (response) {
+                                if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                                 var message = response && (response.message || response.Message) || "Bulk saved-scene preview completed.";
                                 var previews = response && (response.previews || response.Previews) || [];
                                 var details = previews.map(function (item) {
@@ -5233,6 +5316,7 @@
                                             : "#8bc34a";
                                 }
                             }).catch(function (err) {
+                                if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                                 console.error("Bulk saved-scene preview error:", err);
                                 if (statusEl) {
                                     statusEl.textContent = allTargets || targetSelection.targetAllEnabledMappings
@@ -5243,12 +5327,7 @@
                                     statusEl.style.color = "#d9534f";
                                 }
                             }).finally(function () {
-                                if (page._huePreviewRequest === request) {
-                                    page._huePreviewRequest = null;
-                                    page._huePreviewStatusElement = null;
-                                    HueConfigurationPage.setPreviewBusy(page, false);
-                                }
-                                Dashboard.hideLoadingMsg();
+                                HueConfigurationPage.finishPreviewRequest(page, pageGeneration, request);
                             });
                         });
                 },
@@ -6947,6 +7026,7 @@
                         Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
                         return;
                     }
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     var select = page.querySelector('#scenePlaylistSelect');
                     var name = select ? select.value : '';
                     var status = page.querySelector('#scenePlaylistStatus');
@@ -6971,14 +7051,19 @@
                             : "Saving the selected target states and running the playlist...";
                     status.style.color = '';
                     Dashboard.showLoadingMsg();
-                    var request = HueConfigurationPage.fetchScenePlaylistPreview(name, targetSelection);
+                    var request = HueConfigurationPage.trackPreviewRequest(
+                        page,
+                        pageGeneration,
+                        HueConfigurationPage.fetchScenePlaylistPreview(name, targetSelection));
                     page._huePreviewRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
                     request.then(function (response) {
+                        if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                         var result = HueConfigurationPage.playlistPreviewMessage(response, includeTargetDetails);
                         status.textContent = result.text;
                         status.style.color = result.tone === "success" ? "#8bc34a" : "#d9534f";
                     }).catch(function (err) {
+                        if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                         console.error("Scene playlist preview error:", err);
                         status.textContent = allTargets || targetSelection.targetAllEnabledMappings
                             ? "Playlist preview failed. Verify every enabled target in System Diagnostics and stop active playback before retrying."
@@ -6987,13 +7072,10 @@
                                 : "Playlist preview failed. Verify each selected target in System Diagnostics and stop active playback before retrying.";
                         status.style.color = "#d9534f";
                     }).finally(function () {
-                        if (page._huePreviewRequest === request) {
-                            page._huePreviewRequest = null;
-                            page._huePreviewStatusElement = null;
-                            HueConfigurationPage.setPreviewBusy(page, false);
+                        if (HueConfigurationPage.finishPreviewRequest(page, pageGeneration, request) &&
+                            HueConfigurationPage.updateScenePlaylistButtons) {
                             HueConfigurationPage.updateScenePlaylistButtons(page);
                         }
-                        Dashboard.hideLoadingMsg();
                     });
                 },
                 previewScenePlaylistsBulk: function (page, allTargets) {
@@ -7002,6 +7084,7 @@
                         Dashboard.alert("A preview is already running. Cancel it or wait for it to finish first.");
                         return;
                     }
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     var ids = HueConfigurationPage.getSelectedScenePlaylistBulkIds(page);
                     var status = page && page.querySelector('#scenePlaylistBulkStatus');
                     if (!ids.length) {
@@ -7025,7 +7108,8 @@
                         allTargets ? "Preview Selected Playlists on All Targets" : "Preview Selected Playlists",
                         function (confirmed) {
                             if (!confirmed) return;
-                            if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
+                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                                !HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
                             var button = page.querySelector(allTargets ? '#previewSelectedScenePlaylistsAllBtn' : '#previewSelectedScenePlaylistsBtn');
                             if (button) button.disabled = true;
                             if (status) {
@@ -7040,7 +7124,7 @@
                             }
                             page._huePreviewStatusElement = status;
                             Dashboard.showLoadingMsg();
-                            var request = ApiClient.ajax({
+                            var request = HueConfigurationPage.trackPreviewRequest(page, pageGeneration, ApiClient.ajax({
                                 type: "POST",
                                 url: ApiClient.getUrl("HueSync/ScenePlaylists/BulkPreview"),
                                 data: JSON.stringify({
@@ -7053,10 +7137,11 @@
                                 }),
                                 contentType: "application/json",
                                 dataType: "json"
-                            });
+                            }));
                             page._huePreviewRequest = request;
                             HueConfigurationPage.setPreviewBusy(page, true);
                             request.then(function (response) {
+                                if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                                 var message = response && (response.message || response.Message) || "Bulk scene playlist preview completed.";
                                 var results = response && (response.results || response.Results) || [];
                                 var details = results.map(function (result) {
@@ -7073,6 +7158,7 @@
                                             : "#8bc34a";
                                 }
                             }).catch(function (err) {
+                                if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                                 console.error("Bulk scene playlist preview error:", err);
                                 if (status) {
                                     status.textContent = allTargets || targetSelection.targetAllEnabledMappings
@@ -7083,12 +7169,7 @@
                                     status.style.color = "#d9534f";
                                 }
                             }).finally(function () {
-                                if (page._huePreviewRequest === request) {
-                                    page._huePreviewRequest = null;
-                                    page._huePreviewStatusElement = null;
-                                    HueConfigurationPage.setPreviewBusy(page, false);
-                                }
-                                Dashboard.hideLoadingMsg();
+                                HueConfigurationPage.finishPreviewRequest(page, pageGeneration, request);
                             });
                         });
                 },
@@ -7513,6 +7594,7 @@
                 },
                 runSceneSchedulesBulk: function (page) {
                     if (!page || page._hueSceneScheduleBulkRequest || page._hueSceneScheduleRequest) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     var scheduleIds = HueConfigurationPage.getSelectedSceneScheduleBulkIds(page);
                     var statusEl = page.querySelector('#sceneScheduleBulkStatus');
                     if (!scheduleIds.length) {
@@ -7524,7 +7606,7 @@
                         "Run " + scheduleIds.length + " selected scheduled cue" + (scheduleIds.length === 1 ? "" : "s") + " sequentially now? Every cue will restore bridge state before the next cue starts; a runtime failure is retained and later cues continue.",
                         "Run Selected Cues",
                         function (confirmed) {
-                            if (!confirmed) return;
+                            if (!confirmed || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
                             var selectedScheduleControl = page.querySelector('#sceneScheduleSelect');
                             var selectedScheduleId = selectedScheduleControl ? selectedScheduleControl.value : '';
                             page._hueSceneScheduleBulkActiveIds = scheduleIds.slice();
@@ -7542,6 +7624,8 @@
                             page._hueSceneScheduleBulkRequest = request;
                             HueConfigurationPage.updateSceneScheduleButtons(page);
                             request.then(function (response) {
+                                if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                                    page._hueSceneScheduleBulkRequest !== request) return;
                                 var message = response && (response.message || response.Message) || "Selected scheduled cues completed.";
                                 var results = response && (response.results || response.Results);
                                 var details = Array.isArray(results) ? results.map(function (result) {
@@ -7558,6 +7642,8 @@
                                             : "#8bc34a";
                                 }
                             }).catch(function (err) {
+                                if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                                    page._hueSceneScheduleBulkRequest !== request) return;
                                 console.error("Failed to run bulk scene schedules:", err);
                                 if (statusEl) {
                                     statusEl.textContent = "Unable to run the selected cues. Verify every saved-scene reference and target configuration.";
@@ -7568,14 +7654,17 @@
                                     page._hueSceneScheduleBulkRequest = null;
                                     page._hueSceneScheduleBulkActiveIds = null;
                                     page._hueSceneScheduleBulkCancellationRequest = null;
-                                    HueConfigurationPage.updateSceneScheduleButtons(page);
-                                    HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
+                                    if (HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                                        HueConfigurationPage.updateSceneScheduleButtons(page);
+                                        HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
+                                    }
                                 }
                             });
                         });
                 },
                 cancelSceneSchedulesBulk: function (page) {
                     if (!page || !page._hueSceneScheduleBulkRequest || page._hueSceneScheduleBulkCancellationRequest) return;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     var scheduleIds = Array.isArray(page._hueSceneScheduleBulkActiveIds)
                         ? page._hueSceneScheduleBulkActiveIds.slice()
                         : HueConfigurationPage.getSelectedSceneScheduleBulkIds(page);
@@ -7592,6 +7681,7 @@
                         contentType: "application/json",
                         dataType: "json"
                     }).then(function (response) {
+                        if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
                         var canceledCount = Number(response && (response.canceledCount !== undefined ? response.canceledCount : response.CanceledCount) || 0);
                         if (statusEl) {
                             statusEl.textContent = canceledCount > 0
@@ -7600,16 +7690,23 @@
                             statusEl.style.color = "#f0ad4e";
                         }
                     }).catch(function (err) {
+                        if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
                         console.error("Bulk scene schedule cancellation error:", err);
                         if (statusEl) {
                             statusEl.textContent = "Unable to request bulk cue cancellation. Verify the scheduler status and light restoration manually.";
                             statusEl.style.color = "#d9534f";
                         }
                     }).finally(function () {
-                        page._hueSceneScheduleBulkCancellationRequest = null;
-                        HueConfigurationPage.updateSceneScheduleButtons(page);
+                        if (page._hueSceneScheduleBulkCancellationRequest) {
+                            page._hueSceneScheduleBulkCancellationRequest = null;
+                            if (HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                                HueConfigurationPage.updateSceneScheduleButtons(page);
+                            }
+                        }
                     });
-                    HueConfigurationPage.updateSceneScheduleButtons(page);
+                    if (HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                        HueConfigurationPage.updateSceneScheduleButtons(page);
+                    }
                 },
                 setSceneSchedulesEnabledBulk: function (page, enabled) {
                     if (!page) return;
@@ -9593,6 +9690,7 @@
                     var runActive = !!(page && page._hueSceneScheduleRequest);
                     var bulkRunActive = !!(page && page._hueSceneScheduleBulkRequest);
                     var anyRunActive = runActive || bulkRunActive;
+                    if (select) select.disabled = anyRunActive;
                     if (toggleButton) {
                         var toggleLabel = toggleButton.querySelector('span');
                         if (toggleLabel) toggleLabel.textContent = selectedEnabled ? "Disable Cue" : "Enable Cue";
@@ -10251,10 +10349,12 @@
                         });
                 },
                 runSceneSchedule: function (page) {
+                    if (!page) return;
                     if (page._hueSceneScheduleRequest) {
                         Dashboard.alert("A scheduled cue is already running. Cancel it or wait for it to finish first.");
                         return;
                     }
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     var select = page.querySelector('#sceneScheduleSelect');
                     var scheduleId = select && select.value;
                     var statusEl = page.querySelector('#sceneScheduleStatus');
@@ -10271,8 +10371,11 @@
                         dataType: "json"
                     });
                     page._hueSceneScheduleRequest = request;
+                    page._hueSceneScheduleActiveId = scheduleId;
                     HueConfigurationPage.updateSceneScheduleButtons(page);
                     request.then(function (result) {
+                        if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                            page._hueSceneScheduleRequest !== request) return;
                         var succeeded = result && (result.succeeded !== undefined ? result.succeeded : result.Succeeded);
                         var message = result && (result.message || result.Message) || "Scheduled cue completed.";
                         if (statusEl) {
@@ -10280,6 +10383,8 @@
                             statusEl.style.color = succeeded ? "#8bc34a" : "#d9534f";
                         }
                     }).catch(function (err) {
+                        if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                            page._hueSceneScheduleRequest !== request) return;
                         console.error("Failed to run scene schedule:", err);
                         if (statusEl) {
                             statusEl.textContent = "Unable to run scene. Stop active playback and verify the target configuration.";
@@ -10288,18 +10393,21 @@
                     }).finally(function () {
                         if (page._hueSceneScheduleRequest === request) {
                             page._hueSceneScheduleRequest = null;
-                            HueConfigurationPage.updateSceneScheduleButtons(page);
+                            page._hueSceneScheduleActiveId = null;
+                            if (HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                                HueConfigurationPage.updateSceneScheduleButtons(page);
+                            }
                         }
                     });
                 },
                 cancelSceneScheduleRun: function (page) {
                     if (!page || !page._hueSceneScheduleRequest || page._hueSceneScheduleCancellationRequest) return;
-                    var select = page.querySelector('#sceneScheduleSelect');
-                    var scheduleId = select && select.value;
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    var scheduleId = page._hueSceneScheduleActiveId;
                     var statusEl = page.querySelector('#sceneScheduleStatus');
                     if (!scheduleId) return;
                     if (statusEl) {
-                        statusEl.textContent = "Requesting cue cancellation; restoring the selected lights...";
+                        statusEl.textContent = "Requesting cue cancellation; restoring the running cue's lights...";
                         statusEl.style.color = "#f0ad4e";
                     }
                     page._hueSceneScheduleCancellationRequest = ApiClient.ajax({
@@ -10307,6 +10415,7 @@
                         url: ApiClient.getUrl("HueSync/SceneSchedules/" + encodeURIComponent(scheduleId) + "/Cancel"),
                         dataType: "json"
                     }).then(function (response) {
+                        if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
                         var canceled = response && (response.canceled !== undefined ? response.canceled : response.Canceled);
                         var message = response && (response.message || response.Message);
                         if (!canceled && statusEl) {
@@ -10314,14 +10423,19 @@
                             statusEl.style.color = "#f0ad4e";
                         }
                     }).catch(function (err) {
+                        if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
                         console.error("Scene schedule cancellation error:", err);
                         if (statusEl) {
                             statusEl.textContent = "Unable to request cue cancellation. Verify the scheduler status and light restoration manually.";
                             statusEl.style.color = "#d9534f";
                         }
                     }).finally(function () {
-                        page._hueSceneScheduleCancellationRequest = null;
-                        HueConfigurationPage.updateSceneScheduleButtons(page);
+                        if (page._hueSceneScheduleCancellationRequest) {
+                            page._hueSceneScheduleCancellationRequest = null;
+                            if (HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                                HueConfigurationPage.updateSceneScheduleButtons(page);
+                            }
+                        }
                     });
                 },
                 connectionTestMessage: function (response, areaId) {
@@ -10506,7 +10620,13 @@
                 syncSelectedArea: function (page, selectedId) {
                     var selectEl = page.querySelector('#entertainmentAreaSelect');
 
-                    var option = selectEl.querySelector('option[value="' + selectedId + '"]');
+                    var option = null;
+                    var normalizedSelectedId = String(selectedId || '');
+                    Array.prototype.some.call(selectEl.options || [], function (candidate) {
+                        if (String(candidate && candidate.value || '') !== normalizedSelectedId) return false;
+                        option = candidate;
+                        return true;
+                    });
                     if (option) {
                         selectEl.value = selectedId;
                         HueConfigurationPage.toggleManualArea(page, false);
@@ -11395,12 +11515,13 @@
                         }
 
                         var html = '<table style="width: 100%; border-collapse: collapse; min-width: 640px;">';
+                        html += '<caption style="text-align: left; padding: 8px 0;">Saved target validation results</caption>';
                         html += '<thead><tr style="border-bottom: 1px solid #444;">';
-                        html += '<th style="text-align: left; padding: 8px;">Target</th>';
-                        html += '<th style="text-align: left; padding: 8px;">Bridge / area</th>';
-                        html += '<th style="text-align: left; padding: 8px;">Credentials</th>';
-                        html += '<th style="text-align: left; padding: 8px;">Bridge data</th>';
-                        html += '<th style="text-align: left; padding: 8px;">Result</th>';
+                        html += '<th scope="col" style="text-align: left; padding: 8px;">Target</th>';
+                        html += '<th scope="col" style="text-align: left; padding: 8px;">Bridge / area</th>';
+                        html += '<th scope="col" style="text-align: left; padding: 8px;">Credentials</th>';
+                        html += '<th scope="col" style="text-align: left; padding: 8px;">Bridge data</th>';
+                        html += '<th scope="col" style="text-align: left; padding: 8px;">Result</th>';
                         html += '</tr></thead><tbody>';
 
                         targets.forEach(function (target) {
@@ -11795,7 +11916,8 @@
                         };
                         return HueConfigurationPage.getMappingTargetFingerprint(currentTarget) === preflightFingerprint;
                     };
-                    var request = HueConfigurationPage.runWithBridgeCertificate(
+                    var request;
+                    request = HueConfigurationPage.runWithBridgeCertificate(
                         page,
                         bridgeIp,
                         page.querySelector('#bridgeStatus'),
@@ -11817,12 +11939,14 @@
                             HueConfigurationPage.refreshStatus(page, "Bridge connection failed. Verify the address, app key, and network access.", "error");
                         })
                         .finally(function () {
+                            var current = HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) &&
+                                page._huePreviewRequest === request;
                             if (page._huePreviewRequest === request) {
                                 page._huePreviewRequest = null;
                                 page._huePreviewStatusElement = null;
                                 HueConfigurationPage.setDiagnosticBusy(page, false);
                             }
-                            Dashboard.hideLoadingMsg();
+                            if (current) Dashboard.hideLoadingMsg();
                         });
                 },
 
@@ -11907,15 +12031,16 @@
 
                         if (bulkSelect) bulkSelect.innerHTML = '';
                         var html = '<table style="width: 100%; border-collapse: collapse;">';
+                        html += '<caption style="text-align: left; padding: 8px 0;">User mapping status</caption>';
                         html += '<thead><tr style="border-bottom: 1px solid #444;">';
-                        html += '<th style="text-align: left; padding: 8px;">User</th>';
-                        html += '<th style="text-align: left; padding: 8px;">Sync</th>';
-                        html += '<th style="text-align: left; padding: 8px;">Bridge Address</th>';
-                        html += '<th style="text-align: left; padding: 8px;">Entertainment Area</th>';
-                        html += '<th style="text-align: left; padding: 8px;">Device Routes</th>';
-                        html += '<th style="text-align: left; padding: 8px;">Profile</th>';
-                        html += '<th style="text-align: left; padding: 8px;">Credentials</th>';
-                        html += '<th style="text-align: right; padding: 8px;">Actions</th>';
+                        html += '<th scope="col" style="text-align: left; padding: 8px;">User</th>';
+                        html += '<th scope="col" style="text-align: left; padding: 8px;">Sync</th>';
+                        html += '<th scope="col" style="text-align: left; padding: 8px;">Bridge Address</th>';
+                        html += '<th scope="col" style="text-align: left; padding: 8px;">Entertainment Area</th>';
+                        html += '<th scope="col" style="text-align: left; padding: 8px;">Device Routes</th>';
+                        html += '<th scope="col" style="text-align: left; padding: 8px;">Profile</th>';
+                        html += '<th scope="col" style="text-align: left; padding: 8px;">Credentials</th>';
+                        html += '<th scope="col" style="text-align: right; padding: 8px;">Actions</th>';
                         html += '</tr></thead><tbody>';
 
                         mappings.forEach(function (mapping) {
@@ -12879,12 +13004,14 @@
                             }
                         })
                         .finally(function () {
+                            var current = HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) &&
+                                page._huePreviewRequest === request;
                             if (page._huePreviewRequest === request) {
                                 page._huePreviewRequest = null;
                                 page._huePreviewStatusElement = null;
                                 HueConfigurationPage.setDiagnosticBusy(page, false);
                             }
-                            Dashboard.hideLoadingMsg();
+                            if (current) Dashboard.hideLoadingMsg();
                         });
                 },
 
@@ -12940,7 +13067,7 @@
                         target.bridgeIp,
                         statusEl,
                         function () {
-                            return HueConfigurationPage.fetchColorPreview(
+                            var actionRequest = HueConfigurationPage.fetchColorPreview(
                                 target.bridgeIp,
                                 target.appKey,
                                 target.clientKey,
@@ -12960,12 +13087,17 @@
                                 false,
                                 undefined,
                                 target.deviceId);
+                            var trackedActionRequest = HueConfigurationPage.trackPreviewRequest(page, pageGeneration, actionRequest);
+                            if (request) request._huePageRequestRecord = trackedActionRequest._huePageRequestRecord;
+                            return trackedActionRequest;
                         }, 'preview', isCredentialInputCurrent);
+                    request = HueConfigurationPage.trackPreviewRequest(page, pageGeneration, request);
                     page._huePreviewRequest = request;
                     HueConfigurationPage.setPreviewBusy(page, true);
                     request
                         .then(function (response) {
-                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
+                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                                !HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                             var result = HueConfigurationPage.previewMessage(response);
                             if (statusEl) {
                                 statusEl.textContent = result.text;
@@ -12973,7 +13105,8 @@
                             }
                         })
                         .catch(function (err) {
-                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
+                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                                !HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                             console.error("Mapping color preview error:", err);
                             if (statusEl) {
                                 statusEl.textContent = "Color preview failed. Stop active playback and verify the mapping credentials and client key.";
@@ -12981,12 +13114,7 @@
                             }
                         })
                         .finally(function () {
-                            if (page._huePreviewRequest === request) {
-                                page._huePreviewRequest = null;
-                                page._huePreviewStatusElement = null;
-                                HueConfigurationPage.setPreviewBusy(page, false);
-                            }
-                            Dashboard.hideLoadingMsg();
+                            HueConfigurationPage.finishPreviewRequest(page, pageGeneration, request);
                         });
                 },
 

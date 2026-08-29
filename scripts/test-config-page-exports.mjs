@@ -1679,6 +1679,152 @@ async function testSceneScheduleSaveLifecycleGuards() {
     assert.equal(currentState.buttonUpdates, 1, "current scene schedule save refreshes current-page controls");
 }
 
+async function testSceneScheduleRunCancellationUsesActiveId() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    const scheduleSelect = page.querySelector("#sceneScheduleSelect");
+    scheduleSelect.value = "cue-a";
+
+    api.runSceneSchedule(page);
+    assert.equal(requests.length, 1, "scheduled-cue run starts one request");
+    assert.equal(page._hueSceneScheduleActiveId, "cue-a", "scheduled-cue run stores its active schedule ID");
+    assert.equal(scheduleSelect.disabled, true, "scheduled-cue run disables the schedule selector");
+
+    // Simulate a programmatic/stale selection change while the selector is disabled.
+    scheduleSelect.value = "cue-b";
+    api.cancelSceneScheduleRun(page);
+    assert.equal(requests.length, 2, "scheduled-cue cancel starts one request");
+    assert.equal(
+        requests[1].options.url,
+        "HueSync/SceneSchedules/cue-a/Cancel",
+        "scheduled-cue cancel uses the ID captured when the run started"
+    );
+    assert.equal(page._hueSceneScheduleActiveId, "cue-a", "cancel does not clear the active schedule ID early");
+
+    const cancellation = page._hueSceneScheduleCancellationRequest;
+    requests[1].resolve({ canceled: true });
+    await cancellation;
+    assert.equal(page._hueSceneScheduleActiveId, "cue-a", "cancel completion leaves the run identity until the run completes");
+    assert.equal(scheduleSelect.disabled, true, "schedule selector remains disabled while the run request is active");
+
+    requests[0].resolve({ succeeded: true, message: "Cue completed." });
+    await requests[0].promise;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(page._hueSceneScheduleRequest, null, "matching run completion clears the active request");
+    assert.equal(page._hueSceneScheduleActiveId, null, "matching run completion clears the active schedule ID");
+    assert.equal(scheduleSelect.disabled, false, "matching run completion re-enables the schedule selector");
+}
+
+async function testEntertainmentAreaSelectionHandlesUnsafeIds() {
+    const harness = makeHarness();
+    const { page, api } = harness;
+    const select = page.querySelector("#entertainmentAreaSelect");
+    const unsafeId = 'area"]\'quoted';
+    select.options = [{ value: unsafeId, textContent: "Unsafe area" }];
+    select.querySelector = () => {
+        throw new Error("selector interpolation should not be used for area IDs");
+    };
+
+    assert.doesNotThrow(() => api.syncSelectedArea(page, unsafeId));
+    assert.equal(select.value, unsafeId, "area selection matches the exact persisted ID");
+}
+
+async function testPreviewLifecyclePagehideGuards() {
+    const previewHarness = makeHarness();
+    const previewPage = previewHarness.page;
+    const previewApi = previewHarness.api;
+    const previewStatus = previewPage.querySelector("#previewColorStatus");
+    let previewHideCount = 0;
+    previewHarness.dashboard.hideLoadingMsg = () => { previewHideCount += 1; };
+    previewPage._huePreviewTargetMetadataReady = true;
+    previewApi.getPreviewValues = () => ({
+        red: 1,
+        green: 2,
+        blue: 3,
+        brightnessPercent: 80,
+        effectSpeedPercent: 100,
+        durationSeconds: 5,
+        effect: "Solid",
+        transitionSeconds: 0,
+        transitionOutSeconds: 0,
+        transitionCurve: "Linear"
+    });
+
+    previewApi.previewAllEnabledTargets(previewPage);
+    assert.equal(previewHarness.requests.length, 1, "all-target preview starts one request");
+    const stalePreviewRequest = previewHarness.requests[0];
+    assert.ok(previewPage._huePageRequests.preview, "all-target preview is tracked by page lifecycle");
+    previewApi.invalidatePageLifecycle(previewPage);
+    assert.equal(stalePreviewRequest.promise.aborted, true, "pagehide aborts the all-target preview request");
+    assert.equal(previewPage._huePreviewRequest, null, "pagehide clears the all-target preview request");
+    const previewHideAfterPagehide = previewHideCount;
+
+    previewApi.beginPageLifecycle(previewPage);
+    previewPage._huePreviewTargetMetadataReady = true;
+    previewApi.previewAllEnabledTargets(previewPage);
+    assert.equal(previewHarness.requests.length, 2, "a new all-target preview can start after pagehide");
+    const currentPreviewRequest = previewHarness.requests[1];
+    previewStatus.textContent = "current preview sentinel";
+    stalePreviewRequest.resolve({ succeeded: true, message: "stale preview" });
+    await stalePreviewRequest.promise;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(previewStatus.textContent, "current preview sentinel", "stale preview completion cannot overwrite the current page");
+    assert.equal(previewHideCount, previewHideAfterPagehide, "stale preview completion cannot hide current-page loading state");
+
+    currentPreviewRequest.resolve({ succeeded: true, message: "current preview" });
+    await currentPreviewRequest.promise;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(previewPage._huePreviewRequest, null, "current preview completion clears its request");
+    assert.equal(previewHideCount, previewHideAfterPagehide + 1, "current preview completion hides loading state once");
+
+    const captureHarness = makeHarness();
+    const capturePage = captureHarness.page;
+    const captureApi = captureHarness.api;
+    const captureStatus = capturePage.querySelector("#previewColorStatus");
+    const captureColor = capturePage.querySelector("#previewColor");
+    const captureBrightness = capturePage.querySelector("#previewBrightness");
+    let captureHideCount = 0;
+    captureHarness.dashboard.hideLoadingMsg = () => { captureHideCount += 1; };
+    capturePage._huePreviewTargetMetadataReady = true;
+    captureApi.getCurrentLightCaptureTargetSelection = () => ({
+        targetAllEnabledMappings: false,
+        includeDefaultTarget: false,
+        targetUserIds: [],
+        targetRoutes: [],
+        targetUserId: "",
+        targetDeviceId: ""
+    });
+
+    captureApi.captureCurrentColor(capturePage);
+    assert.equal(captureHarness.requests.length, 1, "current-light capture starts one request");
+    const staleCaptureRequest = captureHarness.requests[0];
+    captureApi.invalidatePageLifecycle(capturePage);
+    assert.equal(staleCaptureRequest.promise.aborted, true, "pagehide aborts the current-light capture request");
+    const captureHideAfterPagehide = captureHideCount;
+    captureApi.beginPageLifecycle(capturePage);
+    capturePage._huePreviewTargetMetadataReady = true;
+    captureApi.captureCurrentColor(capturePage);
+    assert.equal(captureHarness.requests.length, 2, "a new current-light capture can start after pagehide");
+    const currentCaptureRequest = captureHarness.requests[1];
+    captureColor.value = "#102030";
+    captureBrightness.value = "20";
+    captureStatus.textContent = "current capture sentinel";
+    staleCaptureRequest.resolve({ Succeeded: true, Red: 255, Green: 0, Blue: 0, BrightnessPercent: 99 });
+    await staleCaptureRequest.promise;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(captureColor.value, "#102030", "stale capture completion cannot overwrite the current color");
+    assert.equal(captureBrightness.value, "20", "stale capture completion cannot overwrite the current brightness");
+    assert.equal(captureStatus.textContent, "current capture sentinel", "stale capture completion cannot overwrite current status");
+    assert.equal(captureHideCount, captureHideAfterPagehide, "stale capture completion cannot hide current-page loading state");
+
+    currentCaptureRequest.resolve({ Succeeded: true, Red: 16, Green: 32, Blue: 48, BrightnessPercent: 20 });
+    await currentCaptureRequest.promise;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(captureColor.value, "#102030", "current capture updates the preview color");
+    assert.equal(captureBrightness.value, "20", "current capture updates the preview brightness");
+    assert.equal(captureHideCount, captureHideAfterPagehide + 1, "current capture completion hides loading state once");
+}
+
 async function testDuplicateTargetNormalizationAndGuard() {
     const harness = makeHarness();
     const { page, api, dashboard } = harness;
@@ -2081,6 +2227,9 @@ await testColorPresetSaveLifecycleGuards();
 await testColorPresetDuplicateLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
 await testSceneScheduleSaveLifecycleGuards();
+await testSceneScheduleRunCancellationUsesActiveId();
+await testEntertainmentAreaSelectionHandlesUnsafeIds();
+await testPreviewLifecyclePagehideGuards();
 await testDuplicateTargetNormalizationAndGuard();
 await testDuplicateMappingResolutionLifecycleGuards();
 await testUserMappingReconciliationLifecycleGuards();
@@ -2089,4 +2238,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save stale-scope/pagehide, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

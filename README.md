@@ -487,7 +487,17 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.373 (Current)
+### Version 1.5.374 (Current)
+
+- **Scheduled-run identity safety**: manual Run Now cancellation remains bound to the cue ID that started the run, even if the administrator changes the selection; stale run callbacks cannot mutate a reused page.
+
+- **Preview/capture lifecycle safety**: page teardown cancels in-flight preview, capture, and cancellation requests; stale callbacks cannot hide loading UI or overwrite an active page.
+
+- **Recurrence search hardening**: cached normalized exclusion dates avoid reparsing exclusions for every candidate, and a maximum `DateTime` boundary guard prevents overflow with stale skip markers.
+
+- **Selector and accessibility hardening**: persisted entertainment-area IDs are matched without selector interpolation, and diagnostics/mapping tables expose captions and column scopes.
+
+- **Regression coverage**: configuration contracts cover cancellation identity, page lifecycle races, unsafe area IDs, and scheduler boundary conditions.
 
 - **Long-interval recurrence visibility**: internal next-run and Skip Next resolution now search beyond the public 366-day preview horizon, so valid weekly, monthly, and yearly cues with large configured intervals remain actionable.
 

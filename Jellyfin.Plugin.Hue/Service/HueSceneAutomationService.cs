@@ -1695,7 +1695,7 @@ public sealed class HueSceneAutomationService : BackgroundService
               schedule.DurationSeconds > PluginConfiguration.MaxPreviewDurationSeconds)) ||
             !TryGetScheduleLocalNow(schedule, serverLocalNow, out var scheduleNow, out var serverUtcNow) ||
             !TryGetScheduleDateBounds(schedule, out var startDate, out var endDate) ||
-            !PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(schedule.ExcludedDates, out _) ||
+            !PluginConfiguration.TryNormalizeSceneScheduleExcludedDates(schedule.ExcludedDates, out var normalizedExcludedDates) ||
             !TryGetScheduleRunDate(schedule, out var runDate) ||
             !PluginConfiguration.TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var normalizedRecurrence))
         {
@@ -1757,16 +1757,28 @@ public sealed class HueSceneAutomationService : BackgroundService
             firstCandidateDate = startDate.Value;
         }
 
+        var excludedDateSet = new HashSet<string>(normalizedExcludedDates, StringComparer.Ordinal);
         var skipNextOccurrence = schedule.SkipNextOccurrence;
         for (var dayOffset = 0; dayOffset < boundedHorizon + solarBaseLookbackDays; dayOffset++)
         {
             if (runDate.HasValue && dayOffset > 0)
                 break;
 
+            // Legacy configurations can contain a boundary date such as
+            // 9999-12-31. Do not let the look-ahead step overflow DateTime when a
+            // pending skip marker asks for the following occurrence.
+            if (dayOffset > 0 && firstCandidateDate > DateTime.MaxValue.AddDays(-dayOffset))
+                break;
+
             var candidateDate = firstCandidateDate.AddDays(dayOffset);
             if (endDate.HasValue && candidateDate > endDate.Value)
                 break;
-            if (!IsScheduleDateAllowed(schedule, candidateDate))
+            if (!IsScheduleDateAllowed(
+                    candidateDate,
+                    runDate,
+                    startDate,
+                    endDate,
+                    excludedDateSet))
                 continue;
 
             if (!runDate.HasValue && !IsScheduleRecurrenceDate(schedule, normalizedRecurrence, candidateDate))
@@ -3655,8 +3667,33 @@ public sealed class HueSceneAutomationService : BackgroundService
             return false;
         }
 
+        return IsScheduleDateAllowed(
+            scheduleDate,
+            runDate,
+            startDate,
+            endDate,
+            new HashSet<string>(excludedDates, StringComparer.Ordinal));
+    }
+
+    private static bool IsScheduleDateAllowed(
+        DateTime scheduleDate,
+        DateTime? runDate,
+        DateTime? startDate,
+        DateTime? endDate,
+        ISet<string> excludedDates)
+    {
+        if (runDate.HasValue && scheduleDate.Date != runDate.Value)
+            return false;
+
+        var date = scheduleDate.Date;
+        if ((startDate.HasValue && date < startDate.Value) ||
+            (endDate.HasValue && date > endDate.Value))
+        {
+            return false;
+        }
+
         var normalizedDate = date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-        return !excludedDates.Contains(normalizedDate, StringComparer.Ordinal);
+        return !excludedDates.Contains(normalizedDate);
     }
 
     private static bool TryGetScheduleDateBounds(

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.374] - 2026-08-29
+
+### Scheduler and administrator lifecycle hardening
+- **Scheduled-run identity safety**: manual Run Now cancellation remains bound to the cue ID that started the run, even if the administrator changes the selection; stale run callbacks cannot mutate a reused page.
+- **Preview/capture lifecycle safety**: page teardown cancels in-flight preview, capture, and cancellation requests; stale callbacks cannot hide loading UI or overwrite an active page.
+- **Recurrence search hardening**: cached normalized exclusion dates avoid reparsing exclusions for every candidate, and a maximum `DateTime` boundary guard prevents overflow with stale skip markers.
+- **Selector and accessibility hardening**: persisted entertainment-area IDs are matched without selector interpolation, and diagnostics/mapping tables expose captions and column scopes.
+- **Regression coverage**: configuration contracts cover cancellation identity, page lifecycle races, unsafe area IDs, and scheduler boundary conditions.
+
 ## [1.5.373] - 2026-08-29
 
 ### Scheduler and configuration lifecycle completeness

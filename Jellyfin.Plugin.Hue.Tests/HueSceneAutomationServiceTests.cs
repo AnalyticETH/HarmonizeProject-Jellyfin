@@ -982,6 +982,33 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void GetNextRunUtc_BoundaryDateWithSkipMarkerDoesNotOverflow()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "00:00",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            RecurrenceInterval = 1,
+            StartDate = "9999-12-31",
+            DaysOfWeekMask = PluginConfiguration.AllSceneScheduleDaysMask,
+            SkipNextOccurrence = true
+        };
+        var serverLocalNow = TimeZoneInfo.ConvertTimeFromUtc(
+            new DateTime(2026, 8, 29, 0, 0, 0, DateTimeKind.Utc),
+            TimeZoneInfo.Local);
+
+        // The configured occurrence is valid, but there is no representable next
+        // calendar date after 9999-12-31. A stale skip marker must not make status or
+        // skip evaluation throw while looking for that second slot.
+        var exception = Record.Exception(() => HueSceneAutomationService.GetNextRunUtc(schedule, serverLocalNow));
+
+        Assert.Null(exception);
+        Assert.Null(HueSceneAutomationService.GetNextRunUtc(schedule, serverLocalNow));
+    }
+
+    [Fact]
     public void TimeZoneAwareSchedule_UsesUtcInstantAndSelectedZoneWallClock()
     {
         var schedule = new HueSceneSchedule
