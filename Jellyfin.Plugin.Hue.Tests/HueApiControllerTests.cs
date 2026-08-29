@@ -90,6 +90,20 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneMutationEndpointsDeclareBoundedPreBindingRequestBodyLimit()
+    {
+        foreach (var methodName in new[] { "SaveScenePlaylist", "SaveSceneSchedule" })
+        {
+            var method = typeof(HueApiController).GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(method);
+            var limit = method!.GetCustomAttribute<RequestSizeLimitAttribute>();
+            Assert.NotNull(limit);
+            var metadata = Assert.IsAssignableFrom<IRequestSizeLimitMetadata>(limit);
+            Assert.Equal((long?)HueApiController.MaxSceneAutomationRequestBodyBytes, metadata.MaxRequestBodySize);
+        }
+    }
+
+    [Fact]
     public void MaximumSupportedConfigurationPayloadFitsRequestBodyLimit()
     {
         var settings = CreateMaximumSupportedConfigurationSettings();
@@ -177,6 +191,149 @@ public sealed class HueApiControllerTests : IDisposable
         var mapping = request.ToConfigurationMapping();
         Assert.Empty(PluginConfiguration.ValidateDeviceTargets(mapping));
     }
+
+    [Fact]
+    public void MaximumSupportedScenePlaylistPayloadFitsRequestBodyLimit()
+    {
+        var sceneNames = Enumerable.Range(0, PluginConfiguration.MaxScenePlaylistItems)
+            .Select(index => $"Scene {index}")
+            .ToList();
+        var targetUserIds = Enumerable.Range(0, PluginConfiguration.MaxSceneScheduleTargetMappings)
+            .Select(CreateDeterministicUserId)
+            .ToList();
+        var request = new HueScenePlaylistRequest
+        {
+            Id = "maximum-playlist",
+            Name = "Maximum playlist",
+            PresetNames = sceneNames,
+            StepDurationSeconds = Enumerable.Repeat(0, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+            StepRed = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+            StepGreen = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+            StepBlue = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+            StepBrightnessPercent = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+            StepEffects = Enumerable.Repeat<string?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+            StepEffectSpeedPercent = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+            StepTransitionSeconds = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+            StepTransitionOutSeconds = Enumerable.Repeat<int?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+            StepTransitionCurves = Enumerable.Repeat<string?>(null, PluginConfiguration.MaxScenePlaylistItems).ToList(),
+            TargetUserIds = targetUserIds
+        };
+        var configuration = new PluginConfiguration
+        {
+            ColorPresets = sceneNames.Select(name => new HueColorPreset { Name = name }).ToList(),
+            UserMappings = targetUserIds
+                .Select(userId => new UserBridgeMapping { UserId = userId, SyncEnabled = true })
+                .ToList()
+        };
+
+        Assert.Empty(PluginConfiguration.ValidateScenePlaylist(request.ToConfigurationPlaylist(), configuration));
+
+        var serialized = JsonSerializer.SerializeToUtf8Bytes(request);
+        Assert.InRange(
+            serialized.Length,
+            1,
+            (int)HueApiController.MaxSceneAutomationRequestBodyBytes);
+        var roundTripped = JsonSerializer.Deserialize<HueScenePlaylistRequest>(serialized);
+        Assert.NotNull(roundTripped);
+        Assert.Equal(PluginConfiguration.MaxScenePlaylistItems, roundTripped!.PresetNames.Count);
+        Assert.Equal(PluginConfiguration.MaxSceneScheduleTargetMappings, roundTripped.TargetUserIds.Count);
+    }
+
+    [Fact]
+    public void OversizedScenePlaylistPayloadExceedsPreBindingRequestBodyLimit()
+    {
+        var oversizedJson = Encoding.UTF8.GetString(
+                JsonSerializer.SerializeToUtf8Bytes(new HueScenePlaylistRequest
+                {
+                    Id = "oversized-playlist",
+                    Name = "Oversized playlist",
+                    PresetNames = new List<string> { "Scene" }
+                }))
+            .TrimEnd('}') +
+            $",\"ignoredPadding\":\"{new string('x', (int)HueApiController.MaxSceneAutomationRequestBodyBytes)}\"}}";
+        var oversized = Encoding.UTF8.GetBytes(oversizedJson);
+
+        Assert.True(
+            oversized.Length > HueApiController.MaxSceneAutomationRequestBodyBytes,
+            $"Expected oversized scene playlist payload to exceed {HueApiController.MaxSceneAutomationRequestBodyBytes} bytes, got {oversized.Length}.");
+
+        var method = typeof(HueApiController).GetMethod(
+            nameof(HueApiController.SaveScenePlaylist),
+            BindingFlags.Instance | BindingFlags.Public);
+        var limit = method!.GetCustomAttribute<RequestSizeLimitAttribute>();
+        var metadata = Assert.IsAssignableFrom<IRequestSizeLimitMetadata>(limit);
+        Assert.True(oversized.Length > metadata.MaxRequestBodySize);
+    }
+
+    [Fact]
+    public void MaximumSupportedSceneSchedulePayloadFitsRequestBodyLimit()
+    {
+        var targetUserIds = Enumerable.Range(0, PluginConfiguration.MaxSceneScheduleTargetMappings)
+            .Select(CreateDeterministicUserId)
+            .ToList();
+        var request = new HueSceneScheduleRequest
+        {
+            Id = "maximum-schedule",
+            Name = "Maximum schedule",
+            PresetName = "Scene",
+            TimeOfDay = "20:00",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceWeekly,
+            DaysOfWeekMask = PluginConfiguration.AllSceneScheduleDaysMask,
+            TargetUserIds = targetUserIds,
+            ExcludedDates = Enumerable.Range(0, PluginConfiguration.MaxSceneScheduleExcludedDates)
+                .Select(index => new DateTime(2026, 1, 1).AddDays(index).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
+                .ToList()
+        };
+        var configuration = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Scene" } },
+            UserMappings = targetUserIds
+                .Select(userId => new UserBridgeMapping { UserId = userId, SyncEnabled = true })
+                .ToList()
+        };
+
+        Assert.Empty(PluginConfiguration.ValidateSceneSchedule(request.ToConfigurationSchedule(), configuration));
+
+        var serialized = JsonSerializer.SerializeToUtf8Bytes(request);
+        Assert.InRange(
+            serialized.Length,
+            1,
+            (int)HueApiController.MaxSceneAutomationRequestBodyBytes);
+        var roundTripped = JsonSerializer.Deserialize<HueSceneScheduleRequest>(serialized);
+        Assert.NotNull(roundTripped);
+        Assert.Equal(PluginConfiguration.MaxSceneScheduleTargetMappings, roundTripped!.TargetUserIds!.Count);
+        Assert.Equal(PluginConfiguration.MaxSceneScheduleExcludedDates, roundTripped.ExcludedDates.Count);
+    }
+
+    [Fact]
+    public void OversizedSceneSchedulePayloadExceedsPreBindingRequestBodyLimit()
+    {
+        var oversizedJson = Encoding.UTF8.GetString(
+                JsonSerializer.SerializeToUtf8Bytes(new HueSceneScheduleRequest
+                {
+                    Id = "oversized-schedule",
+                    Name = "Oversized schedule",
+                    PresetName = "Scene"
+                }))
+            .TrimEnd('}') +
+            $",\"ignoredPadding\":\"{new string('x', (int)HueApiController.MaxSceneAutomationRequestBodyBytes)}\"}}";
+        var oversized = Encoding.UTF8.GetBytes(oversizedJson);
+
+        Assert.True(
+            oversized.Length > HueApiController.MaxSceneAutomationRequestBodyBytes,
+            $"Expected oversized scene schedule payload to exceed {HueApiController.MaxSceneAutomationRequestBodyBytes} bytes, got {oversized.Length}.");
+
+        var method = typeof(HueApiController).GetMethod(
+            nameof(HueApiController.SaveSceneSchedule),
+            BindingFlags.Instance | BindingFlags.Public);
+        var limit = method!.GetCustomAttribute<RequestSizeLimitAttribute>();
+        var metadata = Assert.IsAssignableFrom<IRequestSizeLimitMetadata>(limit);
+        Assert.True(oversized.Length > metadata.MaxRequestBodySize);
+    }
+
+    private static string CreateDeterministicUserId(int index) =>
+        $"00000000-0000-0000-0000-{index:D12}";
 
     private static HuePluginConfigurationSettings CreateMaximumSupportedConfigurationSettings()
     {

@@ -199,6 +199,8 @@ telemetry are excluded from the token so normal history updates do not invalidat
 
 `POST /HueSync/Preview` and `POST /HueSync/ColorPresets` accept `effect: "Temperature"`, `effect: "Aurora"`, `effect: "Fire"`, `effect: "Ocean"`, `effect: "Lightning"`, `effect: "Starlight"`, and `effect: "Matrix"`. They also accept `transitionCurve: "Linear"`, `"SmoothStep"`, `"EaseIn"`, `"EaseOut"`, or `"EaseInOut"`; blank/omitted legacy values remain Linear. The server validates and canonicalizes each effect and curve, and the stream tester applies the bounded easing to fade-in and fade-out transitions without changing the credential-free target-selection contract. Current-light capture can read one target or a selected/all-target set and seed the editor with a weighted aggregate sample.
 
+Direct `POST /HueSync/ScenePlaylists` and `POST /HueSync/SceneSchedules` bodies are capped at 1 MiB before playlist or schedule normalization, keeping the bounded step, target, and excluded-date collections from being traversed for oversized administrator requests.
+
 | Endpoint | Purpose |
 | :--- | :--- |
 | `GET /HueSync/DiscoverBridge` | Discover private/local Hue Bridge addresses. `ipAddress` remains the first result for compatibility; `ipAddresses` contains every distinct candidate, including the interface scope on link-local IPv6 results. |
@@ -488,7 +490,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.399 (Current)
+### Version 1.5.400 (Current)
+
+- **Saved-playlist mutation lifecycle**: individual playlist delete, duplicate, and rename confirmations/requests are page-generation-owned, canceled on teardown, stale-safe, duplicate-suppressed, and leave no stuck controls.
+
+- **Scene mutation request bounds**: direct playlist and scheduled-cue saves reject bodies over 1 MiB before model binding traverses bounded step, target, and excluded-date collections.
+
+- **Regression coverage**: individual playlist mutation lifecycle and maximum-valid/oversized playlist and schedule payload contracts cover the new boundaries.
+
+### Version 1.5.399
 
 - **History-clear lifecycle**: cue/session history clear confirmations and DELETE requests are page-generation-owned, canceled on teardown, stale-safe, duplicate-suppressed, and leave no stuck controls.
 

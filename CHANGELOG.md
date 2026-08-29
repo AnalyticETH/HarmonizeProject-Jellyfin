@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.400] - 2026-08-29
+
+### Administrator lifecycle and request-boundary hardening
+- **Saved-playlist mutation lifecycle**: individual playlist delete, duplicate, and rename confirmations/requests are page-generation-owned, canceled on teardown, stale-safe, duplicate-suppressed, and leave no stuck controls.
+- **Scene mutation request bounds**: direct playlist and scheduled-cue saves reject bodies over 1 MiB before model binding traverses bounded step, target, and excluded-date collections.
+- **Regression coverage**: individual playlist mutation lifecycle and maximum-valid/oversized playlist and schedule payload contracts cover the new boundaries.
+
 ## [1.5.399] - 2026-08-29
 
 ### Runtime, administrator, and request-boundary hardening

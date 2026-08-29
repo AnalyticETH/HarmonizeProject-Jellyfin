@@ -66,6 +66,14 @@ namespace Jellyfin.Plugin.Hue.Api
         /// JSON fields that are not part of the persisted mapping contract.
         /// </summary>
         internal const long MaxUserMappingRequestBodyBytes = 1 * 1024 * 1024;
+        /// <summary>
+        /// Bounds direct saved-scene playlist and schedule documents before ASP.NET model
+        /// binding traverses their step, target, and excluded-date collections. One MiB
+        /// leaves substantial headroom above their bounded collection payloads while
+        /// preventing an authenticated administrator request from allocating an unbounded
+        /// JSON body.
+        /// </summary>
+        internal const long MaxSceneAutomationRequestBodyBytes = 1 * 1024 * 1024;
 
         public HueApiController(HueClient hueClient, IEnumerable<Microsoft.Extensions.Hosting.IHostedService> hostedServices)
             : this(hueClient, hostedServices, null, null, null, null, null)
@@ -3335,6 +3343,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// are persisted; credentials remain in the server configuration.
         /// </summary>
         [HttpPost("ScenePlaylists")]
+        [RequestSizeLimit(MaxSceneAutomationRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -5344,6 +5353,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// are never accepted.
         /// </summary>
         [HttpPost("SceneSchedules")]
+        [RequestSizeLimit(MaxSceneAutomationRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]

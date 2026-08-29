@@ -739,7 +739,7 @@ const requiredScript = [
     "Registration returned without both required credentials.",
     "Registration failed. Verify the bridge address and link-button prompt, then try again.",
     "renameScenePlaylist: function",
-    'url: ApiClient.getUrl("HueSync/ScenePlaylists/" + encodeURIComponent(name) + "/Rename")',
+    'ApiClient.getUrl("HueSync/ScenePlaylists/" + encodeURIComponent(name) + "/Rename")',
     "deleteColorPresetsBulk: function",
     "duplicateColorPresetsBulk: function",
     "previewColorPresetsBulk: function",

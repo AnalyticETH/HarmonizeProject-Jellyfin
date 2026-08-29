@@ -3137,6 +3137,282 @@ async function testScenePlaylistSaveLifecycleGuards() {
     assert.equal(currentState.buttonUpdates, 1, "current scene playlist save refreshes current-page controls");
 }
 
+function configureScenePlaylistDeleteHarness(harness) {
+    const { page } = harness;
+    const select = page.querySelector("#scenePlaylistSelect");
+    select.value = "Playlist One";
+    select.selectedIndex = 0;
+    select.options = [{ value: "Playlist One", textContent: "Playlist One" }];
+    return {
+        button: page.querySelector("#deleteScenePlaylistBtn"),
+        status: page.querySelector("#scenePlaylistStatus"),
+        clearCalls: 0,
+        playlistLoads: 0,
+        scheduleLoads: 0
+    };
+}
+
+async function testScenePlaylistDeleteLifecycleGuards() {
+    const confirmationHarness = makeHarness();
+    const confirmationState = configureScenePlaylistDeleteHarness(confirmationHarness);
+    const confirmationPage = confirmationHarness.page;
+    const confirmationApi = confirmationHarness.api;
+    let confirmation;
+    let confirmationCalls = 0;
+    confirmationHarness.dashboard.confirm = (_message, _title, callback) => {
+        confirmationCalls += 1;
+        confirmation = callback;
+    };
+    const confirmationOperation = confirmationApi.deleteScenePlaylist(confirmationPage);
+    assert.ok(confirmationOperation && typeof confirmationOperation.then === "function", "scene playlist delete returns a promise");
+    assert.equal(confirmationHarness.requests.length, 0, "scene playlist delete waits for confirmation before mutating configuration");
+    assert.equal(confirmationCalls, 1, "scene playlist delete asks for one confirmation");
+    assert.equal(confirmationState.button.disabled, true, "pending scene playlist delete disables its button");
+    const pendingConfirmation = confirmationPage._hueScenePlaylistDeleteConfirmation;
+    const duplicateConfirmation = confirmationApi.deleteScenePlaylist(confirmationPage);
+    assert.equal(confirmationCalls, 1, "duplicate scene playlist delete does not open another confirmation");
+    assert.equal(confirmationHarness.requests.length, 0, "duplicate scene playlist delete does not submit before confirmation");
+    let confirmationSettled = false;
+    confirmationOperation.then(() => { confirmationSettled = true; });
+    confirmationApi.invalidatePageLifecycle(confirmationPage);
+    confirmationApi.beginPageLifecycle(confirmationPage);
+    assert.equal(pendingConfirmation.canceled, true, "pagehide cancels the pending scene playlist delete confirmation");
+    assert.equal(confirmationState.button.disabled, false, "pagehide restores the pending scene playlist delete button");
+    assert.equal(confirmationPage._hueScenePlaylistDeleteConfirmation, null, "pagehide clears the pending scene playlist delete confirmation");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(confirmationSettled, true, "pagehide settles the pending scene playlist delete confirmation");
+    confirmation(true);
+    assert.equal(confirmationHarness.requests.length, 0, "stale scene playlist delete confirmation cannot start a request after pagehide");
+    await Promise.all([confirmationOperation, duplicateConfirmation]);
+
+    const staleHarness = makeHarness();
+    const staleState = configureScenePlaylistDeleteHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    staleApi.clearScenePlaylist = () => {
+        staleState.clearCalls += 1;
+    };
+    staleApi.loadScenePlaylists = () => {
+        staleState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.loadSceneSchedules = () => {
+        staleState.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    let staleConfirmation;
+    staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirmation = callback; };
+    const staleOperation = staleApi.deleteScenePlaylist(stalePage);
+    staleConfirmation(true);
+    assert.equal(staleHarness.requests.length, 1, "confirmed scene playlist delete starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "DELETE", "scene playlist delete uses DELETE");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/ScenePlaylists/Playlist%20One", "scene playlist delete scopes the request to the selected playlist");
+    assert.equal(staleHarness.requests[0].options.dataType, "json", "scene playlist delete accepts the API response safely");
+    assert.ok(stalePage._huePageRequests.scenePlaylistDelete, "scene playlist delete is tracked by the page lifecycle");
+    assert.equal(stalePage._hueScenePlaylistDeleting, true, "scene playlist delete marks the page busy");
+    assert.equal(staleState.button.disabled, true, "scene playlist delete keeps its button disabled while pending");
+    staleState.status.textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight scene playlist delete");
+    assert.equal(stalePage._huePageRequests.scenePlaylistDelete, undefined, "pagehide removes scene playlist delete request state");
+    assert.equal(stalePage._hueScenePlaylistDeleting, false, "pagehide clears scene playlist delete busy state");
+    assert.equal(staleState.button.disabled, false, "pagehide restores the scene playlist delete button");
+    staleHarness.requests[0].resolve({ message: "stale delete" });
+    await staleOperation;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(staleState.status.textContent, "unchanged after pagehide", "stale scene playlist delete cannot write hidden-page status");
+    assert.equal(staleState.clearCalls, 0, "stale scene playlist delete cannot clear a reused page form");
+    assert.equal(staleState.playlistLoads, 0, "stale scene playlist delete cannot reload playlists");
+    assert.equal(staleState.scheduleLoads, 0, "stale scene playlist delete cannot reload schedules");
+
+    const currentHarness = makeHarness();
+    const currentState = configureScenePlaylistDeleteHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    currentApi.clearScenePlaylist = (_page, clearSelect) => {
+        currentState.clearCalls += 1;
+        assert.equal(clearSelect, true, "current scene playlist delete clears the selected playlist form");
+    };
+    currentApi.loadScenePlaylists = () => {
+        currentState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    currentApi.loadSceneSchedules = () => {
+        currentState.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    let currentConfirmation;
+    let currentConfirmationCalls = 0;
+    currentHarness.dashboard.confirm = (_message, _title, callback) => {
+        currentConfirmationCalls += 1;
+        currentConfirmation = callback;
+    };
+    const currentOperation = currentApi.deleteScenePlaylist(currentPage);
+    currentConfirmation(true);
+    assert.equal(currentHarness.requests.length, 1, "current scene playlist delete starts one request");
+    const duplicateWhilePending = currentApi.deleteScenePlaylist(currentPage);
+    await duplicateWhilePending;
+    assert.equal(currentConfirmationCalls, 1, "pending scene playlist delete blocks duplicate confirmation");
+    assert.equal(currentHarness.requests.length, 1, "pending scene playlist delete keeps one request in flight");
+    currentHarness.requests[0].resolve({ message: "deleted" });
+    await currentOperation;
+    assert.equal(currentState.status.textContent, "Playlist 'Playlist One' deleted.", "current scene playlist delete reports success");
+    assert.equal(currentState.clearCalls, 1, "current scene playlist delete clears the playlist form");
+    assert.equal(currentState.playlistLoads, 1, "current scene playlist delete reloads playlists once");
+    assert.equal(currentState.scheduleLoads, 1, "current scene playlist delete reloads schedules once");
+    assert.equal(currentPage._hueScenePlaylistDeleting, false, "current scene playlist delete clears the busy state");
+    assert.equal(currentState.button.disabled, false, "current scene playlist delete restores its button");
+    assert.equal(currentPage._huePageRequests.scenePlaylistDelete, undefined, "current scene playlist delete removes its settled lifecycle record");
+}
+
+function configureScenePlaylistIndividualMutationHarness(harness, operation) {
+    const { page } = harness;
+    const select = page.querySelector("#scenePlaylistSelect");
+    select.value = "Playlist One";
+    select.selectedIndex = 0;
+    select.options = [{ value: "Playlist One", textContent: "Playlist One" }];
+    page.querySelector("#scenePlaylistName").value = operation === "rename" ? "Renamed Playlist" : "Playlist One";
+    page.querySelector("#sceneScheduleSelect").value = "cue-1";
+    return {
+        button: page.querySelector(operation === "rename" ? "#renameScenePlaylistBtn" : "#duplicateScenePlaylistBtn"),
+        status: page.querySelector("#scenePlaylistStatus"),
+        name: page.querySelector("#scenePlaylistName"),
+        playlistLoads: 0,
+        scheduleLoads: 0,
+        buttonUpdates: 0
+    };
+}
+
+async function testScenePlaylistIndividualMutationLifecycleGuards() {
+    const mutationCases = [
+        {
+            operation: "duplicate",
+            method: "duplicateScenePlaylist",
+            key: "scenePlaylistDuplicate",
+            flag: "_hueScenePlaylistDuplicating",
+            route: "HueSync/ScenePlaylists/Playlist%20One/Duplicate",
+            response: { name: "Playlist Copy" },
+            success: "Playlist 'Playlist One' duplicated as 'Playlist Copy'."
+        },
+        {
+            operation: "rename",
+            method: "renameScenePlaylist",
+            key: "scenePlaylistRename",
+            flag: "_hueScenePlaylistRenaming",
+            route: "HueSync/ScenePlaylists/Playlist%20One/Rename",
+            response: { name: "Renamed Playlist" },
+            success: "Playlist 'Playlist One' renamed to 'Renamed Playlist'; scheduled-cue references were migrated."
+        }
+    ];
+
+    for (const testCase of mutationCases) {
+        const staleHarness = makeHarness();
+        const staleState = configureScenePlaylistIndividualMutationHarness(staleHarness, testCase.operation);
+        const stalePage = staleHarness.page;
+        const staleApi = staleHarness.api;
+        staleApi.loadScenePlaylists = () => {
+            staleState.playlistLoads += 1;
+            return Promise.resolve();
+        };
+        staleApi.loadSceneSchedules = () => {
+            staleState.scheduleLoads += 1;
+            return Promise.resolve();
+        };
+        staleApi.updateScenePlaylistButtons = () => {
+            staleState.buttonUpdates += 1;
+        };
+
+        const staleOperation = staleApi[testCase.method](stalePage);
+        assert.ok(staleOperation && typeof staleOperation.then === "function", `${testCase.operation} scene playlist mutation returns a tracked promise`);
+        assert.equal(staleHarness.requests.length, 1, `${testCase.operation} scene playlist mutation starts one request`);
+        assert.equal(staleHarness.requests[0].options.type, "POST", `${testCase.operation} scene playlist mutation uses POST`);
+        assert.equal(staleHarness.requests[0].options.url, testCase.route, `${testCase.operation} scene playlist mutation targets the selected playlist`);
+        if (testCase.operation === "rename") {
+            assert.deepEqual(JSON.parse(staleHarness.requests[0].options.data), { newName: "Renamed Playlist" }, "scene playlist rename sends the requested new name");
+        }
+        assert.equal(stalePage[testCase.flag], true, `${testCase.operation} scene playlist mutation marks the page busy`);
+        assert.equal(staleState.button.disabled, true, `${testCase.operation} scene playlist mutation disables its button`);
+        assert.ok(stalePage._huePageRequests[testCase.key], `${testCase.operation} scene playlist mutation is tracked by the page lifecycle`);
+
+        staleState.status.textContent = "unchanged after pagehide";
+        staleState.name.value = "current draft";
+        staleApi.invalidatePageLifecycle(stalePage);
+        assert.equal(staleHarness.requests[0].promise.aborted, true, `pagehide aborts in-flight ${testCase.operation} scene playlist mutation`);
+        assert.equal(stalePage._huePageRequests[testCase.key], undefined, `pagehide removes ${testCase.operation} scene playlist mutation state`);
+        assert.equal(stalePage[testCase.flag], false, `pagehide clears ${testCase.operation} scene playlist mutation state`);
+        assert.equal(staleState.button.disabled, false, `pagehide restores the ${testCase.operation} scene playlist mutation button`);
+        staleHarness.requests[0].resolve(testCase.response);
+        await staleOperation;
+        assert.equal(staleState.status.textContent, "unchanged after pagehide", `stale ${testCase.operation} scene playlist mutation cannot write hidden-page status`);
+        assert.equal(staleState.name.value, "current draft", `stale ${testCase.operation} scene playlist mutation cannot overwrite a reused page form`);
+        assert.equal(staleState.playlistLoads, 0, `stale ${testCase.operation} scene playlist mutation cannot reload playlists`);
+        assert.equal(staleState.scheduleLoads, 0, `stale ${testCase.operation} scene playlist mutation cannot reload schedules`);
+        assert.equal(staleState.buttonUpdates, 0, `stale ${testCase.operation} scene playlist mutation cannot update current-page controls`);
+
+        const currentHarness = makeHarness();
+        const currentState = configureScenePlaylistIndividualMutationHarness(currentHarness, testCase.operation);
+        const currentPage = currentHarness.page;
+        const currentApi = currentHarness.api;
+        currentApi.loadScenePlaylists = (_page, selectedName) => {
+            currentState.playlistLoads += 1;
+            assert.equal(selectedName, testCase.operation === "rename" ? "Renamed Playlist" : "Playlist Copy", `current ${testCase.operation} scene playlist mutation reloads the returned playlist`);
+            return Promise.resolve();
+        };
+        currentApi.loadSceneSchedules = (_page, selectedId) => {
+            currentState.scheduleLoads += 1;
+            assert.equal(selectedId, "cue-1", "current scene playlist rename preserves the selected cue");
+            return Promise.resolve();
+        };
+        currentApi.updateScenePlaylistButtons = () => {
+            currentState.buttonUpdates += 1;
+        };
+
+        const currentOperation = currentApi[testCase.method](currentPage);
+        assert.equal(currentHarness.requests.length, 1, `current ${testCase.operation} scene playlist mutation starts one request`);
+        currentHarness.requests[0].resolve(testCase.response);
+        await currentOperation;
+        assert.equal(currentState.status.textContent, testCase.success, `current ${testCase.operation} scene playlist mutation reports success`);
+        if (testCase.operation === "rename") {
+            assert.equal(currentState.name.value, "Renamed Playlist", "current scene playlist rename updates the playlist form");
+        }
+        assert.equal(currentState.playlistLoads, 1, `current ${testCase.operation} scene playlist mutation reloads playlists once`);
+        assert.equal(currentState.scheduleLoads, testCase.operation === "rename" ? 1 : 0, `current ${testCase.operation} scene playlist mutation reloads schedules as required`);
+        assert.equal(currentPage[testCase.flag], false, `current ${testCase.operation} scene playlist mutation clears busy state`);
+        assert.equal(currentState.button.disabled, false, `current ${testCase.operation} scene playlist mutation re-enables its button`);
+        assert.equal(currentState.buttonUpdates, 1, `current ${testCase.operation} scene playlist mutation refreshes current-page controls`);
+        assert.equal(currentPage._huePageRequests[testCase.key], undefined, `current ${testCase.operation} scene playlist mutation removes its settled lifecycle record`);
+
+        const duplicateHarness = makeHarness();
+        const duplicateState = configureScenePlaylistIndividualMutationHarness(duplicateHarness, testCase.operation);
+        const duplicatePage = duplicateHarness.page;
+        const duplicateApi = duplicateHarness.api;
+        duplicateApi.loadScenePlaylists = () => {
+            duplicateState.playlistLoads += 1;
+            return Promise.resolve();
+        };
+        duplicateApi.loadSceneSchedules = () => {
+            duplicateState.scheduleLoads += 1;
+            return Promise.resolve();
+        };
+        duplicateApi.updateScenePlaylistButtons = () => {
+            duplicateState.buttonUpdates += 1;
+        };
+
+        const first = duplicateApi[testCase.method](duplicatePage);
+        const second = duplicateApi[testCase.method](duplicatePage);
+        assert.equal(duplicateHarness.requests.length, 1, `duplicate ${testCase.operation} scene playlist mutation keeps one in-flight request`);
+        assert.ok(second && typeof second.then === "function", `duplicate ${testCase.operation} scene playlist mutation returns a settled no-op`);
+        assert.equal(duplicatePage[testCase.flag], true, `duplicate ${testCase.operation} scene playlist mutation remains marked busy`);
+        duplicateHarness.requests[0].resolve(testCase.response);
+        await Promise.all([first, second]);
+        assert.equal(duplicateState.playlistLoads, 1, `duplicate ${testCase.operation} scene playlist mutation reloads playlists once`);
+        assert.equal(duplicateState.scheduleLoads, testCase.operation === "rename" ? 1 : 0, `duplicate ${testCase.operation} scene playlist mutation reloads schedules as required`);
+        assert.equal(duplicateState.buttonUpdates, 1, `duplicate ${testCase.operation} scene playlist mutation refreshes controls once`);
+        assert.equal(duplicatePage[testCase.flag], false, `duplicate ${testCase.operation} scene playlist mutation clears busy state`);
+        assert.equal(duplicateState.button.disabled, false, `duplicate ${testCase.operation} scene playlist mutation re-enables its button`);
+    }
+}
+
 function configureScenePlaylistBulkHarness(harness) {
     const { page } = harness;
     const bulkSelect = page.querySelector("#scenePlaylistBulkSelect");
@@ -4094,6 +4370,8 @@ await testColorPresetBulkDuplicateLifecycleGuards();
 await testColorPresetBulkErrorDetailsAndRetry();
 await testColorPresetRenameLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
+await testScenePlaylistDeleteLifecycleGuards();
+await testScenePlaylistIndividualMutationLifecycleGuards();
 await testScenePlaylistBulkLifecycleGuards();
 await testHistoryClearLifecycleGuards();
 await testSceneScheduleSaveLifecycleGuards();
@@ -4109,4 +4387,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/bulk-delete/bulk-duplicate/history-clear/schedule-delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/bulk-delete/bulk-duplicate/history-clear/schedule-delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
