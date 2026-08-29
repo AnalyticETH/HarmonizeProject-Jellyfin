@@ -585,6 +585,62 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         /// <summary>
+        /// Forgets every stored certificate pin associated with one local bridge host.
+        /// This is intentionally a local configuration mutation: it does not contact
+        /// the bridge, and removing the pin causes subsequent credential-bearing
+        /// requests to fail closed until an administrator explicitly trusts a new
+        /// fingerprint.
+        /// </summary>
+        [HttpDelete("BridgeCertificate/Trust")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public ActionResult ForgetBridgeCertificatePin(
+            [FromQuery(Name = "ipAddress")] string? ipAddress)
+        {
+            var bridgeIp = ipAddress?.Trim() ?? string.Empty;
+            if (!HueBridgeCertificateValidation.IsValidBridgeAddress(bridgeIp))
+                return BadRequest("A valid private bridge IP address or .local host name is required.");
+
+            var plugin = Plugin.Instance;
+            var config = plugin?.Configuration;
+            if (plugin == null || config == null)
+                return NotFound("Plugin configuration not available.");
+
+            var previousPins = new Dictionary<string, string>(
+                config.HueBridgeCertificatePins ?? new Dictionary<string, string>(),
+                StringComparer.Ordinal);
+            var updatedPins = new Dictionary<string, string>(previousPins, StringComparer.Ordinal);
+            var matchingHosts = updatedPins.Keys
+                .Where(existing => HueBridgeCertificateValidation.IsSameBridgeHost(existing, bridgeIp))
+                .ToArray();
+            if (matchingHosts.Length == 0)
+                return NotFound("No stored bridge certificate pin exists for that address.");
+
+            foreach (var matchingHost in matchingHosts)
+                updatedPins.Remove(matchingHost);
+
+            // Publish a replacement dictionary in one assignment. Certificate
+            // validation callbacks can enumerate the previous snapshot concurrently;
+            // mutating that live instance in-place would race with a credential-bearing
+            // request while this administrator action persists the removal.
+            config.HueBridgeCertificatePins = updatedPins;
+            try
+            {
+                plugin.SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                config.HueBridgeCertificatePins = previousPins;
+                _logger?.LogError(ex, "Could not persist forgotten Hue bridge certificate pin");
+                return StatusCode(StatusCodes.Status500InternalServerError, "Bridge certificate pin could not be forgotten.");
+            }
+
+            return NoContent();
+        }
+
+        /// <summary>
         /// Discovers Hue Bridges reported on the local network. The legacy singular
         /// route remains first-result compatible while also returning every candidate.
         /// </summary>

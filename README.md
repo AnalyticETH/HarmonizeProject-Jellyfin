@@ -205,6 +205,7 @@ telemetry are excluded from the token so normal history updates do not invalidat
 | `GET /HueSync/DiscoverBridges` | Discover every private/local Hue Bridge address in one pass. The configuration page uses this route for multi-room bridge selection. |
 | `GET /HueSync/BridgeCertificate?ipAddress=...` | Read a local bridge's certificate without sending credentials and return its SHA-256 fingerprint. Review the fingerprint out of band before explicitly trusting it; no pin is accepted implicitly. |
 | `POST /HueSync/BridgeCertificate/Trust` | Explicitly pin a freshly probed local bridge certificate with `{ "ipAddress": "...", "fingerprint": "<sha256>", "confirm": true }`. The server compares the supplied value with a new credential-free probe and stores no change when they differ. Certificate pins are required before Link Bridge, Test Connection, playback, or scene automation can send App Keys. |
+| `DELETE /HueSync/BridgeCertificate/Trust?ipAddress=...` | Forget every stored certificate pin for one validated private bridge host. This does not contact the bridge; no fingerprint remains trusted, and credential-bearing requests fail closed until an administrator explicitly trusts a replacement fingerprint. |
 | `GET /HueSync/PlaybackDevices` | Return at most 256 recent, credential-free Jellyfin playback-device identities (`userId`, exact case-sensitive `deviceId`, display labels, client/device metadata, active state, and last activity). An optional valid `userId` query scopes enumeration server-side. The elevated configuration page uses this to build nested route choices; bridge keys and playback titles are never returned. Invalid user IDs return `400`; a session-service failure returns a sanitized `503`; a null session enumeration is treated as an empty result. |
 | `POST /HueSync/Register` | Complete the administrator Link Bridge flow after pressing the physical bridge Link Button and explicitly trusting its certificate fingerprint. Send `{ "ipAddress": "..." }` for a private bridge IP or `.local` host name; invalid/public or unpinned targets are rejected before any credential-bearing request. The response contains the generated App Key and Client Key for immediate administrator setup—treat both values as secrets and never log or share them. |
 | `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "", "userId": "...", "deviceId": "..." }` in the request body. A blank key may use the stored global, custom mapping, or exact case-sensitive nested device-route key only when the bridge target and owning identity match; an explicit device ID never falls back to another target. |
@@ -291,7 +292,7 @@ Single-scene scheduled cues may carry nullable `red`, `green`, and `blue` channe
 
 ### Generating Hue Credentials (Manual Fallback)
 If the **Link Bridge** button doesn't work for you, you can generate keys manually:
-1.  Use the administrator **Bridge Certificate** action (or `GET /HueSync/BridgeCertificate`) to read the SHA-256 fingerprint, verify it against your trusted bridge identity, and explicitly trust it with `POST /HueSync/BridgeCertificate/Trust`.
+1.  Use the administrator **Bridge Certificate** action (or `GET /HueSync/BridgeCertificate`) to read the SHA-256 fingerprint, verify it against your trusted bridge identity, and explicitly trust it with `POST /HueSync/BridgeCertificate/Trust`. Existing pins are listed in the configuration page; use **Forget** (or `DELETE /HueSync/BridgeCertificate/Trust?ipAddress=...`) when retiring a bridge or replacing its certificate, then explicitly trust the replacement before sending credentials.
 2.  Go to `https://<BRIDGE_IP>/debug/clip.html`.
 3.  Press the **Link Button** on your Hue Bridge.
 4.  Post to `/api` with body: `{"devicetype":"jellyfin_plugin#server", "generateclientkey":true}`.
@@ -491,6 +492,10 @@ Benchmarks measure:
 - **Audio terminal status**: naturally completed audio playback now reports an audio stream ending after shared cleanup instead of the video terminal message.
 
 - **Legacy schedule target preservation**: partial schedule edits and configuration imports retain an omitted legacy `targetUserId`; explicit target selectors, including an explicit empty value for the global bridge, remain mode switches.
+
+- **Certificate pin lifecycle management**: administrators can review credential-free bridge certificate pins in the configuration page and explicitly forget a retired or rotated bridge pin; deletion is validated, atomic, and fail-closed until replacement trust is confirmed.
+
+- **Semgrep snapshot integrity**: the blocking default ruleset pin is refreshed after the registry rotation and continues to fail closed on any unreviewed snapshot change.
 
 - **Regression coverage**: lifecycle and API tests cover audio cleanup status, omitted legacy target retention, selected-target switching, explicit global targeting, and partial-import parity.
 

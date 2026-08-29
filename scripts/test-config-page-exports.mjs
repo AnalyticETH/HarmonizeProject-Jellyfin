@@ -174,6 +174,21 @@ function makeElement(tagName = "div") {
             return null;
         }
     };
+    Object.defineProperty(element, "innerHTML", {
+        configurable: true,
+        get() {
+            return this._innerHTML || "";
+        },
+        set(value) {
+            this._innerHTML = String(value || "");
+            this.children = [];
+            if (this.tagName === "SELECT") {
+                this.options = [];
+                this.selectedIndex = -1;
+                this.value = "";
+            }
+        }
+    });
     return element;
 }
 
@@ -1103,6 +1118,11 @@ async function testConfigurationSaveSuppressesStaleConfigurationLoad() {
     assert.equal(requests[0].promise.aborted, true, "configuration save aborts the stale configuration load");
     assert.equal(requests[1].options.type, "POST", "configuration save uses POST");
     assert.equal(requests[1].options.url, "HueSync/Configuration", "configuration save uses the configuration endpoint");
+    assert.equal(
+        Object.prototype.hasOwnProperty.call(JSON.parse(requests[1].options.data), "HueBridgeCertificatePins"),
+        false,
+        "configuration save cannot overwrite certificate pins from a stale page snapshot"
+    );
     assert.equal(page.querySelector('#saveConfigurationBtn').disabled, true, "configuration save disables its button");
 
     requests[0].resolve({ HueBridgeIp: "old-bridge", SyncEnabled: true });
@@ -1901,6 +1921,101 @@ async function testSavedSceneSingleMappingUsesSelectedTargetPayload() {
     await new Promise(resolve => setImmediate(resolve));
 }
 
+async function testBridgeCertificatePinRenderingAndForgetLifecycle() {
+    const loadHarness = makeHarness();
+    const loadPage = loadHarness.page;
+    const loadApi = loadHarness.api;
+    loadApi.loadEntertainmentAreas = () => {};
+    loadApi.loadColorPresets = () => {};
+    loadApi.loadScenePlaylists = () => {};
+    loadApi.loadSceneSchedules = () => {};
+    const load = loadApi.loadConfiguration(loadPage);
+    assert.equal(loadHarness.requests.length, 1, "configuration load starts one tracked request for certificate pins");
+    loadHarness.requests[0].resolve({
+        HueBridgeIp: "192.168.1.100",
+        HueBridgeCertificatePins: {
+            "192.168.1.100": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+    });
+    await load;
+    assert.equal(
+        loadPage.querySelector("#bridgeCertificatePinsList").children.length,
+        1,
+        "configuration load renders the certificate pins returned by the API"
+    );
+
+    const harness = makeHarness();
+    const { page, api, requests, dashboard } = harness;
+    page._hueBridgeCertificatePins = {
+        "192.168.1.101": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "192.168.1.100": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    };
+    api.renderBridgeCertificatePins(page);
+
+    const list = page.querySelector("#bridgeCertificatePinsList");
+    assert.equal(list.children.length, 2, "certificate pin rendering shows every stored host");
+    assert.equal(
+        list.children[0].children[0].textContent,
+        "192.168.1.100 — aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "certificate pin rendering exposes only host and fingerprint metadata"
+    );
+    assert.equal(list.children[0].children[1].textContent, "Forget", "certificate pin rendering adds a forget control");
+    assert.equal(
+        list.children[0].children[1].attributes["aria-label"],
+        "Forget trusted certificate for 192.168.1.100",
+        "certificate pin forget controls identify their host accessibly"
+    );
+
+    let confirm;
+    dashboard.confirm = (_message, _title, callback) => { confirm = callback; };
+    const operation = api.forgetBridgeCertificatePin(page, "192.168.1.100");
+    assert.equal(requests.length, 0, "forget requires explicit confirmation before mutating configuration");
+    assert.equal(list.children[0].children[1].disabled, true, "pending forget disables pin controls");
+    confirm(true);
+    assert.equal(requests.length, 1, "confirmed forget starts one tracked request");
+    assert.equal(requests[0].options.type, "DELETE", "forget uses DELETE");
+    assert.equal(
+        requests[0].options.url,
+        "HueSync/BridgeCertificate/Trust?ipAddress=192.168.1.100",
+        "forget scopes the request to the selected host"
+    );
+    assert.equal(requests[0].options.dataType, "text", "forget accepts the endpoint's empty response safely");
+    requests[0].resolve("");
+    await operation;
+    assert.equal(Object.keys(page._hueBridgeCertificatePins).length, 1, "successful forget removes only the selected cached pin");
+    assert.equal(list.children.length, 1, "successful forget re-renders remaining pins");
+    assert.equal(page.querySelector("#bridgeStatus").style.background, "#f0ad4e", "successful forget warns that re-trust is required");
+    assert.equal(page._hueBridgeCertificatePinRemoving, false, "successful forget clears its busy state");
+
+    const staleHarness = makeHarness();
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    stalePage._hueBridgeCertificatePins = {
+        "192.168.1.100": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    };
+    staleApi.renderBridgeCertificatePins(stalePage);
+    let staleConfirm;
+    staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirm = callback; };
+    const staleOperation = staleApi.forgetBridgeCertificatePin(stalePage, "192.168.1.100");
+    staleConfirm(true);
+    assert.equal(staleHarness.requests.length, 1, "stale lifecycle test starts a tracked forget request");
+    stalePage.querySelector("#bridgeStatus").textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight pin forget request");
+    staleHarness.requests[0].resolve("");
+    await staleOperation;
+    assert.equal(
+        stalePage._hueBridgeCertificatePins["192.168.1.100"],
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "invalidated forget cannot mutate the hidden page's pin cache"
+    );
+    assert.equal(
+        stalePage.querySelector("#bridgeStatus").textContent,
+        "unchanged after pagehide",
+        "invalidated forget cannot write a stale status"
+    );
+}
+
 for (const testCase of exportCases) {
     await testSuccessfulExport(testCase);
     await testStaleQuerySuppressesExport(testCase);
@@ -1934,5 +2049,6 @@ await testUserMappingReconciliationLifecycleGuards();
 await testRuntimeStopLifecycleGuards();
 await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
+await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save stale-scope/pagehide, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save stale-scope/pagehide, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

@@ -14,6 +14,8 @@ No unreleased changes.
 ### Playback lifecycle and schedule target integrity
 - **Audio terminal status**: naturally completed audio playback now reports an audio stream ending after shared cleanup instead of the video terminal message.
 - **Legacy schedule target preservation**: partial schedule edits and configuration imports retain an omitted legacy `targetUserId`; explicit target selectors, including an explicit empty value for the global bridge, remain mode switches.
+- **Certificate pin lifecycle management**: administrators can review credential-free bridge certificate pins in the configuration page and explicitly forget a retired or rotated bridge pin; deletion is validated, atomic, and fail-closed until replacement trust is confirmed.
+- **Semgrep snapshot integrity**: refresh the reviewed SHA-256 pin for the current default ruleset snapshot after the registry rotated; blocking scans continue to fail closed on any unreviewed change.
 - **Regression coverage**: lifecycle and API tests cover audio cleanup status, omitted legacy target retention, selected-target switching, explicit global targeting, and partial-import parity.
 
 ## [1.5.371] - 2026-08-29

@@ -55,7 +55,8 @@ for (const marker of ["Link Button", "private", "App Key", "Client Key", "secret
 
 for (const endpoint of [
     "GET /HueSync/BridgeCertificate?ipAddress=...",
-    "POST /HueSync/BridgeCertificate/Trust"
+    "POST /HueSync/BridgeCertificate/Trust",
+    "DELETE /HueSync/BridgeCertificate/Trust?ipAddress=..."
 ]) {
     const row = readme.split("\n").find(line => line.startsWith("|") && line.includes(`| \`${endpoint}\` |`));
     if (!row || !row.includes("fingerprint") || !row.includes("credential")) {
@@ -241,6 +242,7 @@ for (const marker of [
 for (const marker of [
     '[HttpGet("BridgeCertificate")]',
     '[HttpPost("BridgeCertificate/Trust")]',
+    '[HttpDelete("BridgeCertificate/Trust")]',
     "GetBridgeCertificateFingerprint",
     "CertificateFingerprintHeader",
     "HueBridgeCertificatePins"

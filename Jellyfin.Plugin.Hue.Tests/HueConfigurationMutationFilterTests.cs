@@ -65,6 +65,7 @@ public sealed class HueConfigurationMutationFilterTests
     [Theory]
     [InlineData("POST", "/HueSync/Configuration")]
     [InlineData("POST", "/HueSync/BridgeCertificate/Trust")]
+    [InlineData("DELETE", "/HueSync/BridgeCertificate/Trust")]
     [InlineData("POST", "/HueSync/SceneSchedules/BulkEnabled")]
     public async Task ConfigurationWriterRoutesAcquireConfigurationMutation(
         string method,

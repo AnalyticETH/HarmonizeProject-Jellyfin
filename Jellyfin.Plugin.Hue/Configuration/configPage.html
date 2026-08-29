@@ -220,6 +220,12 @@
                             </div>
                         </div>
 
+                        <div id="bridgeCertificatePins" class="inputContainer" style="display: none;">
+                            <div class="fieldDescription"><strong>Trusted bridge certificates</strong></div>
+                            <div id="bridgeCertificatePinsList" role="list" aria-live="polite" aria-atomic="true"></div>
+                            <div class="fieldDescription">These credential-free certificate pins protect App Key requests. Forget a pin when retiring a bridge or after verifying that its certificate identity changed; the bridge must then be explicitly trusted again before credentials can be sent.</div>
+                        </div>
+
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="hueAppKey">Hue App Key (Username)</label>
                             <input id="hueAppKey" name="hueAppKey" type="password" is="emby-input" autocomplete="new-password" />
@@ -1805,6 +1811,17 @@
                     if (!left || !right) return false;
                     return left.trim().replace(/\.+$/, '').toLowerCase() === right.trim().replace(/\.+$/, '').toLowerCase();
                 },
+                isSameBridgeCertificateHost: function (left, right) {
+                    if (!left || !right) return false;
+                    var normalize = function (value) {
+                        var normalized = String(value || '').trim();
+                        if (normalized.length >= 2 && normalized[0] === '[' && normalized[normalized.length - 1] === ']') {
+                            normalized = normalized.slice(1, -1);
+                        }
+                        return normalized.replace(/\.+$/, '').toLowerCase();
+                    };
+                    return normalize(left) === normalize(right);
+                },
                 normalizeJellyfinUserId: function (value) {
                     var trimmed = String(value || '').trim();
                     var match = trimmed.match(/^([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})$/i) ||
@@ -2023,16 +2040,196 @@
                         HueConfigurationPage.canUseStoredMappingCredentials(target, requireClientKey) ||
                         HueConfigurationPage.canUseStoredDeviceRouteCredentials(target, requireClientKey);
                 },
-                ensureBridgeCertificate: function (page, bridgeIp, statusElement) {
+                getBridgeCertificatePins: function (configuration) {
+                    var pins = configuration && typeof configuration === 'object'
+                        ? (typeof configuration.hueBridgeCertificatePins !== 'undefined'
+                            ? configuration.hueBridgeCertificatePins
+                            : configuration.HueBridgeCertificatePins)
+                        : null;
+                    if (!pins || typeof pins !== 'object' || Array.isArray(pins)) return Object.create(null);
+                    var normalized = Object.create(null);
+                    Object.keys(pins).forEach(function (host) {
+                        var normalizedHost = String(host || '').trim();
+                        if (!normalizedHost) return;
+                        normalized[normalizedHost] = String(pins[host] || '').trim();
+                    });
+                    return normalized;
+                },
+                rememberBridgeCertificatePin: function (page, host, fingerprint) {
+                    if (!page || page._huePageActive === false) return;
+                    var normalizedHost = String(host || '').trim();
+                    var normalizedFingerprint = String(fingerprint || '').trim();
+                    if (!normalizedHost || !normalizedFingerprint) return;
+                    var existing = HueConfigurationPage.getBridgeCertificatePins({
+                        hueBridgeCertificatePins: page._hueBridgeCertificatePins
+                    });
+                    var updated = Object.create(null);
+                    Object.keys(existing).forEach(function (existingHost) {
+                        if (!HueConfigurationPage.isSameBridgeCertificateHost(existingHost, normalizedHost)) {
+                            updated[existingHost] = existing[existingHost];
+                        }
+                    });
+                    updated[normalizedHost] = normalizedFingerprint;
+                    page._hueBridgeCertificatePins = updated;
+                    HueConfigurationPage.renderBridgeCertificatePins(page);
+                },
+                forgetBridgeCertificatePinFromCache: function (page, host) {
+                    if (!page) return;
+                    var target = String(host || '').trim();
+                    var existing = HueConfigurationPage.getBridgeCertificatePins({
+                        hueBridgeCertificatePins: page._hueBridgeCertificatePins
+                    });
+                    var updated = Object.create(null);
+                    Object.keys(existing).forEach(function (existingHost) {
+                        if (!HueConfigurationPage.isSameBridgeCertificateHost(existingHost, target)) {
+                            updated[existingHost] = existing[existingHost];
+                        }
+                    });
+                    page._hueBridgeCertificatePins = updated;
+                },
+                renderBridgeCertificatePins: function (page) {
+                    if (!page || !page.querySelector) return;
+                    var container = page.querySelector('#bridgeCertificatePins');
+                    var list = page.querySelector('#bridgeCertificatePinsList');
+                    if (!container || !list) return;
+                    var pins = HueConfigurationPage.getBridgeCertificatePins({
+                        hueBridgeCertificatePins: page._hueBridgeCertificatePins
+                    });
+                    var entries = Object.keys(pins)
+                        .map(function (host) {
+                            return {
+                                host: host,
+                                fingerprint: pins[host]
+                            };
+                        })
+                        .filter(function (entry) { return !!entry.host; })
+                        .sort(function (left, right) {
+                            return left.host.localeCompare(right.host, undefined, { sensitivity: 'base' });
+                        });
+                    list.innerHTML = '';
+                    var pinMutationBusy = page._hueBridgeCertificatePinPending === true ||
+                        page._hueBridgeCertificatePinRemoving === true;
+                    var verifyButton = page.querySelector('#bridgeCertificateBtn');
+                    if (verifyButton) verifyButton.disabled = pinMutationBusy;
+                    container.style.display = entries.length > 0 ? 'block' : 'none';
+                    entries.forEach(function (entry) {
+                        var row = document.createElement('div');
+                        row.setAttribute('role', 'listitem');
+                        row.style.display = 'flex';
+                        row.style.gap = '0.75em';
+                        row.style.alignItems = 'center';
+                        row.style.marginTop = '0.5em';
+
+                        var metadata = document.createElement('span');
+                        metadata.style.flex = '1 1 auto';
+                        metadata.style.wordBreak = 'break-word';
+                        metadata.textContent = entry.host + ' — ' + (entry.fingerprint || '(invalid/empty fingerprint)');
+
+                        var removeButton = document.createElement('button');
+                        removeButton.setAttribute('type', 'button');
+                        removeButton.setAttribute('is', 'emby-button');
+                        removeButton.setAttribute('class', 'raised');
+                        removeButton.setAttribute('aria-label', 'Forget trusted certificate for ' + entry.host);
+                        removeButton.textContent = 'Forget';
+                        removeButton.disabled = pinMutationBusy;
+                        removeButton.addEventListener('click', function () {
+                            HueConfigurationPage.forgetBridgeCertificatePin(page, entry.host);
+                        });
+                        row.appendChild(metadata);
+                        row.appendChild(removeButton);
+                        list.appendChild(row);
+                    });
+                },
+                forgetBridgeCertificatePin: function (page, host) {
+                    if (!page) page = document.querySelector('.pluginConfigurationPage');
+                    var target = String(host || '').trim();
+                    if (!page || !target || page._hueBridgeCertificatePinPending === true ||
+                        page._hueBridgeCertificatePinRemoving === true) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
+
+                    // Do not let a configuration GET that predates this mutation
+                    // repaint a removed pin after the DELETE completes.
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'configuration');
+                    page._hueBridgeCertificatePinPending = true;
+                    HueConfigurationPage.renderBridgeCertificatePins(page);
+                    return new Promise(function (resolve) {
+                        Dashboard.confirm(
+                            'Forget the trusted certificate pin for ' + target + '? Credential-bearing requests will fail closed until this bridge is explicitly trusted again.',
+                            'Forget Hue Bridge Certificate',
+                            function (confirmed) {
+                                page._hueBridgeCertificatePinPending = false;
+                                if (!confirmed || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                                    if (HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                                        HueConfigurationPage.renderBridgeCertificatePins(page);
+                                    }
+                                    resolve();
+                                    return;
+                                }
+
+                                page._hueBridgeCertificatePinRemoving = true;
+                                HueConfigurationPage.renderBridgeCertificatePins(page);
+                                var request = HueConfigurationPage.getPageLifecycleRequest(
+                                    page,
+                                    pageGeneration,
+                                    'bridgeCertificatePinDelete',
+                                    ApiClient.getUrl('HueSync/BridgeCertificate/Trust') + '?ipAddress=' + encodeURIComponent(target),
+                                    {
+                                        type: 'DELETE',
+                                        // The endpoint returns 204; text avoids a JSON
+                                        // parse attempt while keeping the request tracked.
+                                        dataType: 'text'
+                                    },
+                                    target);
+                                var isCurrent = function () {
+                                    return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                                };
+                                resolve(request.then(function () {
+                                    if (!isCurrent()) return;
+                                    HueConfigurationPage.forgetBridgeCertificatePinFromCache(page, target);
+                                    HueConfigurationPage.renderBridgeCertificatePins(page);
+                                    HueConfigurationPage.refreshStatus(
+                                        page,
+                                        'Trusted certificate pin forgotten. Credential-bearing requests now require explicit re-trust.',
+                                        'warning');
+                                }).catch(function (err) {
+                                    if (!isCurrent()) return;
+                                    console.error('Failed to forget Hue bridge certificate pin:', err);
+                                    HueConfigurationPage.refreshStatus(page, 'Unable to forget the trusted bridge certificate pin.', 'error');
+                                    Dashboard.alert('Failed to forget bridge certificate pin: ' + (err && err.message ? err.message : 'unknown error'));
+                                }).finally(function () {
+                                    var current = isCurrent();
+                                    var requestRecord = request && request._huePageRequestRecord;
+                                    var tracked = page && page._huePageRequests &&
+                                        page._huePageRequests.bridgeCertificatePinDelete === requestRecord;
+                                    if (current || tracked) {
+                                        page._hueBridgeCertificatePinRemoving = false;
+                                        if (current) HueConfigurationPage.renderBridgeCertificatePins(page);
+                                        if (!current) HueConfigurationPage.cancelPageLifecycleRequest(page, 'bridgeCertificatePinDelete');
+                                    }
+                                }));
+                            });
+                    });
+                },
+                ensureBridgeCertificate: function (page, bridgeIp, statusElement, lifecycleGeneration) {
                     var target = String(bridgeIp || '').trim();
                     if (!target) return Promise.reject(new Error('A bridge address is required.'));
                     var status = statusElement || (page && page.querySelector ? page.querySelector('#bridgeStatus') : null);
+                    var canWritePage = function () {
+                        return !page || typeof lifecycleGeneration !== 'number' ||
+                            HueConfigurationPage.isPageLifecycleCurrent(page, lifecycleGeneration);
+                    };
                     return ApiClient.getJSON(ApiClient.getUrl('HueSync/BridgeCertificate') + '?ipAddress=' + encodeURIComponent(target))
                         .then(function (response) {
                             var fingerprint = String((response && (response.fingerprint || response.Fingerprint)) || '').trim();
                             var pinned = response && (response.isPinned === true || response.IsPinned === true);
                             if (!fingerprint) throw new Error('The bridge did not return a certificate fingerprint.');
-                            if (pinned) return true;
+                            if (pinned) {
+                                if (canWritePage()) {
+                                    HueConfigurationPage.rememberBridgeCertificatePin(page, target, fingerprint);
+                                }
+                                return true;
+                            }
                             return new Promise(function (resolve, reject) {
                                 var message = 'Verify this bridge certificate fingerprint out of band before trusting it:\n\n' + fingerprint + '\n\nTrust this fingerprint for ' + target + '?';
                                 Dashboard.confirm(message, 'Trust Hue Bridge Certificate', function (confirmed) {
@@ -2046,11 +2243,18 @@
                                         data: JSON.stringify({ ipAddress: target, fingerprint: fingerprint, confirm: true }),
                                         contentType: 'application/json',
                                         dataType: 'json'
-                                    }).then(function () { resolve(true); }).catch(reject);
+                                    }).then(function (trustResponse) {
+                                        var trustedFingerprint = String((trustResponse && (trustResponse.fingerprint || trustResponse.Fingerprint)) || fingerprint).trim();
+                                        if (canWritePage()) {
+                                            HueConfigurationPage.rememberBridgeCertificatePin(page, target, trustedFingerprint);
+                                        }
+                                        resolve(true);
+                                    }).catch(reject);
                                 });
                             });
                         }).then(function (trusted) {
                             if (!trusted) throw new Error('Bridge certificate was not trusted.');
+                            if (!canWritePage()) return true;
                             if (status) {
                                 status.textContent = 'Bridge certificate is pinned. Credential-bearing requests are protected.';
                                 status.style.background = '#4caf50';
@@ -2074,7 +2278,7 @@
                         preflights[preflightRecord.key] = preflightRecord;
                         page._hueCertificatePreflights = preflights;
                     }
-                    var request = HueConfigurationPage.ensureBridgeCertificate(page, bridgeIp, statusElement)
+                    var request = HueConfigurationPage.ensureBridgeCertificate(page, bridgeIp, statusElement, pageGeneration)
                         .then(function () {
                             // A certificate prompt or probe can outlive a hidden
                             // configuration page. Do not let its eventual approval
@@ -2138,10 +2342,11 @@
                     return request;
                 },
                 verifyBridgeCertificate: function (page) {
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     var bridgeInput = page && page.querySelector ? page.querySelector('#hueBridgeIp') : null;
                     var status = page && page.querySelector ? page.querySelector('#bridgeStatus') : null;
                     var bridgeIp = bridgeInput ? bridgeInput.value.trim() : '';
-                    HueConfigurationPage.ensureBridgeCertificate(page, bridgeIp, status)
+                    HueConfigurationPage.ensureBridgeCertificate(page, bridgeIp, status, pageGeneration)
                         .catch(function (err) {
                             console.error('Bridge certificate verification error:', err);
                             Dashboard.alert(err && err.message ? err.message : 'Bridge certificate verification failed.');
@@ -2773,6 +2978,8 @@
                     HueConfigurationPage._hueMappingRegistrationPreflight = null;
                     page._huePageGeneration += 1;
                     page._huePageActive = false;
+                    page._hueBridgeCertificatePinPending = false;
+                    page._hueBridgeCertificatePinRemoving = false;
                     var requests = page._huePageRequests || {};
                     Object.keys(requests).forEach(function (key) {
                         HueConfigurationPage.cancelPageLifecycleRequest(page, key);
@@ -3131,6 +3338,8 @@
                         HueConfigurationPage.globalBridgeIp = String(getConfigValue('HueBridgeIp', '') || '').trim();
                         HueConfigurationPage.globalHasAppKey = !!getConfigValue('HasAppKey', false);
                         HueConfigurationPage.globalHasClientKey = !!getConfigValue('HasClientKey', false);
+                        page._hueBridgeCertificatePins = HueConfigurationPage.getBridgeCertificatePins(config);
+                        HueConfigurationPage.renderBridgeCertificatePins(page);
                         page.querySelector('#hueBridgeIp').value = HueConfigurationPage.globalBridgeIp;
                         page.querySelector('#hueAppKey').value = '';
                         page.querySelector('#hueClientKey').value = '';
@@ -3252,6 +3461,9 @@
                         return isNaN(value) ? fallback : value;
                     };
 
+                    // Certificate pins are intentionally omitted from this form save.
+                    // The dedicated DELETE action owns pin removal so an old page
+                    // snapshot cannot silently restore or erase a trust decision.
                     var config = {
                         HueBridgeIp: page.querySelector('#hueBridgeIp').value,
                         HueAppKey: page.querySelector('#hueAppKey').value,
@@ -11460,7 +11672,7 @@
 
                     var preflight = { generation: pageGeneration, canceled: false };
                     page._hueRegistrationPreflight = preflight;
-                    HueConfigurationPage.ensureBridgeCertificate(page, ip).then(function () {
+                    HueConfigurationPage.ensureBridgeCertificate(page, ip, null, pageGeneration).then(function () {
                         if (preflight.canceled || !isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
                             page._hueRegistrationPreflight !== preflight) return false;
                         return new Promise(function (resolve) {
@@ -12799,7 +13011,7 @@
 
                     var preflight = { generation: pageGeneration, canceled: false };
                     HueConfigurationPage._hueMappingRegistrationPreflight = preflight;
-                    HueConfigurationPage.ensureBridgeCertificate(page, ip, statusEl).then(function () {
+                    HueConfigurationPage.ensureBridgeCertificate(page, ip, statusEl, pageGeneration).then(function () {
                         if (preflight.canceled || !isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
                             HueConfigurationPage._hueMappingRegistrationPreflight !== preflight) return false;
                         return new Promise(function (resolve) {
