@@ -495,6 +495,8 @@ Benchmarks measure:
 
 - **Regression coverage**: the Semgrep lock validator verifies snapshot paths, file digests, workflow parity, and safe scan gating.
 
+- **Gitleaks false-positive boundary**: the default Gitleaks rules remain active while only public example fixtures in the reviewed Semgrep snapshot directory are allowlisted, with a contract test preventing broader exclusions.
+
 - **Certificate trust alias safety**: bridge certificate pins now resolve IP and .local aliases against a single vetted local address, fail closed on conflicting fingerprints, and keep registration, credential-free probes, transport TLS validation, playback arbitration, and pin management aligned.
 
 - **Regression coverage**: API and certificate-validation tests cover alias equivalence, conflict rejection, alias cleanup, unknown-target protection, and credential-free probe behavior.

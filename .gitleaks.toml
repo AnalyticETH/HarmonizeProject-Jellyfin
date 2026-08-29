@@ -1,0 +1,14 @@
+# The vendored Semgrep registry snapshots include public rule examples that
+# intentionally contain webhook-shaped URLs and PEM fixtures. Keep the default
+# Gitleaks rules active everywhere else, while allowing only this reviewed
+# third-party snapshot directory.
+title = "HarmonizeProject-Jellyfin Gitleaks policy"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public examples in reviewed Semgrep registry snapshots"
+paths = [
+  '''(^|/)\.github/semgrep/rules/''',
+]

@@ -15,6 +15,7 @@ No unreleased changes.
 - **Reviewed Semgrep snapshots**: blocking self-hosted and PR scans now use SHA-256-verified local registry snapshots, preventing mutable aliases or CDN responses from changing policy mid-run.
 - **Install-failure isolation**: sub-scans only run after a successful hash-locked Semgrep install, preventing stale runner-temp files from being mistaken for current scan inputs.
 - **Regression coverage**: the Semgrep lock validator verifies snapshot paths, file digests, workflow parity, and safe scan gating.
+- **Gitleaks false-positive boundary**: the default Gitleaks rules remain active while only public example fixtures in the reviewed Semgrep snapshot directory are allowlisted, with a contract test preventing broader exclusions.
 
 ## [1.5.376] - 2026-08-29
 

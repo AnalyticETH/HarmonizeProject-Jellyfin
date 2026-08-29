@@ -150,6 +150,11 @@ for (const name of workflowFiles) {
 }
 
 const pullRequestWorkflow = workflowText("pull-request-validation.yml");
+for (const workflowName of ["pull-request-validation.yml", "security-scan.yml"]) {
+  if (!workflowText(workflowName).includes("node scripts/validate-gitleaks-config.mjs")) {
+    throw new Error(`${workflowName} must validate the committed Gitleaks policy before scanning`);
+  }
+}
 if (getJobBlocks(pullRequestWorkflow, "pull-request-validation.yml")
   .some(job => getRunsOnValues(job).some(value => /\bself-hosted\b/.test(value)))) {
   throw new Error("pull-request-validation.yml must never use a persistent self-hosted runner");

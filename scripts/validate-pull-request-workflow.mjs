@@ -25,6 +25,7 @@ for (const marker of [
   "dotnet list Jellyfin.Plugin.Hue.sln package",
   "--vulnerable",
   "gitleaks",
+  "node scripts/validate-gitleaks-config.mjs",
   "semgrep",
   "--require-hashes",
   "node scripts/validate-config-page.mjs",

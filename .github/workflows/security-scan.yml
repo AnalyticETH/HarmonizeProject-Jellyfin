@@ -60,6 +60,8 @@ jobs:
           persist-credentials: false
       - name: Validate workflow inventory and runner boundaries
         run: node scripts/validate-workflow-inventory.mjs
+      - name: Validate Gitleaks policy
+        run: node scripts/validate-gitleaks-config.mjs
       - name: Install gitleaks
         run: |
           set -euo pipefail
@@ -89,6 +91,7 @@ jobs:
           set -euo pipefail
           set +e
           "$RUNNER_TEMP/gitleaks" detect --source . --redact --exit-code 1 \
+            --config .gitleaks.toml \
             --report-format json --report-path gitleaks.json
           scan_status=$?
           set -e
