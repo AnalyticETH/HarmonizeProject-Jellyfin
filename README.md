@@ -486,7 +486,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.369 (Current)
+### Version 1.5.370 (Current)
+
+- **Explicit background-task ownership**: reconnect scheduling call sites now discard the returned observer task explicitly, removing compiler diagnostics while retaining cancellation-safe observation.
+
+- **Regression coverage**: the Hue streamer suite continues to await the scheduled observer for unrelated callback cancellation and canceled-result safety.
 
 - **Cancellation-safe reconnect observation**: background DTLS reconnect continuations now handle canceled tasks without reading `Task.Result`, preventing unobserved cancellation exceptions during callback and lifecycle races.
 

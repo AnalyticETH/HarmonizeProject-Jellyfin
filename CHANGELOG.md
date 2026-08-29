@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.370] - 2026-08-29
+
+### Reconnect lifecycle diagnostics
+- **Explicit background-task ownership**: reconnect scheduling call sites now discard the returned observer task explicitly, removing compiler diagnostics while retaining cancellation-safe observation.
+- **Regression coverage**: the Hue streamer suite continues to await the scheduled observer for unrelated callback cancellation and canceled-result safety.
+
 ## [1.5.369] - 2026-08-29
 
 ### Reconnect lifecycle safety

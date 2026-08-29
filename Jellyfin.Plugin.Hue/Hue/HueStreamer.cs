@@ -841,7 +841,7 @@ namespace Jellyfin.Plugin.Hue.Hue
             {
                 _logger.LogWarning("DTLS stream was disposed while sending colors, attempting reconnect");
                 InvalidateConnection(dtlsConnection);
-                ScheduleReconnect(cancellationToken);
+                _ = ScheduleReconnect(cancellationToken);
                 return RecordPacketSendFailure(cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -855,7 +855,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     return false;
 
                 InvalidateConnection(dtlsConnection);
-                ScheduleReconnect(cancellationToken);
+                _ = ScheduleReconnect(cancellationToken);
                 return RecordPacketSendFailure(cancellationToken);
             }
             catch (Exception ex)
