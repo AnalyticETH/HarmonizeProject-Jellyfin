@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.397] - 2026-08-29
+
+### Runtime, administrator, and request-boundary hardening
+- **Actionable bulk saved-scene errors**: administrator duplicate/delete failures now surface server-provided capacity, missing-scene, validation, and dependency details while retaining the selection for a safe retry.
+- **Bounded light-state capture**: bridge resource identifiers are validated, case-insensitively deduplicated, and capped before any REST fan-out; malformed or excessive area data fails closed without activating the bridge.
+- **Administrator import request bound**: configuration validation/import endpoints reject oversized JSON bodies before model binding, keeping credential-safe exports within a documented resource envelope.
+- **Regression coverage**: UI rejection/retry, light-resource boundary, no-activation, and import request-size contracts cover these safety boundaries.
+
 ## [1.5.396] - 2026-08-29
 
 ### Administrator lifecycle and workflow boundary hardening

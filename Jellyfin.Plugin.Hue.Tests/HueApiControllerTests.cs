@@ -49,6 +49,19 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ConfigurationImportEndpointsDeclareBoundedPreBindingRequestBodyLimit()
+    {
+        foreach (var methodName in new[] { "ValidateConfigurationImport", "ImportConfiguration" })
+        {
+            var method = typeof(HueApiController).GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(method);
+            var limit = method!.GetCustomAttribute<RequestSizeLimitAttribute>();
+            Assert.NotNull(limit);
+            Assert.Equal(HueApiController.MaxConfigurationImportRequestBodyBytes, limit!.Bytes);
+        }
+    }
+
+    [Fact]
     public void UserMappingSummariesAndExportsIgnoreNullEntries()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

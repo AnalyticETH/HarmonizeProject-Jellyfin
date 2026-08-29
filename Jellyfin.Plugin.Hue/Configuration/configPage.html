@@ -5456,6 +5456,68 @@
                         (mutation.controls || []).forEach(function (control) { control.disabled = true; });
                     }
                 },
+                getColorPresetBulkErrorMessage: function (err, fallback) {
+                    var payload = err && (err.responseJSON || err.responseJson || err.body);
+                    if (!payload && err && typeof err.responseText === 'string') {
+                        var responseText = err.responseText.trim();
+                        if (responseText) {
+                            try {
+                                payload = JSON.parse(responseText);
+                            } catch (_) {
+                                payload = responseText;
+                            }
+                        }
+                    }
+                    if (typeof payload === 'string') {
+                        var text = payload.trim();
+                        if (text) return text.replace(/^"|"$/g, '');
+                    }
+                    if (!payload || typeof payload !== 'object') {
+                        return err && err.message ? err.message : fallback;
+                    }
+
+                    var message = payload.message || payload.Message || payload.detail || payload.Detail ||
+                        payload.title || payload.Title || '';
+                    var details = [];
+                    var missingNames = payload.missingNames || payload.MissingNames || [];
+                    if (Array.isArray(missingNames) && missingNames.length) {
+                        details.push("Missing saved scenes: " + missingNames.map(function (name) {
+                            return String(name || '').trim();
+                        }).filter(Boolean).join(", ") + ".");
+                    }
+
+                    var availableCapacity = payload.availableCapacity !== undefined
+                        ? payload.availableCapacity
+                        : payload.AvailableCapacity;
+                    if (availableCapacity !== undefined && availableCapacity !== null && String(availableCapacity) !== '') {
+                        details.push("Available saved-scene slots: " + availableCapacity + ".");
+                    }
+
+                    var validationErrors = payload.validationErrors || payload.ValidationErrors || [];
+                    if (Array.isArray(validationErrors) && validationErrors.length) {
+                        var validationDetails = validationErrors.map(function (validationError) {
+                            return String(validationError || '').trim();
+                        }).filter(Boolean);
+                        if (validationDetails.length) details.push("Validation: " + validationDetails.join(" "));
+                    }
+
+                    var blockedPresets = payload.blockedPresets || payload.BlockedPresets || [];
+                    if (Array.isArray(blockedPresets) && blockedPresets.length) {
+                        var blockedDetails = blockedPresets.map(function (blocked) {
+                            if (!blocked) return '';
+                            var name = String(blocked.name || blocked.Name || 'Unnamed saved scene').trim();
+                            var playlistCount = blocked.playlistCount !== undefined ? blocked.playlistCount : blocked.PlaylistCount;
+                            var scheduledCueCount = blocked.scheduledCueCount !== undefined ? blocked.scheduledCueCount : blocked.ScheduledCueCount;
+                            var references = [];
+                            if (Number(playlistCount) > 0) references.push(playlistCount + " playlist reference" + (Number(playlistCount) === 1 ? '' : 's'));
+                            if (Number(scheduledCueCount) > 0) references.push(scheduledCueCount + " scheduled-cue reference" + (Number(scheduledCueCount) === 1 ? '' : 's'));
+                            return name + (references.length ? " (" + references.join(", ") + ")" : '');
+                        }).filter(Boolean);
+                        if (blockedDetails.length) details.push("Blocked saved scenes: " + blockedDetails.join(", ") + ".");
+                    }
+
+                    return [message || fallback].concat(details).join(' ');
+                },
                 selectAllColorPresets: function (page) {
                     if (page && page._hueColorPresetBulkMutation) return;
                     var bulkSelect = page.querySelector('#previewPresetBulkSelect');
@@ -5649,7 +5711,10 @@
                                 if (!isCurrent()) return;
                                 console.error("Failed to bulk duplicate color presets:", err);
                                 if (statusEl) {
-                                    statusEl.textContent = "No scenes were duplicated. Check the saved-scene capacity, selection, validation, or server log.";
+                                    statusEl.textContent = HueConfigurationPage.getColorPresetBulkErrorMessage(
+                                        err,
+                                        "No scenes were duplicated. Check the saved-scene capacity, selection, validation, or server log."
+                                    );
                                     statusEl.style.color = "#d9534f";
                                 }
                                 HueConfigurationPage.updateColorPresetBulkButtons(page);
@@ -5751,7 +5816,10 @@
                                 if (!isCurrent()) return;
                                 console.error("Failed to bulk delete color presets:", err);
                                 if (statusEl) {
-                                    statusEl.textContent = "No scenes were deleted. A playlist/cue dependency, missing scene, or persistence failure blocked the atomic operation.";
+                                    statusEl.textContent = HueConfigurationPage.getColorPresetBulkErrorMessage(
+                                        err,
+                                        "No scenes were deleted. A playlist/cue dependency, missing scene, or persistence failure blocked the atomic operation."
+                                    );
                                     statusEl.style.color = "#d9534f";
                                 }
                                 HueConfigurationPage.updateColorPresetBulkButtons(page);

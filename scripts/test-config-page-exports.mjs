@@ -2648,6 +2648,95 @@ async function testColorPresetBulkDuplicateLifecycleGuards() {
     assert.equal(currentPage._huePageRequests.colorPresetBulkDuplicate, undefined, "current bulk color preset duplicate removes its settled lifecycle record");
 }
 
+async function testColorPresetBulkErrorDetailsAndRetry() {
+    const duplicateHarness = makeHarness();
+    const duplicateState = configureColorPresetBulkDuplicateHarness(duplicateHarness);
+    const duplicatePage = duplicateHarness.page;
+    const duplicateApi = duplicateHarness.api;
+    duplicateApi.loadColorPresets = () => Promise.resolve();
+    duplicateApi.loadScenePlaylists = () => Promise.resolve();
+    duplicateApi.loadSceneSchedules = () => Promise.resolve();
+    let duplicateConfirmation;
+    let duplicateConfirmationCalls = 0;
+    duplicateHarness.dashboard.confirm = (_message, _title, callback) => {
+        duplicateConfirmationCalls += 1;
+        duplicateConfirmation = callback;
+    };
+
+    const duplicateFailure = duplicateApi.duplicateColorPresetsBulk(duplicatePage);
+    duplicateConfirmation(true);
+    assert.equal(duplicateHarness.requests.length, 1, "bulk duplicate error test starts one request");
+    duplicateHarness.requests[0].reject({
+        responseJSON: {
+            message: "Only 0 saved-scene slot(s) remain; no copies were created.",
+            availableCapacity: 0
+        }
+    });
+    await duplicateFailure;
+    assert.match(
+        duplicateState.status.textContent,
+        /Only 0 saved-scene slot\(s\) remain; no copies were created\. Available saved-scene slots: 0\./,
+        "bulk duplicate renders the server capacity error details"
+    );
+    assert.equal(duplicatePage._hueColorPresetBulkMutation, null, "bulk duplicate releases its lock after a rejected request");
+    assert.equal(duplicateState.bulkSelect.options[0].selected, true, "bulk duplicate keeps selection after a rejected request for retry");
+    assert.equal(duplicateState.button.disabled, false, "bulk duplicate re-enables its button after a rejected request");
+
+    const duplicateRetry = duplicateApi.duplicateColorPresetsBulk(duplicatePage);
+    assert.equal(duplicateConfirmationCalls, 2, "bulk duplicate retry asks for a fresh confirmation");
+    assert.equal(duplicateHarness.requests.length, 1, "bulk duplicate retry waits for confirmation");
+    duplicateConfirmation(true);
+    assert.equal(duplicateHarness.requests.length, 2, "bulk duplicate retry submits one new request");
+    duplicateHarness.requests[1].resolve({
+        message: "Created two independent saved-scene copies.",
+        presets: [{ name: "Scene One Copy" }, { name: "Scene Two Copy" }]
+    });
+    await duplicateRetry;
+    assert.equal(duplicateState.status.textContent, "Created two independent saved-scene copies.", "bulk duplicate retry succeeds after the displayed error");
+
+    const deleteHarness = makeHarness();
+    const deleteState = configureColorPresetBulkDeleteHarness(deleteHarness);
+    const deletePage = deleteHarness.page;
+    const deleteApi = deleteHarness.api;
+    deleteApi.loadColorPresets = () => Promise.resolve();
+    deleteApi.loadScenePlaylists = () => Promise.resolve();
+    deleteApi.loadSceneSchedules = () => Promise.resolve();
+    let deleteConfirmation;
+    let deleteConfirmationCalls = 0;
+    deleteHarness.dashboard.confirm = (_message, _title, callback) => {
+        deleteConfirmationCalls += 1;
+        deleteConfirmation = callback;
+    };
+
+    const deleteFailure = deleteApi.deleteColorPresetsBulk(deletePage);
+    deleteConfirmation(true);
+    assert.equal(deleteHarness.requests.length, 1, "bulk delete error test starts one request");
+    deleteHarness.requests[0].reject({
+        responseText: JSON.stringify({
+            message: "One or more selected saved scenes are still referenced; update those references first.",
+            blockedPresets: [{ name: "Scene One", playlistCount: 1, scheduledCueCount: 2 }]
+        })
+    });
+    await deleteFailure;
+    assert.match(
+        deleteState.status.textContent,
+        /One or more selected saved scenes are still referenced; update those references first\. Blocked saved scenes: Scene One \(1 playlist reference, 2 scheduled-cue references\)\./,
+        "bulk delete renders the server dependency details"
+    );
+    assert.equal(deletePage._hueColorPresetBulkMutation, null, "bulk delete releases its lock after a rejected request");
+    assert.equal(deleteState.bulkSelect.options[0].selected, true, "bulk delete keeps selection after a rejected request for retry");
+    assert.equal(deleteState.button.disabled, false, "bulk delete re-enables its button after a rejected request");
+
+    const deleteRetry = deleteApi.deleteColorPresetsBulk(deletePage);
+    assert.equal(deleteConfirmationCalls, 2, "bulk delete retry asks for a fresh confirmation");
+    assert.equal(deleteHarness.requests.length, 1, "bulk delete retry waits for confirmation");
+    deleteConfirmation(true);
+    assert.equal(deleteHarness.requests.length, 2, "bulk delete retry submits one new request");
+    deleteHarness.requests[1].resolve({ deletedCount: 2 });
+    await deleteRetry;
+    assert.equal(deleteState.status.textContent, "Deleted 2 saved scene(s). Playlists and scheduled cues were refreshed.", "bulk delete retry succeeds after the displayed error");
+}
+
 function configureColorPresetRenameHarness(harness) {
     const { page } = harness;
     page.querySelector("#previewPresetSelect").value = "Scene One";
@@ -3626,6 +3715,7 @@ await testColorPresetDuplicateLifecycleGuards();
 await testColorPresetDeleteLifecycleGuards();
 await testColorPresetBulkDeleteLifecycleGuards();
 await testColorPresetBulkDuplicateLifecycleGuards();
+await testColorPresetBulkErrorDetailsAndRetry();
 await testColorPresetRenameLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
 await testSceneScheduleSaveLifecycleGuards();
@@ -3641,4 +3731,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/rename/scene save/delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

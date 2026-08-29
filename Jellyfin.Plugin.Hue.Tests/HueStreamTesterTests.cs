@@ -682,6 +682,35 @@ public sealed class HueStreamTesterTests
     }
 
     [Fact]
+    public async Task TestAsync_WithExcessiveLightStateResourcesDoesNotActivateBridge()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        using var httpClient = new HttpClient(handler.Object);
+        var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
+        {
+            RetryAttempts = 0
+        };
+        var loggerFactory = new Mock<ILoggerFactory>();
+        loggerFactory.Setup(factory => factory.CreateLogger(It.IsAny<string>())).Returns(Mock.Of<ILogger>());
+        var tester = new HueStreamTester(
+            hueClient,
+            loggerFactory.Object,
+            Mock.Of<ILogger<HueStreamTester>>());
+        using var document = CreateAreaConfigurationWithLightMembers(HueClient.MaxLightStateRequests + 1);
+
+        var result = await tester.TestAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("capture", result.Message, StringComparison.OrdinalIgnoreCase);
+        handler.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task TestAsync_WithIncompleteLightCaptureDoesNotActivateBridge()
     {
         var handler = new Mock<HttpMessageHandler>();
@@ -1601,6 +1630,20 @@ public sealed class HueStreamTesterTests
 
         json.Append("]}");
         return JsonDocument.Parse(json.ToString());
+    }
+
+    private static JsonDocument CreateAreaConfigurationWithLightMembers(int memberCount)
+    {
+        var members = Enumerable.Range(0, memberCount)
+            .Select(index => new { service = new { rid = $"light-{index}" } })
+            .ToArray();
+        return JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            channels = new[]
+            {
+                new { channel_id = 1, members }
+            }
+        }));
     }
 
     private static HuePlaylistPreviewStep CreatePlaylistStep(

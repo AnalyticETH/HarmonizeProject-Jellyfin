@@ -29,6 +29,12 @@ namespace Jellyfin.Plugin.Hue.Hue
         // compromised bridge or discovery endpoint from forcing an unbounded buffer.
         internal const int MaxResponseBodyBytes = 1024 * 1024;
         private const int MaxLightStateTokenLength = 128;
+        /// <summary>
+        /// Maximum number of unique light resources captured from one entertainment
+        /// area. Keep capture fan-out bounded before any bridge request is issued so a
+        /// bounded response cannot turn into an unbounded sequence of REST calls.
+        /// </summary>
+        internal const int MaxLightStateRequests = 256;
         private const int MaxGradientPoints = 5;
         private const long MaxTimedEffectDurationMilliseconds = 21_600_000;
 
@@ -1209,7 +1215,7 @@ namespace Jellyfin.Plugin.Hue.Hue
             CancellationToken cancellationToken = default)
         {
             var lightIds = new List<string>();
-            var seenLightIds = new HashSet<string>(StringComparer.Ordinal);
+            var seenLightIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             if (areaConfig.TryGetProperty("channels", out var channels) &&
                 channels.ValueKind == JsonValueKind.Array)
@@ -1233,11 +1239,34 @@ namespace Jellyfin.Plugin.Hue.Hue
                             !service.TryGetProperty("rid", out var ridProp) || ridProp.ValueKind != JsonValueKind.String)
                             continue;
 
-                        var lightId = ridProp.GetString();
-                        if (string.IsNullOrWhiteSpace(lightId) || !seenLightIds.Add(lightId.Trim()))
+                        var rawLightId = ridProp.GetString();
+                        if (string.IsNullOrWhiteSpace(rawLightId))
                             continue;
 
-                        lightIds.Add(lightId.Trim());
+                        if (!TryNormalizeSafeToken(rawLightId, out var lightId))
+                        {
+                            _logger.LogWarning("Hue entertainment configuration contained an invalid light resource identifier");
+                            return new LightStateCaptureResult
+                            {
+                                FailedCount = 1
+                            };
+                        }
+
+                        if (!seenLightIds.Add(lightId))
+                            continue;
+
+                        if (lightIds.Count >= MaxLightStateRequests)
+                        {
+                            _logger.LogWarning(
+                                "Hue entertainment configuration contains more than {0} unique light resources",
+                                MaxLightStateRequests);
+                            return new LightStateCaptureResult
+                            {
+                                FailedCount = 1
+                            };
+                        }
+
+                        lightIds.Add(lightId);
                     }
                 }
             }

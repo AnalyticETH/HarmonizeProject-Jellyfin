@@ -1164,6 +1164,167 @@ public class HueClientTests : IDisposable
         Assert.Equal(new[] { "shared-light" }, requestedLightIds);
     }
 
+    [Fact]
+    public async Task GetLightStatesWithResult_AcceptsMaximumUniqueResourceIds()
+    {
+        var lightIds = Enumerable.Range(0, HueClient.MaxLightStateRequests)
+            .Select(index => $"light-{index}")
+            .ToArray();
+        using var doc = CreateLightStateAreaConfiguration(lightIds);
+        var requestCount = 0;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                requestCount++;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(@"{
+                        ""data"": [{
+                            ""on"": {""on"": true},
+                            ""dimming"": {""brightness"": 50}
+                        }]
+                    }")
+                };
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            doc.RootElement);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(HueClient.MaxLightStateRequests, result.AttemptedCount);
+        Assert.Equal(HueClient.MaxLightStateRequests, result.CapturedCount);
+        Assert.Equal(0, result.FailedCount);
+        Assert.Equal(HueClient.MaxLightStateRequests, requestCount);
+    }
+
+    [Fact]
+    public async Task GetLightStatesWithResult_RejectsMoreThanMaximumUniqueResourceIdsBeforeRequestingAnyLight()
+    {
+        var lightIds = Enumerable.Range(0, HueClient.MaxLightStateRequests + 1)
+            .Select(index => $"light-{index}")
+            .ToArray();
+        using var doc = CreateLightStateAreaConfiguration(lightIds);
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            doc.RootElement);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, result.AttemptedCount);
+        Assert.Equal(0, result.CapturedCount);
+        Assert.Equal(1, result.FailedCount);
+        _httpHandlerMock.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.IsAny<HttpRequestMessage>(),
+            ItExpr.IsAny<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetLightStatesWithResult_RejectsOverlongResourceIdBeforeRequestingAnyLight()
+    {
+        using var doc = CreateLightStateAreaConfiguration(new[] { new string('x', 129) });
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            doc.RootElement);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, result.AttemptedCount);
+        Assert.Equal(1, result.FailedCount);
+        _httpHandlerMock.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.IsAny<HttpRequestMessage>(),
+            ItExpr.IsAny<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetLightStatesWithResult_RejectsControlCharacterResourceIdBeforeRequestingAnyLight()
+    {
+        using var doc = CreateLightStateAreaConfiguration(new[] { "light-\u0001" });
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            doc.RootElement);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, result.AttemptedCount);
+        Assert.Equal(1, result.FailedCount);
+        _httpHandlerMock.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.IsAny<HttpRequestMessage>(),
+            ItExpr.IsAny<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetLightStatesWithResult_DeduplicatesCaseVariantResourceIds()
+    {
+        using var doc = CreateLightStateAreaConfiguration(new[] { "Light-1", "light-1" });
+        var requestedLightIds = new List<string>();
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+                requestedLightIds.Add(request.RequestUri!.Segments[^1].Trim('/')))
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(@"{
+                    ""data"": [{
+                        ""on"": {""on"": true},
+                        ""dimming"": {""brightness"": 50}
+                    }]
+                }")
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            doc.RootElement);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.AttemptedCount);
+        Assert.Equal(1, result.CapturedCount);
+        Assert.Equal(new[] { "Light-1" }, requestedLightIds);
+        Assert.Equal("Light-1", result.States[0].Id);
+    }
+
     #endregion
 
     #region RestoreLightStates Tests
@@ -1826,6 +1987,20 @@ public class HueClientTests : IDisposable
             {
                 Content = responseContent
             });
+    }
+
+    private static JsonDocument CreateLightStateAreaConfiguration(IReadOnlyList<string> lightIds)
+    {
+        var members = lightIds
+            .Select(lightId => new { service = new { rid = lightId } })
+            .ToArray();
+        return JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            channels = new[]
+            {
+                new { channel_id = 0, members }
+            }
+        }));
     }
 
     #endregion

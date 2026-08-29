@@ -44,6 +44,13 @@ namespace Jellyfin.Plugin.Hue.Api
 
         private const int PlaybackDeviceActivityWindowSeconds = 86400;
         private const int MaxPlaybackDeviceResults = 256;
+        /// <summary>
+        /// Bounds credential-safe configuration import documents before ASP.NET model
+        /// binding traverses their collection and extension-data graphs. This leaves
+        /// headroom above the largest valid export while preventing an authenticated
+        /// administrator payload from consuming unbounded request memory.
+        /// </summary>
+        internal const long MaxConfigurationImportRequestBodyBytes = 8 * 1024 * 1024;
 
         public HueApiController(HueClient hueClient, IEnumerable<Microsoft.Extensions.Hosting.IHostedService> hostedServices)
             : this(hueClient, hostedServices, null, null, null, null, null)
@@ -8199,6 +8206,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// that must be supplied to the import endpoint.
         /// </summary>
         [HttpPost("Configuration/ValidateImport")]
+        [RequestSizeLimit(MaxConfigurationImportRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -8322,6 +8330,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// stale or missing tokens fail closed before any configuration is changed.
         /// </summary>
         [HttpPost("Configuration/Import")]
+        [RequestSizeLimit(MaxConfigurationImportRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
