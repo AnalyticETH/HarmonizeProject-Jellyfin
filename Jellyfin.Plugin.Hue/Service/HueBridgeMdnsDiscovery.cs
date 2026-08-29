@@ -491,15 +491,32 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
 
         string? target = null;
         IPAddress? address = null;
+        var dataEnd = offset;
         var dataCursor = dataOffset;
         if (type == DnsTypePtr)
         {
-            TryReadDnsName(message, ref dataCursor, out target);
+            // PTR names are encoded inside the record's RDATA. Never let a
+            // malformed length make the parser consume the next record while
+            // resolving an instance name.
+            if (!TryReadDnsName(message, ref dataCursor, out target, dataEnd) ||
+                dataCursor != dataEnd)
+            {
+                return false;
+            }
         }
-        else if (type == DnsTypeSrv && dataLength >= 6)
+        else if (type == DnsTypeSrv)
         {
+            if (dataLength < 6)
+                return false;
+
             dataCursor += 6;
-            TryReadDnsName(message, ref dataCursor, out target);
+            // SRV priority, weight, and port occupy the first six bytes; the
+            // target name must stay wholly inside the remaining RDATA bytes.
+            if (!TryReadDnsName(message, ref dataCursor, out target, dataEnd) ||
+                dataCursor != dataEnd)
+            {
+                return false;
+            }
         }
         else if (type == DnsTypeA && dataLength == 4)
         {
@@ -514,16 +531,33 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
         return true;
     }
 
-    private static bool TryReadDnsName(byte[] message, ref int offset, out string name)
+    private static bool TryReadDnsName(
+        byte[] message,
+        ref int offset,
+        out string name,
+        int maxOffset = -1)
     {
+        if (maxOffset < 0)
+            maxOffset = message.Length;
+
+        if (offset < 0 || maxOffset > message.Length || offset > maxOffset)
+        {
+            name = string.Empty;
+            return false;
+        }
+
         var labels = new List<string>();
         var cursor = offset;
         var jumped = false;
         var jumps = 0;
+        var encodedNameLength = 0;
 
         while (true)
         {
-            if (cursor >= message.Length)
+            // Before a compression pointer, every byte belongs to this name's
+            // encoded RDATA. Once jumped, the pointer target may refer to an
+            // earlier name elsewhere in the DNS message.
+            if (cursor >= message.Length || (!jumped && cursor >= maxOffset))
             {
                 name = string.Empty;
                 return false;
@@ -541,13 +575,19 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
 
             if ((length & 0xc0) == 0xc0)
             {
-                if (cursor >= message.Length || ++jumps > 20)
+                if (cursor >= message.Length || (!jumped && cursor >= maxOffset) || ++jumps > 20)
                 {
                     name = string.Empty;
                     return false;
                 }
 
                 var pointer = ((length & 0x3f) << 8) | message[cursor++];
+                if (pointer >= message.Length)
+                {
+                    name = string.Empty;
+                    return false;
+                }
+
                 if (!jumped)
                 {
                     offset = cursor;
@@ -558,7 +598,10 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
                 continue;
             }
 
-            if ((length & 0xc0) != 0 || length > 63 || cursor + length > message.Length)
+            if ((length & 0xc0) != 0 || length > 63 ||
+                length > message.Length - cursor ||
+                (!jumped && length > maxOffset - cursor) ||
+                encodedNameLength > 255 - length - 1)
             {
                 name = string.Empty;
                 return false;
@@ -566,6 +609,7 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
 
             labels.Add(Encoding.UTF8.GetString(message, cursor, length));
             cursor += length;
+            encodedNameLength += length + 1;
         }
     }
 

@@ -488,7 +488,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.383 (Current)
+### Version 1.5.384 (Current)
+
+- **mDNS RDATA boundary hardening**: PTR and SRV discovery names are now required to fit entirely within their declared DNS record data, preventing malformed local responses from borrowing bytes from adjacent records.
+
+- **Regression coverage**: discovery tests verify truncated SRV records fail closed without returning a bridge address.
 
 - **Run-scoped Semgrep isolation**: self-hosted and pull-request security scans isolate their hash-locked virtual environment, reviewed rule snapshots, extracted administrator JavaScript, and reports by workflow run/attempt, so canceled-run cleanup cannot invalidate a newer scan.
 

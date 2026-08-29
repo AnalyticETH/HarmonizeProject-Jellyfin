@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.384] - 2026-08-29
+
+### mDNS parser boundary hardening
+- **RDATA bounds**: PTR and SRV discovery names are now parsed only within each DNS record's declared RDATA, rejecting malformed packets that would otherwise consume bytes from a following record.
+- **Name safety**: compressed-name pointers are bounds checked and decoded names are capped at the DNS wire-format maximum.
+- **Regression coverage**: discovery tests verify truncated SRV records fail closed without returning a bridge address.
+
 ## [1.5.383] - 2026-08-29
 
 ### Isolated Semgrep scanner state
