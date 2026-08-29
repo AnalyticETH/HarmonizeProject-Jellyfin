@@ -14,6 +14,7 @@ using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Serialization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -57,7 +58,8 @@ public sealed class HueApiControllerTests : IDisposable
             Assert.NotNull(method);
             var limit = method!.GetCustomAttribute<RequestSizeLimitAttribute>();
             Assert.NotNull(limit);
-            Assert.Equal(HueApiController.MaxConfigurationImportRequestBodyBytes, limit!.Bytes);
+            var metadata = Assert.IsAssignableFrom<IRequestSizeLimitMetadata>(limit);
+            Assert.Equal((long?)HueApiController.MaxConfigurationImportRequestBodyBytes, metadata.MaxRequestBodySize);
         }
     }
 
