@@ -493,6 +493,8 @@ Benchmarks measure:
 
 - **Stale certificate trust-prompt cancellation**: approving a bridge certificate prompt after the configuration page is hidden now fails closed without mutating the server trust store.
 
+- **Semgrep snapshot integrity**: the blocking default ruleset pin is refreshed after the registry rotation and continues to fail closed on any unreviewed snapshot change.
+
 - **Regression coverage**: scheduler tests cover long recurrence intervals and the administrator configuration contract covers stale certificate trust prompts.
 
 - **Audio terminal status**: naturally completed audio playback now reports an audio stream ending after shared cleanup instead of the video terminal message.

@@ -14,6 +14,7 @@ No unreleased changes.
 ### Scheduler and configuration lifecycle completeness
 - **Long-interval recurrence visibility**: internal next-run and Skip Next resolution now search beyond the public 366-day preview horizon, so valid weekly, monthly, and yearly cues with large configured intervals remain actionable.
 - **Stale certificate trust-prompt cancellation**: approving a bridge certificate prompt after the configuration page is hidden now fails closed without mutating the server trust store.
+- **Semgrep snapshot integrity**: refresh the reviewed SHA-256 pin for the current default ruleset snapshot after the registry rotated; blocking scans continue to fail closed on any unreviewed change.
 - **Regression coverage**: scheduler tests cover long recurrence intervals and the administrator configuration contract covers stale certificate trust prompts.
 
 ## [1.5.372] - 2026-08-29
