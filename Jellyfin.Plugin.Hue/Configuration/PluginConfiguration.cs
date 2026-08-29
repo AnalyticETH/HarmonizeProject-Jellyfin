@@ -2808,11 +2808,14 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public static bool TryParseChannelIds(string? value, out HashSet<int> channelIds)
         {
             channelIds = new HashSet<int>();
-            if (string.IsNullOrWhiteSpace(value))
+            if (value == null)
                 return true;
 
             if (value.Length > MaxChannelIdsInputLength)
                 return false;
+
+            if (string.IsNullOrWhiteSpace(value))
+                return true;
 
             var tokens = value.Split(
                 new[] { ',', ';', ' ', '\t', '\r', '\n' },

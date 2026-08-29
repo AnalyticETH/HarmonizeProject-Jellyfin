@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.381] - 2026-08-29
+
+### Strict channel-profile bound
+- **Whitespace edge-case closure**: the 4,096-character channel-profile limit is now checked before blank-value handling, so oversized whitespace-only input is bounded consistently with every other supplied value.
+- **Regression coverage**: parser tests cover oversized valid-token and whitespace-only values while preserving blank-field inheritance below the limit.
+
 ## [1.5.380] - 2026-08-29
 
 ### Bounded channel-profile input

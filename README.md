@@ -487,7 +487,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.380 (Current)
+### Version 1.5.381 (Current)
+
+- **Strict channel-profile bound**: the 4,096-character limit is applied before blank-value handling, including whitespace-only input; ordinary blank fields below the limit still preserve all-channel/inherited behavior.
+
+- **Regression coverage**: parser tests cover oversized valid-token and whitespace-only values.
 
 - **Bounded channel-profile input**: global, per-user, and device-route channel profile text is capped at 4,096 characters before tokenization; valid channel IDs and delimiter behavior remain unchanged.
 

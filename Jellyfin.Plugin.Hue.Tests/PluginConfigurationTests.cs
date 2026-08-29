@@ -4552,10 +4552,13 @@ public class PluginConfigurationTests
     public void TryParseChannelIds_RejectsOversizedInputBeforeTokenization()
     {
         var oversized = string.Join(",", Enumerable.Repeat("1", PluginConfiguration.MaxChannelIdsInputLength));
+        var oversizedWhitespace = new string(' ', PluginConfiguration.MaxChannelIdsInputLength + 1);
 
         Assert.True(oversized.Length > PluginConfiguration.MaxChannelIdsInputLength);
         Assert.False(PluginConfiguration.TryParseChannelIds(oversized, out var channelIds));
         Assert.Empty(channelIds);
+        Assert.False(PluginConfiguration.TryParseChannelIds(oversizedWhitespace, out var whitespaceChannelIds));
+        Assert.Empty(whitespaceChannelIds);
     }
 
     [Fact]
