@@ -581,8 +581,12 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
                     return false;
                 }
 
+                var pointerOffset = cursor - 1;
                 var pointer = ((length & 0x3f) << 8) | message[cursor++];
-                if (pointer >= message.Length)
+                // RFC 1035 compression pointers reference an earlier name. A
+                // forward pointer could otherwise make a malformed record read
+                // into a later answer and manufacture a service/host association.
+                if (pointer >= message.Length || pointer >= pointerOffset)
                 {
                     name = string.Empty;
                     return false;

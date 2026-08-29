@@ -488,7 +488,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.384 (Current)
+### Version 1.5.385 (Current)
+
+- **mDNS compression safety**: discovery rejects forward DNS compression pointers, which are invalid on the wire and could otherwise manufacture service/host associations from later records.
+
+- **Regression coverage**: discovery tests verify forward-pointer responses fail closed without returning a bridge address.
 
 - **mDNS RDATA boundary hardening**: PTR and SRV discovery names are now required to fit entirely within their declared DNS record data, preventing malformed local responses from borrowing bytes from adjacent records.
 

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.385] - 2026-08-29
+
+### mDNS compression-pointer safety
+- **Backward-only pointers**: discovery now rejects forward DNS compression pointers, which are invalid on the wire and could otherwise manufacture service/host associations from later records.
+- **Regression coverage**: discovery tests verify forward-pointer responses fail closed without returning a bridge address.
+
 ## [1.5.384] - 2026-08-29
 
 ### mDNS parser boundary hardening

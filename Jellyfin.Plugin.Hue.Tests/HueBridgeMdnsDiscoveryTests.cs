@@ -151,6 +151,16 @@ public sealed class HueBridgeMdnsDiscoveryTests
     }
 
     [Fact]
+    public void ParseResponse_RejectsForwardCompressionPointer()
+    {
+        var response = BuildResponseWithForwardSrvPointer("192.168.1.50");
+
+        var addresses = HueBridgeMdnsDiscovery.ParseResponse(response);
+
+        Assert.Empty(addresses);
+    }
+
+    [Fact]
     public async Task DiscoverAsync_WhenCanceledBeforeSocketUseHonorsCancellation()
     {
         using var cancellationSource = new CancellationTokenSource();
@@ -287,6 +297,57 @@ public sealed class HueBridgeMdnsDiscoveryTests
         AppendUInt16(response, 443);
         response.AddRange(host);
 
+        AppendName(response, "hue-bridge.local");
+        var parsedAddress = IPAddress.Parse(address);
+        AppendUInt16(
+            response,
+            parsedAddress.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 28 : 1);
+        AppendUInt16(response, 1); // IN
+        AppendUInt32(response, 120);
+        var addressBytes = parsedAddress.GetAddressBytes();
+        AppendUInt16(response, addressBytes.Length);
+        response.AddRange(addressBytes);
+
+        return response.ToArray();
+    }
+
+    private static byte[] BuildResponseWithForwardSrvPointer(string address)
+    {
+        var response = new List<byte>();
+        AppendUInt16(response, 0);
+        AppendUInt16(response, 0x8400); // response + authoritative
+        AppendUInt16(response, 1); // question count
+        AppendUInt16(response, 2); // answer count
+        AppendUInt16(response, 0); // authority count
+        AppendUInt16(response, 1); // additional count
+
+        AppendName(response, HueBridgeMdnsDiscovery.ServiceType);
+        AppendUInt16(response, 12); // PTR
+        AppendUInt16(response, 1); // IN
+
+        AppendUInt16(response, 0xc00c); // pointer to _hue._tcp.local
+        AppendUInt16(response, 12); // PTR
+        AppendUInt16(response, 1); // IN
+        AppendUInt32(response, 120);
+        var instance = EncodeName("Hue Bridge._hue._tcp.local");
+        AppendUInt16(response, (ushort)instance.Length);
+        response.AddRange(instance);
+
+        AppendName(response, "Hue Bridge._hue._tcp.local");
+        AppendUInt16(response, 33); // SRV
+        AppendUInt16(response, 1); // IN
+        AppendUInt32(response, 120);
+        AppendUInt16(response, 8); // six SRV fields plus a compressed target
+        AppendUInt16(response, 0); // priority
+        AppendUInt16(response, 0); // weight
+        AppendUInt16(response, 443); // port
+        var pointerOffset = response.Count;
+        response.Add(0xc0);
+        response.Add(0); // patched to the later host owner below
+
+        var hostOffset = response.Count;
+        response[pointerOffset] = (byte)(0xc0 | (hostOffset >> 8));
+        response[pointerOffset + 1] = (byte)hostOffset;
         AppendName(response, "hue-bridge.local");
         var parsedAddress = IPAddress.Parse(address);
         AppendUInt16(
