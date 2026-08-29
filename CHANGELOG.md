@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.379] - 2026-08-29
+
+### Cleanup resolver trust boundary
+- **Resolver result validation**: durable cleanup recovery now re-checks injected or host-provided bridge resolver results against the private/link-local/unique-local boundary before treating an alias as the same physical bridge.
+- **Regression coverage**: scheduler recovery tests reject non-local resolver results without contacting a bridge.
+
 ## [1.5.378] - 2026-08-29
 
 ### Lifecycle and cleanup recovery

@@ -487,7 +487,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.378 (Current)
+### Version 1.5.379 (Current)
+
+- **Cleanup resolver trust boundary**: durable cleanup recovery re-checks injected or host-provided bridge resolver results against the private/link-local/unique-local boundary before treating an alias as the same physical bridge.
+
+- **Regression coverage**: scheduler recovery tests reject non-local resolver results without contacting a bridge.
 
 - **Administrator delete lifecycle safety**: single user-mapping deletes now bind confirmation and DELETE callbacks to the active configuration page, cancel on page teardown, prevent duplicate submissions, and suppress stale reloads/resets.
 
