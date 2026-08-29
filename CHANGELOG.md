@@ -14,6 +14,7 @@ No unreleased changes.
 ### Saved-scene target selection
 - **Single-mapping preview parity**: saved-scene single and bulk previews now keep a one-mapping selection in selected-target mode, avoiding the ambiguous combination of legacy `targetUserId` and `targetUserIds` that the API correctly rejects.
 - **Regression coverage**: the administrator configuration contract verifies the single-mapping payload for both individual and bulk saved-scene previews.
+- **Semgrep snapshot integrity**: refresh the reviewed SHA-256 pin for the current default ruleset snapshot after the registry rotated; blocking scans continue to fail closed on any unreviewed change.
 
 ## [1.5.366] - 2026-08-29
 

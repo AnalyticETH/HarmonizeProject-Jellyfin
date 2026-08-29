@@ -492,6 +492,8 @@ Benchmarks measure:
 
 - **Regression coverage**: the configuration lifecycle contract verifies the corrected payload for individual and bulk saved-scene previews.
 
+- **Semgrep snapshot integrity**: the blocking default ruleset pin is refreshed after the registry rotation and continues to fail closed on any unreviewed snapshot change.
+
 - **Process-tree-safe FFmpeg teardown**: serialized capture lifecycle transitions retain and observe stderr/health tasks, close redirected streams, terminate descendants, and bound cleanup so playback restarts cannot strand child processes or pipe readers.
 
 - **Manual one-time cue completion**: successful Run Now executions now disable one-time schedules through the existing persistence-retry path, increment run state, and prevent later automatic replay.
