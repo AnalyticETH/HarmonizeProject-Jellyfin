@@ -1962,6 +1962,9 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Contains("deactivated", service.GetRuntimeStatus().CleanupWarning, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(1, handler.StopRequestCount);
 
+        // The pause attempt is the failure under test. Let the explicit shutdown
+        // retry succeed so a background deferred retry cannot race this assertion.
+        handler.FailStopRequests = false;
         await service.StopAsync(CancellationToken.None);
 
         Assert.Equal(2, handler.StopRequestCount);
