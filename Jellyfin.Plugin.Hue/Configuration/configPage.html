@@ -2984,6 +2984,22 @@
                         if (deleteButton) deleteButton.disabled = false;
                         page._hueUserMappingDeleteButton = null;
                     }
+                    if (key === 'userMappingBulkDelete') {
+                        page._hueUserMappingBulkDeleting = false;
+                        var bulkDeleteButton = page._hueUserMappingBulkDeleteButton;
+                        if (bulkDeleteButton) bulkDeleteButton.disabled = false;
+                        page._hueUserMappingBulkDeleteButton = null;
+                    }
+                    if (key === 'userMappingBulkEnabled') {
+                        page._hueUserMappingBulkUpdating = false;
+                        var bulkEnabledButtons = page._hueUserMappingBulkEnabledButtons;
+                        if (Array.isArray(bulkEnabledButtons)) {
+                            bulkEnabledButtons.forEach(function (button) {
+                                if (button) button.disabled = false;
+                            });
+                        }
+                        page._hueUserMappingBulkEnabledButtons = null;
+                    }
                     if (key === 'userMappingCleanupReport' || key === 'userMappingCleanup') {
                         page._hueUserMappingCleanupRunning = false;
                         var cleanupButton = page._hueUserMappingCleanupButton;
@@ -3028,6 +3044,22 @@
                         if (pendingDeleteConfirmation.button) pendingDeleteConfirmation.button.disabled = false;
                     }
                     page._hueUserMappingDeleteConfirmation = null;
+                    var pendingUserMappingBulkDeleteConfirmation = page._hueUserMappingBulkDeleteConfirmation;
+                    if (pendingUserMappingBulkDeleteConfirmation) {
+                        pendingUserMappingBulkDeleteConfirmation.canceled = true;
+                        if (pendingUserMappingBulkDeleteConfirmation.button) pendingUserMappingBulkDeleteConfirmation.button.disabled = false;
+                    }
+                    page._hueUserMappingBulkDeleteConfirmation = null;
+                    var pendingUserMappingBulkEnabledConfirmation = page._hueUserMappingBulkEnabledConfirmation;
+                    if (pendingUserMappingBulkEnabledConfirmation) {
+                        pendingUserMappingBulkEnabledConfirmation.canceled = true;
+                        if (Array.isArray(pendingUserMappingBulkEnabledConfirmation.buttons)) {
+                            pendingUserMappingBulkEnabledConfirmation.buttons.forEach(function (button) {
+                                if (button) button.disabled = false;
+                            });
+                        }
+                    }
+                    page._hueUserMappingBulkEnabledConfirmation = null;
                     var pendingUserMappingCleanupConfirmation = page._hueUserMappingCleanupConfirmation;
                     if (pendingUserMappingCleanupConfirmation) {
                         pendingUserMappingCleanupConfirmation.canceled = true;
@@ -3089,6 +3121,16 @@
                     page._hueUserMappingDeleting = false;
                     if (page._hueUserMappingDeleteButton) page._hueUserMappingDeleteButton.disabled = false;
                     page._hueUserMappingDeleteButton = null;
+                    page._hueUserMappingBulkDeleting = false;
+                    if (page._hueUserMappingBulkDeleteButton) page._hueUserMappingBulkDeleteButton.disabled = false;
+                    page._hueUserMappingBulkDeleteButton = null;
+                    page._hueUserMappingBulkUpdating = false;
+                    if (Array.isArray(page._hueUserMappingBulkEnabledButtons)) {
+                        page._hueUserMappingBulkEnabledButtons.forEach(function (button) {
+                            if (button) button.disabled = false;
+                        });
+                    }
+                    page._hueUserMappingBulkEnabledButtons = null;
                     page._hueUserMappingCleanupRunning = false;
                     if (page._hueUserMappingCleanupButton) page._hueUserMappingCleanupButton.disabled = false;
                     page._hueUserMappingCleanupButton = null;
@@ -12839,6 +12881,10 @@
                     HueConfigurationPage.updateUserMappingBulkButtons(page);
                 },
                 setUserMappingsEnabledBulk: function (page, syncEnabled) {
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueUserMappingBulkUpdating === true || page._hueUserMappingBulkEnabledConfirmation) return Promise.resolve();
                     var userIds = HueConfigurationPage.getSelectedUserMappingBulkIds(page);
                     var mappingIds = HueConfigurationPage.getSelectedUserMappingBulkMappingIds(page);
                     var statusEl = page.querySelector('#userMappingBulkStatus');
@@ -12851,45 +12897,87 @@
                     var dependencyWarning = syncEnabled
                         ? "Any incomplete custom bridge target blocks the complete operation."
                         : "Any scheduled-cue or saved-playlist target dependency blocks the complete operation, and disabling clears stored custom bridge targets.";
-                    Dashboard.confirm(action + " " + userIds.length + " selected user mapping(s)? " + dependencyWarning, action + " Selected Mappings", function (confirmed) {
-                        if (!confirmed) return;
-                        var enableBtn = page.querySelector('#enableSelectedUserMappingsBtn');
-                        var disableBtn = page.querySelector('#disableSelectedUserMappingsBtn');
-                        if (enableBtn) enableBtn.disabled = true;
-                        if (disableBtn) disableBtn.disabled = true;
-                        if (statusEl) {
-                            statusEl.textContent = "Checking mapping dependencies and applying the selected enabled state atomically...";
-                            statusEl.style.color = "";
-                        }
-                        var selection = mappingIds.length === userIds.length
-                            ? { mappingIds: mappingIds }
-                            : { userIds: userIds };
-                        selection.syncEnabled = syncEnabled;
-                        ApiClient.ajax({
-                            type: "POST",
-                            url: ApiClient.getUrl("HueSync/UserMappings/BulkEnabled"),
-                            data: JSON.stringify(selection),
-                            contentType: "application/json",
-                            dataType: "json"
-                        }).then(function (response) {
-                            var updatedCount = response && (response.updatedCount !== undefined ? response.updatedCount : response.UpdatedCount) || userIds.length;
-                            if (statusEl) {
-                                statusEl.textContent = (syncEnabled ? "Enabled " : "Disabled ") + updatedCount + " user mapping(s).";
-                                statusEl.style.color = "#8bc34a";
+                    var enableButton = page.querySelector('#enableSelectedUserMappingsBtn');
+                    var disableButton = page.querySelector('#disableSelectedUserMappingsBtn');
+                    var buttons = [enableButton, disableButton].filter(function (button) { return !!button; });
+                    var confirmation = { generation: pageGeneration, buttons: buttons, canceled: false };
+                    page._hueUserMappingBulkEnabledConfirmation = confirmation;
+                    buttons.forEach(function (button) { button.disabled = true; });
+                    return new Promise(function (resolve) {
+                        Dashboard.confirm(action + " " + userIds.length + " selected user mapping(s)? " + dependencyWarning, action + " Selected Mappings", function (confirmed) {
+                            var ownsConfirmation = page._hueUserMappingBulkEnabledConfirmation === confirmation;
+                            if (ownsConfirmation) page._hueUserMappingBulkEnabledConfirmation = null;
+                            if (!ownsConfirmation || confirmation.canceled || !confirmed ||
+                                !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                                if (ownsConfirmation) buttons.forEach(function (button) { button.disabled = false; });
+                                resolve();
+                                return;
                             }
-                            HueConfigurationPage.clearSelectedUserMappings(page);
-                            HueConfigurationPage.loadUserMappings(page);
-                        }).catch(function (err) {
-                            console.error("Failed to bulk update user mapping enabled state:", err);
+
+                            page._hueUserMappingBulkUpdating = true;
+                            page._hueUserMappingBulkEnabledButtons = buttons;
                             if (statusEl) {
-                                statusEl.textContent = "No mapping state changed. A dependency, invalid custom target, missing mapping, or persistence failure blocked the atomic operation.";
-                                statusEl.style.color = "#d9534f";
+                                statusEl.textContent = "Checking mapping dependencies and applying the selected enabled state atomically...";
+                                statusEl.style.color = "";
                             }
-                            HueConfigurationPage.updateUserMappingBulkButtons(page);
+                            var selection = mappingIds.length === userIds.length
+                                ? { mappingIds: mappingIds }
+                                : { userIds: userIds };
+                            selection.syncEnabled = syncEnabled;
+                            var request = HueConfigurationPage.getPageLifecycleRequest(
+                                page,
+                                pageGeneration,
+                                'userMappingBulkEnabled',
+                                ApiClient.getUrl("HueSync/UserMappings/BulkEnabled"),
+                                {
+                                    type: "POST",
+                                    data: JSON.stringify(selection),
+                                    contentType: "application/json",
+                                    dataType: "json"
+                                });
+                            var isCurrent = function () {
+                                return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                            };
+                            resolve(request.then(function (response) {
+                                if (!isCurrent()) return;
+                                var updatedCount = response && (response.updatedCount !== undefined ? response.updatedCount : response.UpdatedCount) || userIds.length;
+                                if (statusEl) {
+                                    statusEl.textContent = (syncEnabled ? "Enabled " : "Disabled ") + updatedCount + " user mapping(s).";
+                                    statusEl.style.color = "#8bc34a";
+                                }
+                                HueConfigurationPage.clearSelectedUserMappings(page);
+                                return HueConfigurationPage.loadUserMappings(page);
+                            }).catch(function (err) {
+                                if (!isCurrent()) return;
+                                console.error("Failed to bulk update user mapping enabled state:", err);
+                                if (statusEl) {
+                                    statusEl.textContent = "No mapping state changed. A dependency, invalid custom target, missing mapping, or persistence failure blocked the atomic operation.";
+                                    statusEl.style.color = "#d9534f";
+                                }
+                                HueConfigurationPage.updateUserMappingBulkButtons(page);
+                            }).finally(function () {
+                                var current = isCurrent();
+                                var requestRecord = request && request._huePageRequestRecord;
+                                var tracked = page && page._huePageRequests &&
+                                    page._huePageRequests.userMappingBulkEnabled === requestRecord;
+                                if (current || tracked) {
+                                    page._hueUserMappingBulkUpdating = false;
+                                    if (Array.isArray(page._hueUserMappingBulkEnabledButtons) &&
+                                        page._hueUserMappingBulkEnabledButtons === buttons) {
+                                        buttons.forEach(function (button) { button.disabled = false; });
+                                        page._hueUserMappingBulkEnabledButtons = null;
+                                    }
+                                    if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingBulkEnabled');
+                                }
+                            }));
                         });
                     });
                 },
                 deleteUserMappingsBulk: function (page) {
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueUserMappingBulkDeleting === true || page._hueUserMappingBulkDeleteConfirmation) return Promise.resolve();
                     var userIds = HueConfigurationPage.getSelectedUserMappingBulkIds(page);
                     var mappingIds = HueConfigurationPage.getSelectedUserMappingBulkMappingIds(page);
                     var statusEl = page.querySelector('#userMappingBulkStatus');
@@ -12898,37 +12986,74 @@
                         return;
                     }
 
-                    Dashboard.confirm("Delete " + userIds.length + " selected user mapping(s)? Any scheduled-cue or saved-playlist target dependency blocks the complete operation.", "Delete Selected Mappings", function (confirmed) {
-                        if (!confirmed) return;
-                        var button = page.querySelector('#deleteSelectedUserMappingsBtn');
-                        if (button) button.disabled = true;
-                        if (statusEl) {
-                            statusEl.textContent = "Checking scheduled-cue and saved-playlist target dependencies and deleting the selected mappings atomically...";
-                            statusEl.style.color = "";
-                        }
-                        ApiClient.ajax({
-                            type: "POST",
-                            url: ApiClient.getUrl("HueSync/UserMappings/BulkDelete"),
-                            data: JSON.stringify(mappingIds.length === userIds.length
-                                ? { mappingIds: mappingIds }
-                                : { userIds: userIds }),
-                            contentType: "application/json",
-                            dataType: "json"
-                        }).then(function (response) {
-                            var deletedCount = response && (response.deletedCount !== undefined ? response.deletedCount : response.DeletedCount) || userIds.length;
-                            if (statusEl) {
-                                statusEl.textContent = "Deleted " + deletedCount + " user mapping(s).";
-                                statusEl.style.color = "#8bc34a";
+                    var button = page.querySelector('#deleteSelectedUserMappingsBtn');
+                    var confirmation = { generation: pageGeneration, button: button || null, canceled: false };
+                    page._hueUserMappingBulkDeleteConfirmation = confirmation;
+                    if (button) button.disabled = true;
+                    return new Promise(function (resolve) {
+                        Dashboard.confirm("Delete " + userIds.length + " selected user mapping(s)? Any scheduled-cue or saved-playlist target dependency blocks the complete operation.", "Delete Selected Mappings", function (confirmed) {
+                            var ownsConfirmation = page._hueUserMappingBulkDeleteConfirmation === confirmation;
+                            if (ownsConfirmation) page._hueUserMappingBulkDeleteConfirmation = null;
+                            if (!ownsConfirmation || confirmation.canceled || !confirmed ||
+                                !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                                if (ownsConfirmation && button) button.disabled = false;
+                                resolve();
+                                return;
                             }
-                            HueConfigurationPage.clearSelectedUserMappings(page);
-                            HueConfigurationPage.loadUserMappings(page);
-                        }).catch(function (err) {
-                            console.error("Failed to bulk delete user mappings:", err);
+
+                            page._hueUserMappingBulkDeleting = true;
+                            page._hueUserMappingBulkDeleteButton = button || null;
                             if (statusEl) {
-                                statusEl.textContent = "No mappings were deleted. A scheduled-cue or saved-playlist target dependency, missing mapping, or persistence failure blocked the atomic operation.";
-                                statusEl.style.color = "#d9534f";
+                                statusEl.textContent = "Checking scheduled-cue and saved-playlist target dependencies and deleting the selected mappings atomically...";
+                                statusEl.style.color = "";
                             }
-                            HueConfigurationPage.updateUserMappingBulkButtons(page);
+                            var request = HueConfigurationPage.getPageLifecycleRequest(
+                                page,
+                                pageGeneration,
+                                'userMappingBulkDelete',
+                                ApiClient.getUrl("HueSync/UserMappings/BulkDelete"),
+                                {
+                                    type: "POST",
+                                    data: JSON.stringify(mappingIds.length === userIds.length
+                                        ? { mappingIds: mappingIds }
+                                        : { userIds: userIds }),
+                                    contentType: "application/json",
+                                    dataType: "json"
+                                });
+                            var isCurrent = function () {
+                                return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                            };
+                            resolve(request.then(function (response) {
+                                if (!isCurrent()) return;
+                                var deletedCount = response && (response.deletedCount !== undefined ? response.deletedCount : response.DeletedCount) || userIds.length;
+                                if (statusEl) {
+                                    statusEl.textContent = "Deleted " + deletedCount + " user mapping(s).";
+                                    statusEl.style.color = "#8bc34a";
+                                }
+                                HueConfigurationPage.clearSelectedUserMappings(page);
+                                return HueConfigurationPage.loadUserMappings(page);
+                            }).catch(function (err) {
+                                if (!isCurrent()) return;
+                                console.error("Failed to bulk delete user mappings:", err);
+                                if (statusEl) {
+                                    statusEl.textContent = "No mappings were deleted. A scheduled-cue or saved-playlist target dependency, missing mapping, or persistence failure blocked the atomic operation.";
+                                    statusEl.style.color = "#d9534f";
+                                }
+                                HueConfigurationPage.updateUserMappingBulkButtons(page);
+                            }).finally(function () {
+                                var current = isCurrent();
+                                var requestRecord = request && request._huePageRequestRecord;
+                                var tracked = page && page._huePageRequests &&
+                                    page._huePageRequests.userMappingBulkDelete === requestRecord;
+                                if (current || tracked) {
+                                    page._hueUserMappingBulkDeleting = false;
+                                    if (page._hueUserMappingBulkDeleteButton === button) {
+                                        if (button) button.disabled = false;
+                                        page._hueUserMappingBulkDeleteButton = null;
+                                    }
+                                    if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingBulkDelete');
+                                }
+                            }));
                         });
                     });
                 },

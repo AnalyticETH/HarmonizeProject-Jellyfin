@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.393] - 2026-08-29
+
+### Runtime, administrator, and release-helper hardening
+- **Playback cleanup retry**: incomplete light restoration retains its snapshot and retries restoration/deactivation with a fresh bounded cleanup token before a new playback session is allowed.
+- **Bulk user-mapping deletion lifecycle**: confirmations and requests are generation-owned, canceled on page teardown, and stale completions cannot mutate a reused page.
+- **PowerShell release-helper strict mode**: the documented Windows helper now enables strict mode so missing properties and invalid command assumptions fail closed.
+- **Regression coverage**: runtime restoration retry and configuration lifecycle contracts cover these boundaries.
+
 ## [1.5.392] - 2026-08-29
 
 ### Release-helper hardening

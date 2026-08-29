@@ -1043,9 +1043,72 @@ public sealed class HueSyncServiceLifecycleTests
         handler.ReleaseStopRequest();
         await stopTask;
 
+        var deferredStopTask = Assert.IsAssignableFrom<Task>(GetPrivateField(service, "_deferredStopTask"));
+        await deferredStopTask.WaitAsync(TimeSpan.FromSeconds(5));
+
         var status = service.GetRuntimeStatus();
         Assert.Contains("restored 0 of 1", status.CleanupWarning, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("1 failed", status.CleanupWarning, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(GetPrivateField(service, "_savedLightStates"));
+        Assert.NotNull(GetPrivateField(service, "_currentBridgeConfig"));
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PlaybackStop_WhenRestorationFailsOnce_RetainsSnapshotUntilDeferredRetry()
+    {
+        var handler = new BlockingHueHandler
+        {
+            FailFirstRestorationRequest = true,
+            BlockSecondRestorationRequest = true
+        };
+        using var httpClient = new HttpClient(handler);
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        Plugin.Instance!.Configuration.RestoreLightState = true;
+        ((HueClient)GetPrivateField(service, "_hueClient")!).RetryAttempts = 0;
+        var savedLightStates = new List<HueClient.LightState>
+        {
+            new("light-id", true, 50, 0.1, 0.2)
+        };
+        SetPrivateField(service, "_savedLightStates", savedLightStates);
+        SetPrivateField(service, "_activeRestoreLightState", true);
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "session-a");
+        SetPrivateField(service, "_currentBridgeConfig", new ValueTuple<string, string, string, string>(
+            "192.168.1.100", "app-key", "client-key", "area-id"));
+
+        var stopMethod = typeof(HueSyncService).GetMethod(
+            "HandlePlaybackStoppedAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var stopTask = Assert.IsAssignableFrom<Task>(stopMethod.Invoke(service, new object?[]
+        {
+            CreateStop("session-a")
+        }));
+
+        await handler.RestorationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await handler.StopRequestCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await handler.SecondRestorationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Same(savedLightStates, GetPrivateField(service, "_savedLightStates"));
+        Assert.True((bool)GetPrivateField(service, "_activeRestoreLightState")!);
+        var deferredCleanupTask = Assert.IsAssignableFrom<Task>(GetPrivateField(service, "_deferredPlaybackCleanupTask"));
+
+        handler.ReleaseSecondRestorationRequest();
+        await stopTask.WaitAsync(TimeSpan.FromSeconds(5));
+        await deferredCleanupTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, handler.RestorationRequestCount);
+        Assert.Null(GetPrivateField(service, "_savedLightStates"));
+        Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
+        Assert.Null(GetPrivateField(service, "_activeRestoreLightState"));
+        Assert.False((bool)GetPrivateField(service, "_playbackCleanupRetryPending")!);
+
+        await service.StopAsync(CancellationToken.None);
     }
 
     [Fact]
@@ -1882,6 +1945,7 @@ public sealed class HueSyncServiceLifecycleTests
         Assert.Null(GetPrivateField(service, "_savedLightStates"));
         Assert.Null(GetPrivateField(service, "_currentBridgeConfig"));
         Assert.Null(GetPrivateField(service, "_activePauseBehavior"));
+        Assert.Null(GetPrivateField(service, "_activeRestoreLightState"));
         Assert.Equal("Test item", service.GetRuntimeStatus().CurrentItem);
 
         await service.StopAsync(CancellationToken.None);
@@ -2440,24 +2504,32 @@ public sealed class HueSyncServiceLifecycleTests
         public TaskCompletionSource<bool> StopRequest { get; } = NewSignal();
         public TaskCompletionSource<bool> StopRequestCompleted { get; } = NewSignal();
         public TaskCompletionSource<bool> RestorationRequest { get; } = NewSignal();
+        public TaskCompletionSource<bool> SecondRestorationRequest { get; } = NewSignal();
         public TaskCompletionSource<bool> BrightnessRequest { get; } = NewSignal();
         public string? LastLightPutBody { get; private set; }
         public bool LastStopRequestWasCanceled { get; private set; }
         public bool FailRestorationRequests { get; set; }
+        public bool FailFirstRestorationRequest { get; set; }
+        public bool BlockSecondRestorationRequest { get; set; }
         public bool FailStopRequests { get; set; }
         public bool FailLightCaptureRequests { get; set; }
         public TaskCompletionSource<bool> LightCaptureRequest { get; } = NewSignal();
         public int StartAreaRequestCount { get; private set; }
         public int StopRequestCount => Volatile.Read(ref _stopRequestCount);
+        public int RestorationRequestCount => Volatile.Read(ref _restorationRequestCount);
 
         private readonly TaskCompletionSource<bool> _firstConfigurationRelease = NewSignal();
         private readonly TaskCompletionSource<bool> _stopRelease = NewSignal();
         private int _configurationRequestCount;
         private int _stopRequestCount;
+        private int _restorationRequestCount;
+        private readonly TaskCompletionSource<bool> _secondRestorationRelease = NewSignal();
 
         public void ReleaseFirstConfiguration() => _firstConfigurationRelease.TrySetResult(true);
 
         public void ReleaseStopRequest() => _stopRelease.TrySetResult(true);
+
+        public void ReleaseSecondRestorationRequest() => _secondRestorationRelease.TrySetResult(true);
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -2492,13 +2564,20 @@ public sealed class HueSyncServiceLifecycleTests
                 {
                     LastLightPutBody = body;
                     RestorationRequest.TrySetResult(true);
+                    var restorationNumber = Interlocked.Increment(ref _restorationRequestCount);
                     if (body.Contains("\"dimming\"", StringComparison.Ordinal) &&
                         !body.Contains("\"color\"", StringComparison.Ordinal) &&
                         !body.Contains("\"color_temperature\"", StringComparison.Ordinal))
                     {
                         BrightnessRequest.TrySetResult(true);
                     }
-                    if (FailRestorationRequests)
+                    if (BlockSecondRestorationRequest && restorationNumber == 2)
+                    {
+                        SecondRestorationRequest.TrySetResult(true);
+                        await _secondRestorationRelease.Task;
+                    }
+                    if (FailRestorationRequests ||
+                        (FailFirstRestorationRequest && restorationNumber == 1))
                     {
                         return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
                     }

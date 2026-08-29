@@ -1,5 +1,6 @@
 # PowerShell build script for Jellyfin Hue Sync Plugin
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
 Write-Host "🔨 Building Jellyfin Hue Sync Plugin..." -ForegroundColor Cyan
 Write-Host ""

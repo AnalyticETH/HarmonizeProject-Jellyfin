@@ -488,7 +488,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.392 (Current)
+### Version 1.5.393 (Current)
+
+- **Playback cleanup retry**: incomplete light restoration retains its snapshot and retries restoration/deactivation with a fresh bounded cleanup token before a new playback session is allowed.
+
+- **Bulk user-mapping deletion lifecycle**: confirmations and requests are generation-owned, canceled on page teardown, and stale completions cannot mutate a reused page.
+
+- **PowerShell release-helper strict mode**: the documented Windows helper now enables strict mode so missing properties and invalid command assumptions fail closed.
+
+- **Regression coverage**: runtime restoration retry and configuration lifecycle contracts cover these boundaries.
 
 - **Release-helper fail-closed shell**: the Linux release helper now enables `pipefail` alongside `errexit`, so pipeline failures stop packaging.
 

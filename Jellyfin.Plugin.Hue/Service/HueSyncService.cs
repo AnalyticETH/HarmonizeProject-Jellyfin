@@ -107,6 +107,12 @@ namespace Jellyfin.Plugin.Hue.Service
         // When host shutdown cancellation interrupts a lifecycle-lock wait, retain a
         // single observed completion task so cleanup can finish after the host returns.
         private Task? _deferredStopTask;
+        // A playback stop/pause/finalization can finish its lifecycle while bridge cleanup
+        // remains incomplete. Keep one bounded follow-up task so a transient restoration or
+        // deactivation failure gets a fresh cleanup token without turning the service into a
+        // host-shutdown stop operation.
+        private Task? _deferredPlaybackCleanupTask;
+        private bool _playbackCleanupRetryPending;
         // StopSyncAsync detaches the active loop before waiting so no replacement can
         // publish stale work. If the host cancels that wait, retain the detached task
         // until the deferred stop has awaited its actual completion.
@@ -307,9 +313,11 @@ namespace Jellyfin.Plugin.Hue.Service
         public async Task StartAsync(CancellationToken cancellationToken)
         {
             Task? deferredStopTask;
+            Task? deferredPlaybackCleanupTask;
             lock (_syncLock)
             {
                 deferredStopTask = _deferredStopTask;
+                deferredPlaybackCleanupTask = _deferredPlaybackCleanupTask;
             }
 
             // A host cancellation can return before the lifecycle semaphore is
@@ -326,6 +334,23 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     if (ReferenceEquals(_deferredStopTask, deferredStopTask))
                         _deferredStopTask = null;
+                }
+            }
+
+            // A normal playback lifecycle may also have returned before its bridge cleanup
+            // retry completed. Finish that task before accepting a new session so the retained
+            // snapshot cannot race a replacement playback lifecycle.
+            if (deferredPlaybackCleanupTask != null)
+            {
+                if (cancellationToken.CanBeCanceled)
+                    await deferredPlaybackCleanupTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                else
+                    await deferredPlaybackCleanupTask.ConfigureAwait(false);
+
+                lock (_syncLock)
+                {
+                    if (ReferenceEquals(_deferredPlaybackCleanupTask, deferredPlaybackCleanupTask))
+                        _deferredPlaybackCleanupTask = null;
                 }
             }
 
@@ -423,6 +448,7 @@ namespace Jellyfin.Plugin.Hue.Service
             ConcurrentPlaybackWorker[] concurrentWorkers;
             var deferredCleanupRequired = false;
             Task? pauseCleanup;
+            Task? deferredPlaybackCleanup;
             lock (_syncLock)
             {
                 concurrentWorkers = _concurrentPlaybackWorkers.Values.ToArray();
@@ -436,6 +462,7 @@ namespace Jellyfin.Plugin.Hue.Service
                 _externalPlaybackStopRequested = false;
                 ResetPlaybackProgressTrackingLocked();
                 pauseCleanup = _pauseCleanupTask;
+                deferredPlaybackCleanup = _deferredPlaybackCleanupTask;
             }
 
             if (concurrentWorkers.Length > 0)
@@ -484,6 +511,33 @@ namespace Jellyfin.Plugin.Hue.Service
                         _pauseCleanupTask = null;
                         _pauseCleanupSessionId = null;
                     }
+                }
+            }
+
+            // Pause cleanup can publish its own follow-up retry immediately before its task
+            // completes, so take a fresh snapshot after waiting for the pause task.
+            lock (_syncLock)
+            {
+                deferredPlaybackCleanup = _deferredPlaybackCleanupTask;
+            }
+
+            // A normal playback cleanup can have handed bridge work to the bounded follow-up
+            // task. Wait for that attempt before taking the primary lifecycle lock; if the host
+            // cancels this wait, the existing deferred-stop path will retry with a fresh token.
+            if (deferredPlaybackCleanup != null)
+            {
+                try
+                {
+                    if (cancellationToken.CanBeCanceled)
+                        await deferredPlaybackCleanup.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    else
+                        await deferredPlaybackCleanup.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    deferredCleanupRequired = true;
+                    _logger.LogWarning("Host shutdown cancellation interrupted playback cleanup retry.");
+                    SetCleanupWarning("Playback cleanup retry was interrupted by host shutdown cancellation.");
                 }
             }
 
@@ -592,20 +646,28 @@ namespace Jellyfin.Plugin.Hue.Service
                     }
                 }
 
+                var cleanupStateRetained = false;
                 lock (_syncLock)
                 {
-                    _activeUseCinemaMode = null;
-                    _activeCinemaModeAttempted = null;
-                    _activeRestoreLightState = null;
-                    _activePauseBehavior = null;
-                    _activePauseBrightnessPercent = null;
-                    _activeColorProcessingSettings = null;
-                    _activeExecutionSettings = null;
-                    _activeChannelIds = null;
+                    cleanupStateRetained = _playbackCleanupRetryPending;
+                    if (!cleanupStateRetained)
+                    {
+                        _activeUseCinemaMode = null;
+                        _activeCinemaModeAttempted = null;
+                        _activeRestoreLightState = null;
+                        _activePauseBehavior = null;
+                        _activePauseBrightnessPercent = null;
+                        _activeColorProcessingSettings = null;
+                        _activeExecutionSettings = null;
+                        _activeChannelIds = null;
+                    }
                 }
 
-                _savedLightStates = null;
-                _savedLightStatePlaySessionId = null;
+                if (!cleanupStateRetained)
+                {
+                    _savedLightStates = null;
+                    _savedLightStatePlaySessionId = null;
+                }
             }
             finally
             {
@@ -697,11 +759,19 @@ namespace Jellyfin.Plugin.Hue.Service
                 _currentSpatialOrientation = null;
                 _currentColorSmoothingPercent = null;
 
-                await RestoreAndDeactivateAsync(
+                var cleanupCompleted = await RestoreAndDeactivateAsync(
                     config,
                     bridgeConfig,
                     savedLightStates,
                     sessionOutcome: "StoppedByAdministrator").ConfigureAwait(false);
+                if (!cleanupCompleted)
+                {
+                    ScheduleDeferredPlaybackCleanup(
+                        activePlaySessionId,
+                        pauseCleanup: false,
+                        bridgeConfig,
+                        savedLightStates);
+                }
                 SetRuntimeStatus("Stopped", "Hue sync stopped by an administrator; playback continues.");
                 return true;
             }
@@ -1805,6 +1875,9 @@ namespace Jellyfin.Plugin.Hue.Service
             if (_isStopping)
                 return;
 
+            if (IsPlaybackCleanupRetryPending())
+                return;
+
             e = NormalizeRecoveredPlaybackEvent(e);
             var playbackMediaFilter = GetPlaybackMediaFilter(e);
             if (!IsPlaybackUserSyncEnabled(e) ||
@@ -1821,7 +1894,7 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             lock (_syncLock)
             {
-                if (_isStopping || !_externalPlaybackStartPending)
+                if (_isStopping || _playbackCleanupRetryPending || !_externalPlaybackStartPending)
                     return;
 
                 _externalPlaybackStartPending = false;
@@ -1841,6 +1914,7 @@ namespace Jellyfin.Plugin.Hue.Service
             lock (_syncLock)
             {
                 if (_isStopping ||
+                    _playbackCleanupRetryPending ||
                     (_currentPlaySessionId != null &&
                      !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal)) ||
                     _externalPlaybackStartPending ||
@@ -1881,6 +1955,12 @@ namespace Jellyfin.Plugin.Hue.Service
         private void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
         {
             if (_isStopping)
+                return;
+
+            // Do not begin another lifecycle while a prior playback still owns a retained
+            // snapshot awaiting its bounded cleanup retry. Starting now could overwrite the
+            // only restorable state or stream into a target whose previous session is pending.
+            if (IsPlaybackCleanupRetryPending())
                 return;
 
             if (TryGetConcurrentPlaybackWorker(e, out var concurrentWorker))
@@ -1945,7 +2025,7 @@ namespace Jellyfin.Plugin.Hue.Service
             // to queue while an earlier startup is being cancelled.
             lock (_syncLock)
             {
-                if (_isStopping)
+                if (_isStopping || _playbackCleanupRetryPending)
                     return;
 
                 if (string.Equals(_manuallyStoppedPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
@@ -2172,11 +2252,19 @@ namespace Jellyfin.Plugin.Hue.Service
 
                     try
                     {
-                        await RestoreAndDeactivateAsync(
+                        var cleanupCompleted = await RestoreAndDeactivateAsync(
                             config,
                             bridgeConfig,
                             savedLightStates,
                             sessionOutcome: "Stopped");
+                        if (!cleanupCompleted)
+                        {
+                            ScheduleDeferredPlaybackCleanup(
+                                e.PlaySessionId,
+                                pauseCleanup: false,
+                                bridgeConfig,
+                                savedLightStates);
+                        }
                     }
                     finally
                     {
@@ -2381,6 +2469,7 @@ namespace Jellyfin.Plugin.Hue.Service
                     // the restart decision so a late progress event cannot resurrect
                     // the just-stopped session (or race a newer session transition).
                     if (_isStopping ||
+                        _playbackCleanupRetryPending ||
                         string.Equals(_playbackStopInFlightSessionId, e.PlaySessionId, StringComparison.Ordinal) ||
                         (_currentPlaySessionId != null &&
                          !string.Equals(_currentPlaySessionId, e.PlaySessionId, StringComparison.Ordinal)) ||
@@ -2473,18 +2562,28 @@ namespace Jellyfin.Plugin.Hue.Service
                     _currentSamplingMode = null;
                     _currentSpatialOrientation = null;
                     _currentColorSmoothingPercent = null;
-                    await RestoreAndDeactivateAsync(
+                    var cleanupCompleted = await RestoreAndDeactivateAsync(
                         config,
                         bridgeConfig,
                         savedLightStates,
                         publishIdleStatus: false,
                         clearCurrentItem: false,
                         recordSessionSummary: false).ConfigureAwait(false);
+                    if (!cleanupCompleted)
+                    {
+                        ScheduleDeferredPlaybackCleanup(
+                            playSessionId,
+                            pauseCleanup: true,
+                            bridgeConfig,
+                            savedLightStates);
+                    }
                     SetRuntimeStatus(
                         "Paused",
-                        GetRuntimeStatus().CleanupWarning == null
+                        cleanupCompleted && GetRuntimeStatus().CleanupWarning == null
                             ? "Playback paused; original light state restored."
-                            : "Playback paused; light restoration completed with warnings.");
+                            : cleanupCompleted
+                                ? "Playback paused; light restoration completed with warnings."
+                                : "Playback paused; light restoration is pending cleanup retry.");
                 }
                 else if (bridgeConfig != null)
                 {
@@ -4721,11 +4820,19 @@ namespace Jellyfin.Plugin.Hue.Service
 
                 try
                 {
-                    await RestoreAndDeactivateAsync(
+                    var cleanupCompleted = await RestoreAndDeactivateAsync(
                         config,
                         bridgeConfig,
                         savedLightStates,
                         sessionOutcome: streamEnded ? "Ended" : "Error").ConfigureAwait(false);
+                    if (!cleanupCompleted)
+                    {
+                        ScheduleDeferredPlaybackCleanup(
+                            playSessionId,
+                            pauseCleanup: false,
+                            bridgeConfig,
+                            savedLightStates);
+                    }
                     if (streamEnded)
                     {
                         var streamLabel = isAudioPlayback ? "Audio" : "Video";
@@ -4791,7 +4898,7 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             lock (_syncLock)
             {
-                if (_isStopping)
+                if (_isStopping || _playbackCleanupRetryPending)
                     return;
 
                 if (string.Equals(_startingPlaySessionId, e.PlaySessionId, StringComparison.Ordinal))
@@ -4840,7 +4947,7 @@ namespace Jellyfin.Plugin.Hue.Service
             var startupCts = new CancellationTokenSource();
             lock (_syncLock)
             {
-                if (_isStopping)
+                if (_isStopping || _playbackCleanupRetryPending)
                 {
                     startupCts.Cancel();
                 }
@@ -5634,7 +5741,11 @@ namespace Jellyfin.Plugin.Hue.Service
                     }
                 }
 
-                cleanupRequiresRetry = !deactivationCompleted;
+                // A successful deactivation does not make an incomplete light restoration
+                // safe to forget. Keep both pieces of cleanup state available until every
+                // bridge mutation has completed; callers can then hand the target to a
+                // fresh bounded retry with a new cleanup token.
+                cleanupRequiresRetry = !deactivationCompleted || !restorationCompleted;
                 if (cleanupRequiresRetry && bridgeConfig != null)
                 {
                     // The caller may have cleared its active target before cleanup. Keep
@@ -5654,16 +5765,23 @@ namespace Jellyfin.Plugin.Hue.Service
                         : $"{cleanupWarning} Hue bridge cleanup was interrupted by host shutdown cancellation; cleanup will retry.";
                 }
 
-                if (savedLightStateOwned && !cleanupInterrupted)
+                if (savedLightStateOwned && restorationCompleted && deactivationCompleted && !cleanupInterrupted)
                 {
                     _savedLightStates = null;
                     _savedLightStatePlaySessionId = null;
                 }
 
-                if (!cleanupInterrupted)
+                if (!cleanupRequiresRetry && !cleanupInterrupted)
                 {
                     lock (_syncLock)
                     {
+                        if (bridgeConfig != null &&
+                            _currentBridgeConfig is { } currentBridgeConfig &&
+                            currentBridgeConfig == bridgeConfig.Value)
+                        {
+                            _currentBridgeConfig = null;
+                        }
+
                         _activeUseCinemaMode = null;
                         _activeCinemaModeAttempted = null;
                         _activeRestoreLightState = null;
@@ -5672,6 +5790,14 @@ namespace Jellyfin.Plugin.Hue.Service
                         _activeColorProcessingSettings = null;
                         _activeExecutionSettings = null;
                         _activeChannelIds = null;
+                        _playbackCleanupRetryPending = false;
+                    }
+                }
+                else
+                {
+                    lock (_syncLock)
+                    {
+                        _playbackCleanupRetryPending = true;
                     }
                 }
 
@@ -5902,11 +6028,19 @@ namespace Jellyfin.Plugin.Hue.Service
             _currentSamplingMode = null;
             _currentSpatialOrientation = null;
             _currentColorSmoothingPercent = null;
-            await RestoreAndDeactivateAsync(
+            var cleanupCompleted = await RestoreAndDeactivateAsync(
                 config,
                 bridgeConfig,
                 savedLightStates,
                 sessionOutcome: "StartupFailed").ConfigureAwait(false);
+            if (!cleanupCompleted)
+            {
+                ScheduleDeferredPlaybackCleanup(
+                    playSessionId,
+                    pauseCleanup: false,
+                    bridgeConfig,
+                    savedLightStates);
+            }
         }
 
         /// <summary>
@@ -5938,6 +6072,119 @@ namespace Jellyfin.Plugin.Hue.Service
             }
 
             ObserveTask(deferredStopTask);
+        }
+
+        private bool IsPlaybackCleanupRetryPending()
+        {
+            lock (_syncLock)
+            {
+                return _playbackCleanupRetryPending;
+            }
+        }
+
+        /// <summary>
+        /// Schedules one bounded retry for cleanup that completed after its lifecycle caller
+        /// returned. This is intentionally separate from <see cref="ScheduleDeferredStop"/>:
+        /// a natural playback stop or pause must not mark the hosted service as stopping.
+        /// </summary>
+        private void ScheduleDeferredPlaybackCleanup(
+            string? playSessionId,
+            bool pauseCleanup,
+            (string BridgeIp, string AppKey, string ClientKey, string AreaId)? bridgeConfig,
+            List<HueClient.LightState>? savedLightStates)
+        {
+            Task cleanupTask;
+            lock (_syncLock)
+            {
+                if (!_playbackCleanupRetryPending ||
+                    bridgeConfig == null ||
+                    _deferredPlaybackCleanupTask is { IsCompleted: false })
+                {
+                    return;
+                }
+
+                cleanupTask = Task.Run(() => RetryDeferredPlaybackCleanupAsync(
+                    playSessionId,
+                    pauseCleanup,
+                    bridgeConfig.Value,
+                    savedLightStates));
+                _deferredPlaybackCleanupTask = cleanupTask;
+            }
+
+            _ = cleanupTask.ContinueWith(
+                _ =>
+                {
+                    lock (_syncLock)
+                    {
+                        if (ReferenceEquals(_deferredPlaybackCleanupTask, cleanupTask))
+                            _deferredPlaybackCleanupTask = null;
+                    }
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            ObserveTask(cleanupTask);
+        }
+
+        private async Task RetryDeferredPlaybackCleanupAsync(
+            string? playSessionId,
+            bool pauseCleanup,
+            (string BridgeIp, string AppKey, string ClientKey, string AreaId) bridgeConfig,
+            List<HueClient.LightState>? savedLightStates)
+        {
+            try
+            {
+                await _syncLifecycleLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    lock (_syncLock)
+                    {
+                        if (!_playbackCleanupRetryPending)
+                            return;
+
+                        // A new pause identity must not consume a retry belonging to an
+                        // unrelated paused session. Natural-stop cleanup has no paused identity
+                        // and remains eligible until the bridge work succeeds.
+                        if (pauseCleanup &&
+                            _pausedPlaySessionId != null &&
+                            playSessionId != null &&
+                            !string.Equals(_pausedPlaySessionId, playSessionId, StringComparison.Ordinal))
+                        {
+                            return;
+                        }
+                    }
+
+                    var currentBridgeConfig = _currentBridgeConfig;
+                    if (currentBridgeConfig != null && currentBridgeConfig != bridgeConfig)
+                    {
+                        _logger.LogWarning("Skipping playback cleanup retry because the retained bridge target changed.");
+                        return;
+                    }
+
+                    var config = Plugin.Instance?.Configuration;
+                    var cleanupCompleted = await RestoreAndDeactivateAsync(
+                        config,
+                        bridgeConfig,
+                        savedLightStates,
+                        publishIdleStatus: false,
+                        clearCurrentItem: false,
+                        sessionOutcome: "CleanupRetry",
+                        recordSessionSummary: false).ConfigureAwait(false);
+                    if (cleanupCompleted && pauseCleanup)
+                    {
+                        SetRuntimeStatus("Paused", "Playback paused; original light state restored.");
+                    }
+                }
+                finally
+                {
+                    _syncLifecycleLock.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Playback cleanup retry failed");
+                SetCleanupWarning("Playback cleanup retry failed; cleanup remains pending.");
+            }
         }
 
         /// <summary>

@@ -134,6 +134,7 @@ for (const [name, script] of [["build-release.sh", releaseShell], ["build-releas
       "MANIFEST_CHECKSUM_FILE=");
   } else {
     markers.push(
+      "Set-StrictMode -Version Latest",
       "Remove-Item -Recurse -Force \"./publish\"",
       "git -c \"safe.directory=$((Get-Location).Path)\" status --porcelain=v1 --untracked-files=all",
       "git -c \"safe.directory=$((Get-Location).Path)\" rev-parse --verify HEAD",

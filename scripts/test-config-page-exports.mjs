@@ -905,6 +905,250 @@ async function testUserMappingCleanupLifecycleGuards() {
     assert.equal(currentPage._huePageRequests.userMappingCleanup, undefined, "current cleanup removes its settled lifecycle record");
 }
 
+function configureUserMappingBulkDeleteHarness(harness) {
+    const { page } = harness;
+    const bulkSelect = page.querySelector("#userMappingBulkSelect");
+    bulkSelect.options = [
+        { value: "user-one", selected: true, dataset: { mappingid: "mapping-one" } },
+        { value: "user-two", selected: true, dataset: { mappingid: "mapping-two" } }
+    ];
+    return {
+        bulkSelect,
+        button: page.querySelector("#deleteSelectedUserMappingsBtn"),
+        status: page.querySelector("#userMappingBulkStatus"),
+        mappingLoads: 0,
+        buttonUpdates: 0
+    };
+}
+
+async function testUserMappingBulkDeleteLifecycleGuards() {
+    const confirmationHarness = makeHarness();
+    const confirmationState = configureUserMappingBulkDeleteHarness(confirmationHarness);
+    const confirmationPage = confirmationHarness.page;
+    const confirmationApi = confirmationHarness.api;
+    let confirmation;
+    let confirmationCalls = 0;
+    confirmationHarness.dashboard.confirm = (_message, _title, callback) => {
+        confirmationCalls += 1;
+        confirmation = callback;
+    };
+    const confirmationOperation = confirmationApi.deleteUserMappingsBulk(confirmationPage);
+    assert.ok(confirmationOperation && typeof confirmationOperation.then === "function", "bulk user-mapping delete returns a promise");
+    assert.equal(confirmationHarness.requests.length, 0, "bulk user-mapping delete waits for confirmation before mutating configuration");
+    assert.equal(confirmationCalls, 1, "bulk user-mapping delete asks for one confirmation");
+    assert.equal(confirmationState.button.disabled, true, "pending bulk user-mapping delete disables its button");
+    confirmationApi.invalidatePageLifecycle(confirmationPage);
+    confirmationApi.beginPageLifecycle(confirmationPage);
+    assert.equal(confirmationState.button.disabled, false, "pagehide restores the pending bulk user-mapping delete button");
+    confirmation(true);
+    assert.equal(confirmationHarness.requests.length, 0, "stale bulk user-mapping delete confirmation cannot start a request after pagehide");
+    await confirmationOperation;
+
+    const staleHarness = makeHarness();
+    const staleState = configureUserMappingBulkDeleteHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    staleApi.loadUserMappings = () => {
+        staleState.mappingLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.updateUserMappingBulkButtons = () => {
+        staleState.buttonUpdates += 1;
+    };
+    let staleConfirmation;
+    staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirmation = callback; };
+    const staleOperation = staleApi.deleteUserMappingsBulk(stalePage);
+    staleConfirmation(true);
+    assert.equal(staleHarness.requests.length, 1, "confirmed bulk user-mapping delete starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "POST", "bulk user-mapping delete uses POST");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/UserMappings/BulkDelete", "bulk user-mapping delete targets the bulk endpoint");
+    assert.deepEqual(
+        JSON.parse(staleHarness.requests[0].options.data),
+        { mappingIds: ["mapping-one", "mapping-two"] },
+        "bulk user-mapping delete sends stable selected mapping IDs"
+    );
+    assert.ok(stalePage._huePageRequests.userMappingBulkDelete, "bulk user-mapping delete is tracked by the page lifecycle");
+    assert.equal(stalePage._hueUserMappingBulkDeleting, true, "bulk user-mapping delete marks the page busy");
+    assert.equal(staleState.button.disabled, true, "bulk user-mapping delete keeps its button disabled while pending");
+    staleState.status.textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight bulk user-mapping delete");
+    assert.equal(stalePage._huePageRequests.userMappingBulkDelete, undefined, "pagehide removes the bulk user-mapping delete request record");
+    assert.equal(stalePage._hueUserMappingBulkDeleting, false, "pagehide clears bulk user-mapping delete state");
+    assert.equal(staleState.button.disabled, false, "pagehide restores the bulk user-mapping delete button");
+    staleState.bulkSelect.options = [
+        { value: "new-user", selected: true, dataset: { mappingid: "new-mapping" } }
+    ];
+    staleHarness.requests[0].resolve({ deletedCount: 2 });
+    await staleOperation;
+    assert.equal(staleState.status.textContent, "unchanged after pagehide", "stale bulk user-mapping delete cannot write hidden-page status");
+    assert.equal(staleState.bulkSelect.options[0].selected, true, "stale bulk user-mapping delete cannot clear a reused page selection");
+    assert.equal(staleState.mappingLoads, 0, "stale bulk user-mapping delete cannot reload mappings");
+    assert.equal(staleState.buttonUpdates, 0, "stale bulk user-mapping delete cannot update current-page controls");
+    assert.equal(staleHarness.dashboard.alerts.length, 0, "stale bulk user-mapping delete cannot show an alert");
+
+    const currentHarness = makeHarness();
+    const currentState = configureUserMappingBulkDeleteHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    currentApi.loadUserMappings = () => {
+        currentState.mappingLoads += 1;
+        return Promise.resolve();
+    };
+    currentApi.updateUserMappingBulkButtons = () => {
+        currentState.buttonUpdates += 1;
+    };
+    let currentConfirmation;
+    let currentConfirmationCalls = 0;
+    currentHarness.dashboard.confirm = (_message, _title, callback) => {
+        currentConfirmationCalls += 1;
+        currentConfirmation = callback;
+    };
+    const currentOperation = currentApi.deleteUserMappingsBulk(currentPage);
+    const duplicateBeforeConfirmation = currentApi.deleteUserMappingsBulk(currentPage);
+    assert.equal(currentConfirmationCalls, 1, "duplicate bulk user-mapping delete does not open another confirmation");
+    assert.equal(currentHarness.requests.length, 0, "duplicate bulk user-mapping delete does not submit before confirmation");
+    await duplicateBeforeConfirmation;
+    currentConfirmation(true);
+    const duplicateWhilePending = currentApi.deleteUserMappingsBulk(currentPage);
+    assert.ok(duplicateWhilePending && typeof duplicateWhilePending.then === "function", "duplicate pending bulk user-mapping delete returns a settled no-op");
+    assert.equal(currentHarness.requests.length, 1, "pending bulk user-mapping delete keeps one request in flight");
+    currentHarness.requests[0].resolve({ deletedCount: 2 });
+    await Promise.all([currentOperation, duplicateWhilePending]);
+    assert.equal(currentState.status.textContent, "Deleted 2 user mapping(s).", "current bulk user-mapping delete reports success");
+    assert.equal(currentState.bulkSelect.options.every(option => option.selected === false), true, "current bulk user-mapping delete clears the selected rows");
+    assert.equal(currentState.mappingLoads, 1, "current bulk user-mapping delete reloads mappings once");
+    assert.equal(currentPage._hueUserMappingBulkDeleting, false, "current bulk user-mapping delete clears its busy state");
+    assert.equal(currentState.button.disabled, false, "current bulk user-mapping delete restores its button");
+    assert.equal(currentState.buttonUpdates, 1, "current bulk user-mapping delete refreshes current-page controls once");
+    assert.equal(currentPage._huePageRequests.userMappingBulkDelete, undefined, "current bulk user-mapping delete removes its settled lifecycle record");
+}
+
+function configureUserMappingBulkEnabledHarness(harness) {
+    const { page } = harness;
+    const bulkSelect = page.querySelector("#userMappingBulkSelect");
+    bulkSelect.options = [
+        { value: "user-one", selected: true, dataset: { mappingid: "mapping-one" } },
+        { value: "user-two", selected: true, dataset: { mappingid: "mapping-two" } }
+    ];
+    return {
+        bulkSelect,
+        enableButton: page.querySelector("#enableSelectedUserMappingsBtn"),
+        disableButton: page.querySelector("#disableSelectedUserMappingsBtn"),
+        status: page.querySelector("#userMappingBulkStatus"),
+        mappingLoads: 0,
+        buttonUpdates: 0
+    };
+}
+
+async function testUserMappingBulkEnabledLifecycleGuards() {
+    const confirmationHarness = makeHarness();
+    const confirmationState = configureUserMappingBulkEnabledHarness(confirmationHarness);
+    const confirmationPage = confirmationHarness.page;
+    const confirmationApi = confirmationHarness.api;
+    let confirmation;
+    let confirmationCalls = 0;
+    confirmationHarness.dashboard.confirm = (_message, _title, callback) => {
+        confirmationCalls += 1;
+        confirmation = callback;
+    };
+    const confirmationOperation = confirmationApi.setUserMappingsEnabledBulk(confirmationPage, false);
+    assert.ok(confirmationOperation && typeof confirmationOperation.then === "function", "bulk user-mapping enabled update returns a promise");
+    assert.equal(confirmationHarness.requests.length, 0, "bulk user-mapping enabled update waits for confirmation before mutating configuration");
+    assert.equal(confirmationCalls, 1, "bulk user-mapping enabled update asks for one confirmation");
+    assert.equal(confirmationState.enableButton.disabled, true, "pending bulk user-mapping enabled update disables the enable button");
+    assert.equal(confirmationState.disableButton.disabled, true, "pending bulk user-mapping enabled update disables the disable button");
+    confirmationApi.invalidatePageLifecycle(confirmationPage);
+    confirmationApi.beginPageLifecycle(confirmationPage);
+    assert.equal(confirmationState.enableButton.disabled, false, "pagehide restores the pending bulk enabled enable button");
+    assert.equal(confirmationState.disableButton.disabled, false, "pagehide restores the pending bulk enabled disable button");
+    confirmation(true);
+    assert.equal(confirmationHarness.requests.length, 0, "stale bulk user-mapping enabled confirmation cannot start a request after pagehide");
+    await confirmationOperation;
+
+    const staleHarness = makeHarness();
+    const staleState = configureUserMappingBulkEnabledHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    staleApi.loadUserMappings = () => {
+        staleState.mappingLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.updateUserMappingBulkButtons = () => {
+        staleState.buttonUpdates += 1;
+    };
+    let staleConfirmation;
+    staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirmation = callback; };
+    const staleOperation = staleApi.setUserMappingsEnabledBulk(stalePage, false);
+    staleConfirmation(true);
+    assert.equal(staleHarness.requests.length, 1, "confirmed bulk user-mapping enabled update starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "POST", "bulk user-mapping enabled update uses POST");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/UserMappings/BulkEnabled", "bulk user-mapping enabled update targets the bulk endpoint");
+    assert.deepEqual(
+        JSON.parse(staleHarness.requests[0].options.data),
+        { mappingIds: ["mapping-one", "mapping-two"], syncEnabled: false },
+        "bulk user-mapping enabled update sends stable selected mapping IDs and state"
+    );
+    assert.ok(stalePage._huePageRequests.userMappingBulkEnabled, "bulk user-mapping enabled update is tracked by the page lifecycle");
+    assert.equal(stalePage._hueUserMappingBulkUpdating, true, "bulk user-mapping enabled update marks the page busy");
+    assert.equal(staleState.enableButton.disabled, true, "bulk user-mapping enabled update keeps the enable button disabled while pending");
+    assert.equal(staleState.disableButton.disabled, true, "bulk user-mapping enabled update keeps the disable button disabled while pending");
+    staleState.status.textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight bulk user-mapping enabled update");
+    assert.equal(stalePage._huePageRequests.userMappingBulkEnabled, undefined, "pagehide removes the bulk enabled request record");
+    assert.equal(stalePage._hueUserMappingBulkUpdating, false, "pagehide clears bulk user-mapping enabled state");
+    assert.equal(staleState.enableButton.disabled, false, "pagehide restores the bulk enabled enable button");
+    assert.equal(staleState.disableButton.disabled, false, "pagehide restores the bulk enabled disable button");
+    staleState.bulkSelect.options = [
+        { value: "new-user", selected: true, dataset: { mappingid: "new-mapping" } }
+    ];
+    staleHarness.requests[0].resolve({ updatedCount: 2 });
+    await staleOperation;
+    assert.equal(staleState.status.textContent, "unchanged after pagehide", "stale bulk enabled completion cannot write hidden-page status");
+    assert.equal(staleState.bulkSelect.options[0].selected, true, "stale bulk enabled completion cannot clear a reused page selection");
+    assert.equal(staleState.mappingLoads, 0, "stale bulk enabled completion cannot reload mappings");
+    assert.equal(staleState.buttonUpdates, 0, "stale bulk enabled completion cannot update current-page controls");
+    assert.equal(staleHarness.dashboard.alerts.length, 0, "stale bulk enabled completion cannot show an alert");
+
+    const currentHarness = makeHarness();
+    const currentState = configureUserMappingBulkEnabledHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    currentApi.loadUserMappings = () => {
+        currentState.mappingLoads += 1;
+        return Promise.resolve();
+    };
+    currentApi.updateUserMappingBulkButtons = () => {
+        currentState.buttonUpdates += 1;
+    };
+    let currentConfirmation;
+    let currentConfirmationCalls = 0;
+    currentHarness.dashboard.confirm = (_message, _title, callback) => {
+        currentConfirmationCalls += 1;
+        currentConfirmation = callback;
+    };
+    const currentOperation = currentApi.setUserMappingsEnabledBulk(currentPage, false);
+    const duplicateBeforeConfirmation = currentApi.setUserMappingsEnabledBulk(currentPage, false);
+    assert.equal(currentConfirmationCalls, 1, "duplicate bulk user-mapping enabled update does not open another confirmation");
+    assert.equal(currentHarness.requests.length, 0, "duplicate bulk user-mapping enabled update does not submit before confirmation");
+    await duplicateBeforeConfirmation;
+    currentConfirmation(true);
+    const duplicateWhilePending = currentApi.setUserMappingsEnabledBulk(currentPage, false);
+    assert.ok(duplicateWhilePending && typeof duplicateWhilePending.then === "function", "duplicate pending bulk enabled update returns a settled no-op");
+    assert.equal(currentHarness.requests.length, 1, "pending bulk user-mapping enabled update keeps one request in flight");
+    currentHarness.requests[0].resolve({ updatedCount: 2 });
+    await Promise.all([currentOperation, duplicateWhilePending]);
+    assert.equal(currentState.status.textContent, "Disabled 2 user mapping(s).", "current bulk user-mapping enabled update reports success");
+    assert.equal(currentState.bulkSelect.options.every(option => option.selected === false), true, "current bulk enabled update clears the selected rows");
+    assert.equal(currentState.mappingLoads, 1, "current bulk enabled update reloads mappings once");
+    assert.equal(currentPage._hueUserMappingBulkUpdating, false, "current bulk enabled update clears its busy state");
+    assert.equal(currentState.enableButton.disabled, false, "current bulk enabled update restores the enable button");
+    assert.equal(currentState.disableButton.disabled, false, "current bulk enabled update restores the disable button");
+    assert.equal(currentState.buttonUpdates, 1, "current bulk enabled update refreshes current-page controls once");
+    assert.equal(currentPage._huePageRequests.userMappingBulkEnabled, undefined, "current bulk enabled update removes its settled lifecycle record");
+}
+
 async function testConfigurationImportValidationLifecycleGuards() {
     const harness = makeHarness();
     const { page, api, requests } = harness;
@@ -2927,6 +3171,8 @@ await testEditMappingLifecycleGuards();
 await testUserMappingSaveLifecycleGuards();
 await testUserMappingDeleteLifecycleGuards();
 await testUserMappingCleanupLifecycleGuards();
+await testUserMappingBulkDeleteLifecycleGuards();
+await testUserMappingBulkEnabledLifecycleGuards();
 await testConfigurationImportValidationLifecycleGuards();
 await testConfigurationImportFileLifecycleGuards();
 await testMappingDeviceRouteCredentialScope();
@@ -2961,4 +3207,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/rename/scene save/delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/rename/scene save/delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
