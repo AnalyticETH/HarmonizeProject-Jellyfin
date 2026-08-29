@@ -7905,6 +7905,56 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_RejectsNonLocalAddressResolverResults()
+    {
+        const string fingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = false,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "recovery-app-secret",
+            EntertainmentAreaId = "area-1",
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["hue-bridge.local"] = fingerprint
+            }
+        };
+        InstallConfiguration(configuration);
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var journal = new HueScheduledCleanupJournal(lifecycleGate);
+        using (journal.BeginScope(new HueScheduledCleanupScope
+        {
+            CleanupId = "cleanup-recovery-public-resolver-1",
+            ScheduleId = "schedule-recovery-public-resolver-1",
+            BridgeIp = "hue-bridge.local",
+            EntertainmentAreaId = "area-1"
+        }))
+        {
+            Assert.True(journal.Capture(new[]
+            {
+                new HueClient.LightState("light-1", true, 45, 0.2, 0.3)
+            }));
+        }
+
+        configuration.PersistedSceneAutomationPendingCleanups[0].NextAttemptAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        var handler = new CleanupRecoveryHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate,
+            journal,
+            bridgeAddressResolver: (_, _) => Task.FromResult(IPAddress.Parse("203.0.113.9")));
+
+        await service.RunDueSchedulesAsync(DateTime.Now, CancellationToken.None);
+
+        var pending = Assert.Single(configuration.PersistedSceneAutomationPendingCleanups);
+        Assert.Equal("The configured cleanup target changed since the snapshot was captured.", pending.LastError);
+        Assert.Equal(0, handler.SuccessfulPutCount);
+    }
+
+    [Fact]
     public void StatusExposesPendingCleanupTelemetryWithoutBridgeSecretsOrSnapshots()
     {
         var configuration = new PluginConfiguration

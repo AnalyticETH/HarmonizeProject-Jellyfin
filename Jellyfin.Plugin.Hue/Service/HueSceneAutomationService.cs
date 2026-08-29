@@ -4962,7 +4962,13 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         try
         {
-            return await _bridgeAddressResolver(bridgeHost, cancellationToken).ConfigureAwait(false);
+            var resolvedAddress = await _bridgeAddressResolver(bridgeHost, cancellationToken).ConfigureAwait(false);
+            // Keep the recovery proof fail-closed even when a test or host-provided
+            // resolver is injected: only the same private/link-local/unique-local
+            // boundary accepted by the production resolver may establish identity.
+            return HueBridgeCertificateValidation.IsLocalAddress(resolvedAddress)
+                ? resolvedAddress
+                : null;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
