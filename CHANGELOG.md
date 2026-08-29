@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.376] - 2026-08-29
+
+### Certificate trust identity
+- **Certificate trust alias safety**: bridge certificate pins now resolve IP and .local aliases against a single vetted local address, fail closed on conflicting fingerprints, and keep registration, credential-free probes, transport TLS validation, playback arbitration, and pin management aligned.
+- **Regression coverage**: API and certificate-validation tests cover alias equivalence, conflict rejection, alias cleanup, unknown-target protection, and credential-free probe behavior.
+
 ## [1.5.375] - 2026-08-29
 
 ### Administrator lifecycle safety

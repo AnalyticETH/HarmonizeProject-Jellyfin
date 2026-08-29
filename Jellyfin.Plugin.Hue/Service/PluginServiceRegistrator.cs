@@ -62,6 +62,8 @@ internal static class HueBridgeCertificateValidation
     internal const string CertificateProbeHeader = "x-hue-certificate-probe";
     internal static readonly HttpRequestOptionsKey<string> CertificateFingerprintOption =
         new("HueBridgeCertificateFingerprint");
+    internal static readonly HttpRequestOptionsKey<bool> CertificatePinResolutionFailedOption =
+        new("HueBridgeCertificatePinResolutionFailed");
 
     internal static bool IsValidBridgeAddress(string? value)
     {
@@ -109,6 +111,16 @@ internal static class HueBridgeCertificateValidation
             return false;
         }
 
+        // A .local request is rewritten to a vetted address before it reaches the
+        // handler. If alias/IP pin resolution found no single trusted identity, do
+        // not fall back to the rewritten IP's exact pin; that could accept one side
+        // of a conflicting alias pair.
+        if (request.Options.TryGetValue(CertificatePinResolutionFailedOption, out var pinResolutionFailed) &&
+            pinResolutionFailed)
+        {
+            return false;
+        }
+
         if (request.Headers.Contains(CertificateProbeHeader))
             return true;
 
@@ -144,6 +156,22 @@ internal static class HueBridgeCertificateValidation
     }
 
     /// <summary>
+    /// Returns one configured pin for a bridge host and its already-vetted resolved
+    /// address. The resolved address is deliberately supplied by callers that have
+    /// already performed the local-address check; this method never performs DNS or
+    /// mDNS work itself.
+    /// </summary>
+    internal static string? GetConfiguredCertificateFingerprint(
+        string? bridgeHost,
+        IPAddress? resolvedAddress)
+    {
+        return GetConfiguredCertificateFingerprint(
+            Plugin.Instance?.Configuration,
+            bridgeHost,
+            resolvedAddress);
+    }
+
+    /// <summary>
     /// Resolves a configured bridge pin from an explicit configuration snapshot.
     /// Target resolution and report generation can operate on a candidate snapshot
     /// before it is assigned to <see cref="Plugin.Instance"/>, so they must not
@@ -153,14 +181,35 @@ internal static class HueBridgeCertificateValidation
         Configuration.PluginConfiguration? config,
         string? bridgeHost)
     {
+        return GetConfiguredCertificateFingerprint(config, bridgeHost, resolvedAddress: null);
+    }
+
+    /// <summary>
+    /// Resolves one configured certificate identity without performing network
+    /// resolution. Exact host and optional vetted-address pins are considered first.
+    /// When no direct pin exists, a single unique local pin is a safe alias fallback:
+    /// the presented certificate must still match that fingerprint. Multiple distinct
+    /// fallback pins (or a malformed fallback pin) fail closed because the physical
+    /// bridge cannot be inferred from spelling alone.
+    /// </summary>
+    internal static string? GetConfiguredCertificateFingerprint(
+        Configuration.PluginConfiguration? config,
+        string? bridgeHost,
+        IPAddress? resolvedAddress)
+    {
         if (config?.HueBridgeCertificatePins == null || string.IsNullOrWhiteSpace(bridgeHost))
             return null;
 
         var matches = new List<string>();
+        var hasDirectMatch = false;
         foreach (var pair in config.HueBridgeCertificatePins)
         {
-            if (!IsSameBridgeHost(pair.Key, bridgeHost))
+            var isDirectMatch = IsSameBridgeHost(pair.Key, bridgeHost) ||
+                (resolvedAddress != null && IsSameBridgeHost(pair.Key, resolvedAddress.ToString()));
+            if (!isDirectMatch)
                 continue;
+
+            hasDirectMatch = true;
 
             // A malformed alias must not be silently ignored when another alias has a
             // valid pin. Force an explicit administrator re-pin instead of guessing
@@ -171,8 +220,138 @@ internal static class HueBridgeCertificateValidation
             matches.Add(normalized);
         }
 
+        if (hasDirectMatch)
+        {
+            var directMatches = matches.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            return directMatches.Length == 1 ? directMatches[0] : null;
+        }
+
+        // If the requested spelling is not persisted, a single configured local
+        // hostname certificate remains a safe physical-identity fallback for a
+        // literal IP. For a requested .local name, all local pins are eligible for
+        // the same certificate-only fallback. Do not use a fallback when multiple
+        // bridge identities are configured: there is no reliable way to associate an
+        // unpinned alias with one of them without performing resolution, which this
+        // synchronous helper must never do. In particular, an unknown IP must not
+        // inherit an unrelated IP-only pin.
+        var requestedHost = bridgeHost.Trim().Trim('[', ']');
+        var requestedHostIsLiteral = IPAddress.TryParse(requestedHost, out _);
+        foreach (var pair in config.HueBridgeCertificatePins)
+        {
+            if (!IsValidBridgeAddress(pair.Key) ||
+                (requestedHostIsLiteral && IPAddress.TryParse(pair.Key.Trim().Trim('[', ']'), out _)))
+                continue;
+
+            if (!TryNormalizeCertificateFingerprint(pair.Value, out var normalized))
+                return null;
+
+            matches.Add(normalized);
+        }
+
         var distinctMatches = matches.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         return distinctMatches.Length == 1 ? distinctMatches[0] : null;
+    }
+
+    /// <summary>
+    /// Finds persisted certificate-pin hosts that identify the same local bridge as
+    /// the requested host. This is intentionally asynchronous and is reserved for
+    /// administrator trust/forget mutations; playback arbitration must use the
+    /// synchronous fingerprint resolver and never perform DNS/mDNS work.
+    /// </summary>
+    internal static async Task<IReadOnlyList<string>> FindEquivalentCertificatePinHostsAsync(
+        Configuration.PluginConfiguration? config,
+        string bridgeHost,
+        IPAddress? resolvedAddress,
+        CancellationToken cancellationToken)
+    {
+        if (config?.HueBridgeCertificatePins == null || string.IsNullOrWhiteSpace(bridgeHost))
+            return Array.Empty<string>();
+
+        var normalizedHost = bridgeHost.Trim();
+        var targetAddress = resolvedAddress;
+        if (targetAddress == null)
+        {
+            try
+            {
+                targetAddress = await ResolveLocalBridgeAddressAsync(
+                    normalizedHost,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                // An unavailable alias cannot prove equivalence to another persisted
+                // host. Keep exact-host management available, but never guess an IP
+                // alias from a sole unrelated pin.
+                targetAddress = null;
+            }
+        }
+
+        var matches = new List<string>();
+        var directFingerprints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in config.HueBridgeCertificatePins)
+        {
+            if (!IsSameBridgeHost(pair.Key, normalizedHost) &&
+                (targetAddress == null || !IsSameBridgeHost(pair.Key, targetAddress.ToString())))
+            {
+                continue;
+            }
+
+            if (TryNormalizeCertificateFingerprint(pair.Value, out var normalizedFingerprint))
+                directFingerprints.Add(normalizedFingerprint);
+        }
+
+        var hasUniqueDirectFingerprint = directFingerprints.Count == 1;
+        foreach (var pair in config.HueBridgeCertificatePins)
+        {
+            if (IsSameBridgeHost(pair.Key, normalizedHost))
+            {
+                matches.Add(pair.Key);
+                continue;
+            }
+
+            if (hasUniqueDirectFingerprint &&
+                TryNormalizeCertificateFingerprint(pair.Value, out var aliasFingerprint) &&
+                directFingerprints.Contains(aliasFingerprint))
+            {
+                // A matching certificate fingerprint is a stronger physical identity
+                // signal than host spelling. This keeps alias management deterministic
+                // when an old .local name is no longer resolvable, while the unique
+                // direct pin prevents an unknown target from deleting an unrelated
+                // sole alias.
+                matches.Add(pair.Key);
+                continue;
+            }
+
+            if (targetAddress == null || !IsValidBridgeAddress(pair.Key))
+                continue;
+
+            IPAddress? candidateAddress = null;
+            try
+            {
+                candidateAddress = await ResolveLocalBridgeAddressAsync(
+                    pair.Key,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                // A stale alias is not equivalent merely because it is local-shaped;
+                // leave it for an explicit host-specific administrator action.
+                continue;
+            }
+
+            if (candidateAddress.Equals(targetAddress))
+                matches.Add(pair.Key);
+        }
+
+        return matches;
     }
 
     internal static bool IsSameBridgeHost(string? left, string? right)

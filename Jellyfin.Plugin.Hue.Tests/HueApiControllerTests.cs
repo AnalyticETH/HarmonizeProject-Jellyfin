@@ -595,6 +595,45 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task RegisterBridge_AcceptsSingleCertificatePinSavedForLocalAlias()
+    {
+        const string fingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["hue-bridge.local"] = fingerprint
+            }
+        });
+        HttpRequestMessage? capturedRequest = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) => capturedRequest = request)
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "[{\"success\":{\"username\":\"bridge-user\",\"clientkey\":\"bridge-client-key\"}}]",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+
+        var action = await CreateController().RegisterBridge(new HueRegistrationRequest
+        {
+            IpAddress = "192.168.1.100"
+        });
+
+        Assert.IsType<OkObjectResult>(action.Result);
+        Assert.NotNull(capturedRequest);
+        Assert.Equal(
+            fingerprint,
+            capturedRequest!.Headers.GetValues(HueBridgeCertificateValidation.CertificateFingerprintHeader).Single());
+    }
+
+    [Fact]
     public async Task GetBridgeCertificate_RejectsPublicAddressWithoutContactingBridge()
     {
         var controller = CreateController();
@@ -657,10 +696,49 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task GetBridgeCertificate_IsPinnedWhenOnlyIpAliasPinExists()
+    {
+        const string fingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["hue-bridge.local"] = fingerprint
+            }
+        });
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+                request.Options.Set(HueBridgeCertificateValidation.CertificateFingerprintOption, fingerprint))
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"bridgeid\":\"001122334455\"}", Encoding.UTF8, "application/json")
+            });
+
+        var action = await CreateController().GetBridgeCertificate(
+            "192.168.1.100",
+            CancellationToken.None);
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueBridgeCertificateResult>(response.Value);
+        Assert.True(result.IsPinned);
+    }
+
+    [Fact]
     public async Task TrustBridgeCertificateStoresVerifiedFingerprintWithoutSendingCredentials()
     {
         const string fingerprint = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        var configuration = InstallConfiguration(new PluginConfiguration());
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["hue-bridge.local"] = fingerprint
+            }
+        });
         HttpRequestMessage? capturedRequest = null;
         _httpHandlerMock
             .Protected()
@@ -689,6 +767,7 @@ public sealed class HueApiControllerTests : IDisposable
         var result = Assert.IsType<HueBridgeCertificateResult>(response.Value);
         Assert.True(result.IsPinned);
         Assert.Equal(fingerprint, configuration.HueBridgeCertificatePins["192.168.1.100"]);
+        Assert.DoesNotContain("hue-bridge.local", configuration.HueBridgeCertificatePins.Keys);
         Assert.NotNull(capturedRequest);
         Assert.True(capturedRequest!.Headers.Contains(HueBridgeCertificateValidation.CertificateProbeHeader));
         Assert.False(capturedRequest.Headers.Contains("hue-application-key"));
@@ -773,7 +852,7 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
-    public void ForgetBridgeCertificatePinRemovesEquivalentHostsWithoutContactingBridge()
+    public async Task ForgetBridgeCertificatePinRemovesEquivalentHostsWithoutContactingBridge()
     {
         const string requestedFingerprint = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
         const string retainedFingerprint = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
@@ -782,46 +861,50 @@ public sealed class HueApiControllerTests : IDisposable
             HueBridgeCertificatePins = new Dictionary<string, string>
             {
                 [" [192.168.1.100] "] = requestedFingerprint,
+                ["hue-bridge.local"] = requestedFingerprint,
                 ["192.168.1.101"] = retainedFingerprint
             }
         });
 
-        var action = CreateController().ForgetBridgeCertificatePin("192.168.1.100");
+        var action = await CreateController().ForgetBridgeCertificatePin("192.168.1.100");
 
         Assert.IsType<NoContentResult>(action);
         Assert.DoesNotContain(
             configuration.HueBridgeCertificatePins,
             pair => HueBridgeCertificateValidation.IsSameBridgeHost(pair.Key, "192.168.1.100"));
+        Assert.DoesNotContain("hue-bridge.local", configuration.HueBridgeCertificatePins.Keys);
         Assert.Equal(retainedFingerprint, configuration.HueBridgeCertificatePins["192.168.1.101"]);
         Assert.Null(HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(configuration, "192.168.1.100"));
         _httpHandlerMock.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public void ForgetBridgeCertificatePinRejectsUnknownOrPublicAddressWithoutMutation()
+    public async Task ForgetBridgeCertificatePinRejectsUnknownOrPublicAddressWithoutMutation()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
         {
             HueBridgeCertificatePins = new Dictionary<string, string>
             {
-                ["192.168.1.100"] = new string('a', 64)
+                ["192.168.1.100"] = new string('a', 64),
+                ["unrelated-bridge.invalid.local"] = new string('b', 64)
             }
         });
         var controller = CreateController();
 
-        var invalidAction = controller.ForgetBridgeCertificatePin("8.8.8.8");
+        var invalidAction = await controller.ForgetBridgeCertificatePin("8.8.8.8");
         var invalidResponse = Assert.IsType<BadRequestObjectResult>(invalidAction);
         Assert.Equal(StatusCodes.Status400BadRequest, invalidResponse.StatusCode);
 
-        var unknownAction = controller.ForgetBridgeCertificatePin("192.168.1.101");
+        var unknownAction = await controller.ForgetBridgeCertificatePin("192.168.1.101");
         var unknownResponse = Assert.IsType<NotFoundObjectResult>(unknownAction);
         Assert.Equal(StatusCodes.Status404NotFound, unknownResponse.StatusCode);
         Assert.Equal(new string('a', 64), configuration.HueBridgeCertificatePins["192.168.1.100"]);
+        Assert.Equal(new string('b', 64), configuration.HueBridgeCertificatePins["unrelated-bridge.invalid.local"]);
         _httpHandlerMock.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public void ForgetBridgeCertificatePinRollsBackWhenPersistenceFails()
+    public async Task ForgetBridgeCertificatePinRollsBackWhenPersistenceFails()
     {
         const string previousFingerprint = "1111111111111111111111111111111111111111111111111111111111111111";
         var serializer = new Mock<IXmlSerializer>();
@@ -836,7 +919,7 @@ public sealed class HueApiControllerTests : IDisposable
             }
         }, serializer.Object);
 
-        var action = CreateController().ForgetBridgeCertificatePin("192.168.1.100");
+        var action = await CreateController().ForgetBridgeCertificatePin("192.168.1.100");
 
         var response = Assert.IsType<ObjectResult>(action);
         Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);

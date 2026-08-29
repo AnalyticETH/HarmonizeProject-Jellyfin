@@ -9,6 +9,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue;
+using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Service;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.MediaEncoding;
@@ -119,6 +120,73 @@ public class PluginServiceRegistratorTests
     public void IsValidBridgeAddress_AcceptsLocalBridgeTargets(string address)
     {
         Assert.True(HueBridgeCertificateValidation.IsValidBridgeAddress(address));
+    }
+
+    [Theory]
+    [InlineData("hue-bridge.local")]
+    [InlineData("192.168.1.100")]
+    public void GetConfiguredCertificateFingerprint_UsesOnePinAcrossIpAndLocalAliases(string pinnedHost)
+    {
+        const string fingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                [pinnedHost] = fingerprint
+            }
+        };
+        var resolvedAddress = IPAddress.Parse("192.168.1.100");
+
+        Assert.Equal(
+            fingerprint,
+            HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(
+                configuration,
+                "hue-bridge.local",
+                resolvedAddress));
+        Assert.Equal(
+            fingerprint,
+            HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(
+                configuration,
+                "192.168.1.100",
+                resolvedAddress));
+        Assert.Equal(
+            HueSyncService.GetPlaybackResourceKey(configuration, "hue-bridge.local", "area-id"),
+            HueSyncService.GetPlaybackResourceKey(configuration, "192.168.1.100", "area-id"));
+    }
+
+    [Fact]
+    public void GetConfiguredCertificateFingerprint_RejectsConflictingIpAndLocalPins()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["hue-bridge.local"] = new string('a', 64),
+                ["192.168.1.100"] = new string('b', 64)
+            }
+        };
+
+        Assert.Null(HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(
+            configuration,
+            "hue-bridge.local",
+            IPAddress.Parse("192.168.1.100")));
+    }
+
+    [Fact]
+    public void GetConfiguredCertificateFingerprint_DoesNotUseUnrelatedIpPinForUnknownTarget()
+    {
+        var configuration = new PluginConfiguration
+        {
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["192.168.1.100"] = new string('a', 64)
+            }
+        };
+
+        Assert.Null(HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(
+            configuration,
+            "192.168.1.101",
+            IPAddress.Parse("192.168.1.101")));
     }
 
     [Theory]
@@ -281,6 +349,31 @@ public class PluginServiceRegistratorTests
         request.Headers.Add(
             HueBridgeCertificateValidation.CertificateFingerprintHeader,
             new string('0', 64));
+
+        const SslPolicyErrors certificateErrors =
+            SslPolicyErrors.RemoteCertificateNameMismatch |
+            SslPolicyErrors.RemoteCertificateChainErrors;
+        Assert.False(HueBridgeCertificateValidation.ValidateServerCertificate(
+            request,
+            certificate,
+            null,
+            certificateErrors));
+    }
+
+    [Fact]
+    public void ValidateServerCertificate_RejectsConflictingAliasResolution()
+    {
+        using var rsa = RSA.Create(2048);
+        var certificateRequest = new CertificateRequest(
+            "CN=hue-bridge",
+            rsa,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        using var certificate = certificateRequest.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            DateTimeOffset.UtcNow.AddMinutes(5));
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://192.168.1.100/api");
+        request.Options.Set(HueBridgeCertificateValidation.CertificatePinResolutionFailedOption, true);
 
         const SslPolicyErrors certificateErrors =
             SslPolicyErrors.RemoteCertificateNameMismatch |

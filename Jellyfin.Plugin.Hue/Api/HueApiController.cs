@@ -197,6 +197,35 @@ namespace Jellyfin.Plugin.Hue.Api
                 StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Resolves a local bridge target once for certificate-pin decisions. The
+        /// transport performs its own guarded resolution before connecting; this
+        /// supplemental lookup lets administrator preflight and status views compare
+        /// an IP pin with a .local alias without weakening the local-address policy.
+        /// </summary>
+        private static async Task<IPAddress?> TryResolveBridgeAddressForCertificateAsync(
+            string bridgeAddress,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                return await HueBridgeCertificateValidation
+                    .ResolveLocalBridgeAddressAsync(bridgeAddress, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                // The caller turns a missing resolution into the same fail-closed
+                // response used for an unavailable certificate probe. Do not retain
+                // a partial address that could be mistaken for a trusted identity.
+                return null;
+            }
+        }
+
         private static List<string> ValidateGlobalCredentialTransition(
             PluginConfiguration existingConfiguration,
             HuePluginConfigurationSettings incomingSettings,
@@ -444,8 +473,18 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("A valid private bridge IP address or .local host name is required.");
             }
 
+            var resolvedAddress = await TryResolveBridgeAddressForCertificateAsync(
+                request.IpAddress.Trim(),
+                cancellationToken).ConfigureAwait(false);
+            if (resolvedAddress == null)
+            {
+                return Conflict("The bridge address could not be resolved to a permitted local address. No credentials were sent.");
+            }
+
             if (string.IsNullOrWhiteSpace(
-                    HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(request.IpAddress)))
+                    HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(
+                        request.IpAddress,
+                        resolvedAddress)))
             {
                 return Conflict("Trust the bridge certificate fingerprint through HueSync/BridgeCertificate before linking the bridge. This prevents App Key disclosure to an impersonating local bridge.");
             }
@@ -476,6 +515,16 @@ namespace Jellyfin.Plugin.Hue.Api
             if (!HueBridgeCertificateValidation.IsValidBridgeAddress(bridgeIp))
                 return BadRequest("A valid private bridge IP address or .local host name is required.");
 
+            var resolvedAddress = await TryResolveBridgeAddressForCertificateAsync(
+                bridgeIp,
+                cancellationToken).ConfigureAwait(false);
+            if (resolvedAddress == null)
+            {
+                return StatusCode(
+                    StatusCodes.Status502BadGateway,
+                    "The bridge address could not be resolved to a permitted local address.");
+            }
+
             var fingerprint = await _hueClient.GetBridgeCertificateFingerprint(
                 bridgeIp,
                 cancellationToken).ConfigureAwait(false);
@@ -491,7 +540,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 IpAddress = bridgeIp,
                 Fingerprint = normalizedFingerprint,
                 IsPinned = string.Equals(
-                    HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(bridgeIp),
+                    HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(
+                        bridgeIp,
+                        resolvedAddress),
                     normalizedFingerprint,
                     StringComparison.OrdinalIgnoreCase)
             });
@@ -525,6 +576,16 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("A valid private bridge address and SHA-256 certificate fingerprint are required.");
             }
 
+            var resolvedAddress = await TryResolveBridgeAddressForCertificateAsync(
+                bridgeIp,
+                cancellationToken).ConfigureAwait(false);
+            if (resolvedAddress == null)
+            {
+                return StatusCode(
+                    StatusCodes.Status502BadGateway,
+                    "The bridge address could not be resolved to a permitted local address. No pin was stored.");
+            }
+
             var liveFingerprint = await _hueClient.GetBridgeCertificateFingerprint(
                 bridgeIp,
                 cancellationToken).ConfigureAwait(false);
@@ -553,8 +614,27 @@ namespace Jellyfin.Plugin.Hue.Api
             var updatedPins = HuePluginConfigurationSettings.CloneCertificatePins(
                 previousPins,
                 skipBlankKeys: false);
+            var equivalentPinHosts = await HueBridgeCertificateValidation
+                .FindEquivalentCertificatePinHostsAsync(
+                    config,
+                    bridgeIp,
+                    resolvedAddress,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            var equivalentPinHostSet = new HashSet<string>(
+                equivalentPinHosts,
+                StringComparer.OrdinalIgnoreCase);
             foreach (var existingHost in updatedPins.Keys
-                         .Where(existing => HueBridgeCertificateValidation.IsSameBridgeHost(existing, bridgeIp))
+                         .Where(existing =>
+                             equivalentPinHostSet.Contains(existing) ||
+                             (updatedPins.TryGetValue(existing, out var existingFingerprint) &&
+                              HueBridgeCertificateValidation.TryNormalizeCertificateFingerprint(
+                                  existingFingerprint,
+                                  out var normalizedExistingFingerprint) &&
+                              string.Equals(
+                                  normalizedExistingFingerprint,
+                                  normalizedLiveFingerprint,
+                                  StringComparison.OrdinalIgnoreCase)))
                          .ToArray())
             {
                 updatedPins.Remove(existingHost);
@@ -596,8 +676,9 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public ActionResult ForgetBridgeCertificatePin(
-            [FromQuery(Name = "ipAddress")] string? ipAddress)
+        public async Task<ActionResult> ForgetBridgeCertificatePin(
+            [FromQuery(Name = "ipAddress")] string? ipAddress,
+            CancellationToken cancellationToken = default)
         {
             var bridgeIp = ipAddress?.Trim() ?? string.Empty;
             if (!HueBridgeCertificateValidation.IsValidBridgeAddress(bridgeIp))
@@ -612,8 +693,15 @@ namespace Jellyfin.Plugin.Hue.Api
                 config.HueBridgeCertificatePins ?? new Dictionary<string, string>(),
                 StringComparer.Ordinal);
             var updatedPins = new Dictionary<string, string>(previousPins, StringComparer.Ordinal);
+            var equivalentPinHosts = await HueBridgeCertificateValidation
+                .FindEquivalentCertificatePinHostsAsync(
+                    config,
+                    bridgeIp,
+                    resolvedAddress: null,
+                    cancellationToken)
+                .ConfigureAwait(false);
             var matchingHosts = updatedPins.Keys
-                .Where(existing => HueBridgeCertificateValidation.IsSameBridgeHost(existing, bridgeIp))
+                .Where(existing => equivalentPinHosts.Contains(existing, StringComparer.OrdinalIgnoreCase))
                 .ToArray();
             if (matchingHosts.Length == 0)
                 return NotFound("No stored bridge certificate pin exists for that address.");

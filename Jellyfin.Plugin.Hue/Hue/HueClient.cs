@@ -170,17 +170,18 @@ namespace Jellyfin.Plugin.Hue.Hue
                 throw new InvalidOperationException("Hue bridge requests require an absolute URI.");
             }
 
+            IPAddress? resolvedAddress = null;
             if (requestUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
                 requestUri.Host.EndsWith(".local", StringComparison.OrdinalIgnoreCase))
             {
-                var address = await HueBridgeCertificateValidation
+                resolvedAddress = await HueBridgeCertificateValidation
                     .ResolveLocalBridgeAddressAsync(requestUri.Host, cancellationToken)
                     .ConfigureAwait(false);
                 var builder = new UriBuilder(requestUri)
                 {
-                    Host = address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
-                        ? $"[{address}]"
-                        : address.ToString()
+                    Host = resolvedAddress.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+                        ? $"[{resolvedAddress}]"
+                        : resolvedAddress.ToString()
                 };
                 request.RequestUri = builder.Uri;
             }
@@ -190,12 +191,22 @@ namespace Jellyfin.Plugin.Hue.Hue
             // The fingerprint is public metadata; bridge credentials remain in the
             // existing Hue application-key header and are never logged.
             var configuredFingerprint = HueBridgeCertificateValidation
-                .GetConfiguredCertificateFingerprint(requestUri.Host);
+                .GetConfiguredCertificateFingerprint(requestUri.Host, resolvedAddress);
             if (!string.IsNullOrWhiteSpace(configuredFingerprint))
             {
                 request.Headers.TryAddWithoutValidation(
                     HueBridgeCertificateValidation.CertificateFingerprintHeader,
                     configuredFingerprint);
+            }
+            else if (resolvedAddress != null && !request.Headers.Contains(
+                         HueBridgeCertificateValidation.CertificateProbeHeader))
+            {
+                // Credential-bearing requests must not let the certificate callback
+                // recover an exact IP pin after alias resolution has found no single
+                // trusted identity (including conflicting alias/IP pins).
+                request.Options.Set(
+                    HueBridgeCertificateValidation.CertificatePinResolutionFailedOption,
+                    true);
             }
 
             return await _httpClient

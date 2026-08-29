@@ -487,7 +487,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.375 (Current)
+### Version 1.5.376 (Current)
+
+- **Certificate trust alias safety**: bridge certificate pins now resolve IP and .local aliases against a single vetted local address, fail closed on conflicting fingerprints, and keep registration, credential-free probes, transport TLS validation, playback arbitration, and pin management aligned.
+
+- **Regression coverage**: API and certificate-validation tests cover alias equivalence, conflict rejection, alias cleanup, unknown-target protection, and credential-free probe behavior.
 
 - **User-mapping save lifecycle safety**: mapping saves are tracked against the active configuration page, duplicate submissions are bounded, teardown and edit cancellation abort in-flight writes, and stale callbacks cannot alert, reload mappings, or reset a newer draft.
 
