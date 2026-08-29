@@ -3026,11 +3026,26 @@
                         if (colorPresetDeleteButton) colorPresetDeleteButton.disabled = false;
                         page._hueColorPresetDeleteButton = null;
                     }
+                    if ((key === 'colorPresetBulkDelete' || key === 'colorPresetBulkDuplicate') &&
+                        page._hueColorPresetBulkMutation &&
+                        page._hueColorPresetBulkMutation.key === key) {
+                        HueConfigurationPage.releaseColorPresetBulkMutation(
+                            page,
+                            page._hueColorPresetBulkMutation,
+                            false,
+                            false);
+                    }
                     if (key === 'colorPresetBulkDelete') {
                         page._hueColorPresetBulkDeleting = false;
                         var colorPresetBulkDeleteButton = page._hueColorPresetBulkDeleteButton;
                         if (colorPresetBulkDeleteButton) colorPresetBulkDeleteButton.disabled = false;
                         page._hueColorPresetBulkDeleteButton = null;
+                    }
+                    if (key === 'colorPresetBulkDuplicate') {
+                        page._hueColorPresetBulkDuplicating = false;
+                        var colorPresetBulkDuplicateButton = page._hueColorPresetBulkDuplicateButton;
+                        if (colorPresetBulkDuplicateButton) colorPresetBulkDuplicateButton.disabled = false;
+                        page._hueColorPresetBulkDuplicateButton = null;
                     }
                 },
                 invalidatePageLifecycle: function (page) {
@@ -3105,8 +3120,29 @@
                     if (pendingColorPresetBulkDeleteConfirmation) {
                         pendingColorPresetBulkDeleteConfirmation.canceled = true;
                         if (pendingColorPresetBulkDeleteConfirmation.button) pendingColorPresetBulkDeleteConfirmation.button.disabled = false;
+                        var deleteConfirmationResolver = pendingColorPresetBulkDeleteConfirmation.resolve;
+                        pendingColorPresetBulkDeleteConfirmation.resolve = null;
+                        if (deleteConfirmationResolver) deleteConfirmationResolver();
                     }
                     page._hueColorPresetBulkDeleteConfirmation = null;
+                    var pendingColorPresetBulkDuplicateConfirmation = page._hueColorPresetBulkDuplicateConfirmation;
+                    if (pendingColorPresetBulkDuplicateConfirmation) {
+                        pendingColorPresetBulkDuplicateConfirmation.canceled = true;
+                        if (pendingColorPresetBulkDuplicateConfirmation.button) pendingColorPresetBulkDuplicateConfirmation.button.disabled = false;
+                        var duplicateConfirmationResolver = pendingColorPresetBulkDuplicateConfirmation.resolve;
+                        pendingColorPresetBulkDuplicateConfirmation.resolve = null;
+                        if (duplicateConfirmationResolver) duplicateConfirmationResolver();
+                    }
+                    page._hueColorPresetBulkDuplicateConfirmation = null;
+                    var pendingColorPresetBulkMutation = page._hueColorPresetBulkMutation;
+                    if (pendingColorPresetBulkMutation) {
+                        pendingColorPresetBulkMutation.canceled = true;
+                        HueConfigurationPage.releaseColorPresetBulkMutation(
+                            page,
+                            pendingColorPresetBulkMutation,
+                            false,
+                            true);
+                    }
                     page._huePageGeneration += 1;
                     page._huePageActive = false;
                     page._hueBridgeCertificatePinPending = false;
@@ -3172,6 +3208,9 @@
                     page._hueColorPresetBulkDeleting = false;
                     if (page._hueColorPresetBulkDeleteButton) page._hueColorPresetBulkDeleteButton.disabled = false;
                     page._hueColorPresetBulkDeleteButton = null;
+                    page._hueColorPresetBulkDuplicating = false;
+                    if (page._hueColorPresetBulkDuplicateButton) page._hueColorPresetBulkDuplicateButton.disabled = false;
+                    page._hueColorPresetBulkDuplicateButton = null;
                     page._hueColorPresetSaving = false;
                     page._hueColorPresetDuplicating = false;
                     page._hueColorPresetRenaming = false;
@@ -5349,6 +5388,49 @@
                         .filter(function (option) { return option.selected && option.value; })
                         .map(function (option) { return option.value; });
                 },
+                getColorPresetBulkMutationControls: function (page) {
+                    if (!page) return [];
+                    return [
+                        page.querySelector('#previewPresetBulkSelect'),
+                        page.querySelector('#selectAllPreviewPresetsBtn'),
+                        page.querySelector('#clearSelectedPreviewPresetsBtn'),
+                        page.querySelector('#duplicateSelectedPreviewPresetsBtn'),
+                        page.querySelector('#deleteSelectedPreviewPresetsBtn')
+                    ].filter(function (control) { return !!control; });
+                },
+                beginColorPresetBulkMutation: function (page, generation, key) {
+                    if (!page || page._hueColorPresetBulkMutation) return null;
+                    var controls = HueConfigurationPage.getColorPresetBulkMutationControls(page);
+                    var mutation = {
+                        generation: generation,
+                        key: key,
+                        controls: controls,
+                        previousDisabled: controls.map(function (control) { return control.disabled === true; }),
+                        canceled: false
+                    };
+                    page._hueColorPresetBulkMutation = mutation;
+                    controls.forEach(function (control) { control.disabled = true; });
+                    return mutation;
+                },
+                releaseColorPresetBulkMutation: function (page, mutation, recompute, force) {
+                    if (!page || !mutation || page._hueColorPresetBulkMutation !== mutation) return false;
+                    var current = HueConfigurationPage.isPageLifecycleCurrent(page, mutation.generation);
+                    page._hueColorPresetBulkMutation = null;
+                    if (!current && !force) return false;
+                    (mutation.controls || []).forEach(function (control, index) {
+                        if (control) control.disabled = mutation.previousDisabled[index] === true;
+                    });
+                    if (mutation.key === 'colorPresetBulkDelete' &&
+                        page._hueColorPresetBulkDeleteButton === mutation.button) {
+                        page._hueColorPresetBulkDeleteButton = null;
+                    }
+                    if (mutation.key === 'colorPresetBulkDuplicate' &&
+                        page._hueColorPresetBulkDuplicateButton === mutation.button) {
+                        page._hueColorPresetBulkDuplicateButton = null;
+                    }
+                    if (recompute && current) HueConfigurationPage.updateColorPresetBulkButtons(page);
+                    return true;
+                },
                 updateColorPresetBulkButtons: function (page) {
                     var bulkSelect = page.querySelector('#previewPresetBulkSelect');
                     var selectedCount = HueConfigurationPage.getSelectedColorPresetBulkNames(page).length;
@@ -5362,24 +5444,31 @@
                     var duplicateBtn = page.querySelector('#duplicateSelectedPreviewPresetsBtn');
                     var deleteBtn = page.querySelector('#deleteSelectedPreviewPresetsBtn');
                     var deleteBusy = !!(page._hueColorPresetBulkDeleting || page._hueColorPresetBulkDeleteConfirmation);
+                    var duplicateBusy = !!(page._hueColorPresetBulkDuplicating || page._hueColorPresetBulkDuplicateConfirmation);
                     if (selectAllBtn) selectAllBtn.disabled = !hasOptions || selectedCount === bulkSelect.options.length;
                     if (clearBtn) clearBtn.disabled = selectedCount === 0;
                     if (previewBtn) previewBtn.disabled = selectedCount === 0 || !targetMetadataReady;
                     if (previewAllBtn) previewAllBtn.disabled = selectedCount === 0 || !targetMetadataReady || duplicateTargetsBlocked;
-                    if (duplicateBtn) duplicateBtn.disabled = selectedCount === 0;
+                    if (duplicateBtn) duplicateBtn.disabled = duplicateBusy || selectedCount === 0;
                     if (deleteBtn) deleteBtn.disabled = deleteBusy || selectedCount === 0;
+                    var mutation = page._hueColorPresetBulkMutation;
+                    if (mutation) {
+                        (mutation.controls || []).forEach(function (control) { control.disabled = true; });
+                    }
                 },
                 selectAllColorPresets: function (page) {
+                    if (page && page._hueColorPresetBulkMutation) return;
                     var bulkSelect = page.querySelector('#previewPresetBulkSelect');
                     if (!bulkSelect) return;
                     Array.prototype.forEach.call(bulkSelect.options, function (option) { option.selected = true; });
                     HueConfigurationPage.updateColorPresetBulkButtons(page);
                 },
-                clearSelectedColorPresets: function (page) {
+                clearSelectedColorPresets: function (page, owner) {
+                    if (page && page._hueColorPresetBulkMutation && page._hueColorPresetBulkMutation !== owner) return;
                     var bulkSelect = page.querySelector('#previewPresetBulkSelect');
                     if (!bulkSelect) return;
                     Array.prototype.forEach.call(bulkSelect.options, function (option) { option.selected = false; });
-                    HueConfigurationPage.updateColorPresetBulkButtons(page);
+                    if (!owner) HueConfigurationPage.updateColorPresetBulkButtons(page);
                 },
                 previewColorPresetsBulk: function (page, allTargets) {
                     if (!HueConfigurationPage.requirePreviewTargetMetadata(page)) return;
@@ -5478,6 +5567,11 @@
                         });
                 },
                 duplicateColorPresetsBulk: function (page) {
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueColorPresetBulkMutation ||
+                        page._hueColorPresetBulkDuplicating === true || page._hueColorPresetBulkDuplicateConfirmation) return Promise.resolve();
                     var names = HueConfigurationPage.getSelectedColorPresetBulkNames(page);
                     var statusEl = page.querySelector('#previewPresetBulkStatus');
                     if (!names.length) {
@@ -5485,45 +5579,93 @@
                         return;
                     }
 
-                    Dashboard.confirm("Duplicate " + names.length + " selected saved scene(s) as independent copies?", "Duplicate Selected Scenes", function (confirmed) {
-                        if (!confirmed) return;
-                        var button = page.querySelector('#duplicateSelectedPreviewPresetsBtn');
-                        if (button) button.disabled = true;
-                        if (statusEl) {
-                            statusEl.textContent = "Creating independent copies of the selected scenes atomically...";
-                            statusEl.style.color = "";
-                        }
-                        ApiClient.ajax({
-                            type: "POST",
-                            url: ApiClient.getUrl("HueSync/ColorPresets/BulkDuplicate"),
-                            data: JSON.stringify({ presetNames: names }),
-                            contentType: "application/json",
-                            dataType: "json"
-                        }).then(function (response) {
-                            var copies = response && (response.presets || response.Presets) || [];
-                            var firstCopy = copies.length ? (copies[0].name || copies[0].Name || '') : '';
-                            if (statusEl) {
-                                statusEl.textContent = (response && (response.message || response.Message)) || ("Created " + names.length + " independent saved-scene copy(ies).");
-                                statusEl.style.color = "#8bc34a";
+                    var button = page.querySelector('#duplicateSelectedPreviewPresetsBtn');
+                    var mutation = HueConfigurationPage.beginColorPresetBulkMutation(
+                        page,
+                        pageGeneration,
+                        'colorPresetBulkDuplicate');
+                    if (!mutation) return Promise.resolve();
+                    mutation.button = button || null;
+                    var confirmation = { generation: pageGeneration, button: button || null, mutation: mutation, canceled: false };
+                    page._hueColorPresetBulkDuplicateConfirmation = confirmation;
+                    return new Promise(function (resolve) {
+                        confirmation.resolve = resolve;
+                        var settleConfirmation = function (value) {
+                            var resolver = confirmation.resolve;
+                            confirmation.resolve = null;
+                            if (resolver) resolver(value);
+                        };
+                        Dashboard.confirm("Duplicate " + names.length + " selected saved scene(s) as independent copies?", "Duplicate Selected Scenes", function (confirmed) {
+                            var ownsConfirmation = page._hueColorPresetBulkDuplicateConfirmation === confirmation;
+                            var ownsMutation = page._hueColorPresetBulkMutation === mutation;
+                            if (!ownsConfirmation) return;
+                            page._hueColorPresetBulkDuplicateConfirmation = null;
+                            if (!ownsMutation || confirmation.canceled || !confirmed ||
+                                !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                                if (ownsMutation) HueConfigurationPage.releaseColorPresetBulkMutation(page, mutation, true, false);
+                                settleConfirmation();
+                                return;
                             }
-                            HueConfigurationPage.clearSelectedColorPresets(page);
-                            var selectedSchedule = page.querySelector('#sceneScheduleSelect');
-                            var selectedScheduleId = selectedSchedule ? selectedSchedule.value : '';
-                            return HueConfigurationPage.loadColorPresets(page, firstCopy).then(function () {
-                                return HueConfigurationPage.loadScenePlaylists(page).then(function () {
-                                    return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
+
+                            page._hueColorPresetBulkDuplicating = true;
+                            page._hueColorPresetBulkDuplicateButton = button || null;
+                            if (statusEl) {
+                                statusEl.textContent = "Creating independent copies of the selected scenes atomically...";
+                                statusEl.style.color = "";
+                            }
+                            var request = HueConfigurationPage.getPageLifecycleRequest(
+                                page,
+                                pageGeneration,
+                                'colorPresetBulkDuplicate',
+                                ApiClient.getUrl("HueSync/ColorPresets/BulkDuplicate"),
+                                {
+                                    type: "POST",
+                                    data: JSON.stringify({ presetNames: names }),
+                                    contentType: "application/json",
+                                    dataType: "json"
                                 });
-                            });
-                        }).catch(function (err) {
-                            console.error("Failed to bulk duplicate color presets:", err);
-                            if (statusEl) {
-                                statusEl.textContent = "No scenes were duplicated. Check the saved-scene capacity, selection, validation, or server log.";
-                                statusEl.style.color = "#d9534f";
-                            }
-                            HueConfigurationPage.updateColorPresetBulkButtons(page);
-                        }).finally(function () {
-                            if (button) button.disabled = false;
-                            HueConfigurationPage.updateColorPresetBulkButtons(page);
+                            var isCurrent = function () {
+                                return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                            };
+                            settleConfirmation(request.then(function (response) {
+                                if (!isCurrent()) return;
+                                var copies = response && (response.presets || response.Presets) || [];
+                                var firstCopy = copies.length ? (copies[0].name || copies[0].Name || '') : '';
+                                if (statusEl) {
+                                    statusEl.textContent = (response && (response.message || response.Message)) || ("Created " + names.length + " independent saved-scene copy(ies).");
+                                    statusEl.style.color = "#8bc34a";
+                                }
+                                HueConfigurationPage.clearSelectedColorPresets(page, mutation);
+                                var selectedSchedule = page.querySelector('#sceneScheduleSelect');
+                                var selectedScheduleId = selectedSchedule ? selectedSchedule.value : '';
+                                return HueConfigurationPage.loadColorPresets(page, firstCopy).then(function () {
+                                    if (!isCurrent()) return;
+                                    return HueConfigurationPage.loadScenePlaylists(page).then(function () {
+                                        if (!isCurrent()) return;
+                                        return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
+                                    });
+                                });
+                            }).catch(function (err) {
+                                if (!isCurrent()) return;
+                                console.error("Failed to bulk duplicate color presets:", err);
+                                if (statusEl) {
+                                    statusEl.textContent = "No scenes were duplicated. Check the saved-scene capacity, selection, validation, or server log.";
+                                    statusEl.style.color = "#d9534f";
+                                }
+                                HueConfigurationPage.updateColorPresetBulkButtons(page);
+                            }).finally(function () {
+                                var current = isCurrent();
+                                var requestRecord = request && request._huePageRequestRecord;
+                                var tracked = page && page._huePageRequests &&
+                                    page._huePageRequests.colorPresetBulkDuplicate === requestRecord;
+                                if (current || tracked) {
+                                    page._hueColorPresetBulkDuplicating = false;
+                                    if (current) HueConfigurationPage.releaseColorPresetBulkMutation(page, mutation, true, false);
+                                    else HueConfigurationPage.releaseColorPresetBulkMutation(page, mutation, false, false);
+                                    if (page._hueColorPresetBulkDuplicateButton === button) page._hueColorPresetBulkDuplicateButton = null;
+                                    if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'colorPresetBulkDuplicate');
+                                }
+                            }));
                         });
                     });
                 },
@@ -5531,6 +5673,7 @@
                     if (!page) return Promise.resolve();
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueColorPresetBulkMutation ||
                         page._hueColorPresetBulkDeleting === true || page._hueColorPresetBulkDeleteConfirmation) return Promise.resolve();
                     var names = HueConfigurationPage.getSelectedColorPresetBulkNames(page);
                     var statusEl = page.querySelector('#previewPresetBulkStatus');
@@ -5540,17 +5683,30 @@
                     }
 
                     var button = page.querySelector('#deleteSelectedPreviewPresetsBtn');
-                    var confirmation = { generation: pageGeneration, button: button || null, canceled: false };
+                    var mutation = HueConfigurationPage.beginColorPresetBulkMutation(
+                        page,
+                        pageGeneration,
+                        'colorPresetBulkDelete');
+                    if (!mutation) return Promise.resolve();
+                    mutation.button = button || null;
+                    var confirmation = { generation: pageGeneration, button: button || null, mutation: mutation, canceled: false };
                     page._hueColorPresetBulkDeleteConfirmation = confirmation;
-                    if (button) button.disabled = true;
                     return new Promise(function (resolve) {
+                        confirmation.resolve = resolve;
+                        var settleConfirmation = function (value) {
+                            var resolver = confirmation.resolve;
+                            confirmation.resolve = null;
+                            if (resolver) resolver(value);
+                        };
                         Dashboard.confirm("Delete " + names.length + " selected saved scene(s)? Any playlist or scheduled-cue dependency blocks the complete operation.", "Delete Selected Scenes", function (confirmed) {
                             var ownsConfirmation = page._hueColorPresetBulkDeleteConfirmation === confirmation;
-                            if (ownsConfirmation) page._hueColorPresetBulkDeleteConfirmation = null;
-                            if (!ownsConfirmation || confirmation.canceled || !confirmed ||
+                            var ownsMutation = page._hueColorPresetBulkMutation === mutation;
+                            if (!ownsConfirmation) return;
+                            page._hueColorPresetBulkDeleteConfirmation = null;
+                            if (!ownsMutation || confirmation.canceled || !confirmed ||
                                 !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
-                                if (ownsConfirmation && button) button.disabled = false;
-                                resolve();
+                                if (ownsMutation) HueConfigurationPage.releaseColorPresetBulkMutation(page, mutation, true, false);
+                                settleConfirmation();
                                 return;
                             }
 
@@ -5574,14 +5730,14 @@
                             var isCurrent = function () {
                                 return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
                             };
-                            resolve(request.then(function (response) {
+                            settleConfirmation(request.then(function (response) {
                                 if (!isCurrent()) return;
                                 var deletedCount = response && (response.deletedCount !== undefined ? response.deletedCount : response.DeletedCount) || names.length;
                                 if (statusEl) {
                                     statusEl.textContent = "Deleted " + deletedCount + " saved scene(s). Playlists and scheduled cues were refreshed.";
                                     statusEl.style.color = "#8bc34a";
                                 }
-                                HueConfigurationPage.clearSelectedColorPresets(page);
+                                HueConfigurationPage.clearSelectedColorPresets(page, mutation);
                                 var selectedSchedule = page.querySelector('#sceneScheduleSelect');
                                 var selectedScheduleId = selectedSchedule ? selectedSchedule.value : '';
                                 return HueConfigurationPage.loadColorPresets(page).then(function () {
@@ -5606,12 +5762,10 @@
                                     page._huePageRequests.colorPresetBulkDelete === requestRecord;
                                 if (current || tracked) {
                                     page._hueColorPresetBulkDeleting = false;
-                                    if (page._hueColorPresetBulkDeleteButton === button) {
-                                        if (button) button.disabled = false;
-                                        page._hueColorPresetBulkDeleteButton = null;
-                                    }
+                                    if (current) HueConfigurationPage.releaseColorPresetBulkMutation(page, mutation, true, false);
+                                    else HueConfigurationPage.releaseColorPresetBulkMutation(page, mutation, false, false);
+                                    if (page._hueColorPresetBulkDeleteButton === button) page._hueColorPresetBulkDeleteButton = null;
                                     if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'colorPresetBulkDelete');
-                                    if (current) HueConfigurationPage.updateColorPresetBulkButtons(page);
                                 }
                             }));
                         });

@@ -13,6 +13,7 @@ const workflowNames = [
 ];
 const validatorPaths = {
   inventory: path.join(repositoryRoot, "scripts/validate-workflow-inventory.mjs"),
+  pullRequest: path.join(repositoryRoot, "scripts/validate-pull-request-workflow.mjs"),
   trusted: path.join(repositoryRoot, "scripts/validate-trusted-workflow.mjs"),
 };
 
@@ -63,18 +64,18 @@ function expectFailure(fixtureRoot, validatorName, expectedMessage) {
   assert.match(result.output, expectedMessage);
 }
 
-function mutateWorkflow(fixtureRoot, mutate) {
-  const workflowPath = path.join(fixtureRoot, ".github/workflows/dotnet-ci.yml");
+function mutateWorkflow(fixtureRoot, workflowName, mutate) {
+  const workflowPath = path.join(fixtureRoot, ".github/workflows", workflowName);
   const original = fs.readFileSync(workflowPath, "utf8");
   const mutated = mutate(original);
   assert.notEqual(mutated, original, "negative workflow fixture mutation made no change");
   fs.writeFileSync(workflowPath, mutated);
 }
 
-function runNegativeFixture(mutator, validators, expectedMessage) {
+function runNegativeFixture(workflowName, mutator, validators, expectedMessage) {
   const fixtureRoot = createFixture();
   try {
-    mutator(fixtureRoot);
+    mutator(fixtureRoot, workflowName);
     for (const validatorName of validators) {
       expectFailure(fixtureRoot, validatorName, expectedMessage);
     }
@@ -92,8 +93,10 @@ try {
 }
 
 runNegativeFixture(
+  "dotnet-ci.yml",
   fixtureRoot => mutateWorkflow(
     fixtureRoot,
+    "dotnet-ci.yml",
     workflow => workflow.replace(
       "  build-and-test:\n",
       "  build-and-test:\n    permissions:\n      contents: write\n",
@@ -104,8 +107,10 @@ runNegativeFixture(
 );
 
 runNegativeFixture(
+  "dotnet-ci.yml",
   fixtureRoot => mutateWorkflow(
     fixtureRoot,
+    "dotnet-ci.yml",
     workflow => workflow.replace(
       "    permissions:\n      contents: write\n",
       "    permissions:\n      contents: read\n",
@@ -116,12 +121,56 @@ runNegativeFixture(
 );
 
 runNegativeFixture(
+  "dotnet-ci.yml",
   fixtureRoot => mutateWorkflow(
     fixtureRoot,
+    "dotnet-ci.yml",
     workflow => workflow.replace("    timeout-minutes: 20\n", ""),
   ),
   ["inventory", "trusted"],
   /must declare exactly one timeout-minutes value/,
+);
+
+runNegativeFixture(
+  "pull-request-validation.yml",
+  fixtureRoot => mutateWorkflow(
+    fixtureRoot,
+    "pull-request-validation.yml",
+    workflow => workflow.replace(
+      "permissions:\n  contents: read",
+      "permissions:\n  contents: read\n  actions: write",
+    ),
+  ),
+  ["inventory", "pullRequest"],
+  /must not grant write permissions/,
+);
+
+runNegativeFixture(
+  "pull-request-validation.yml",
+  fixtureRoot => mutateWorkflow(
+    fixtureRoot,
+    "pull-request-validation.yml",
+    workflow => workflow.replace(
+      "  build-test-and-contracts:\n",
+      "  build-test-and-contracts:\n    permissions:\n      id-token: write\n",
+    ),
+  ),
+  ["inventory", "pullRequest"],
+  /must not grant write permissions/,
+);
+
+runNegativeFixture(
+  "pull-request-validation.yml",
+  fixtureRoot => mutateWorkflow(
+    fixtureRoot,
+    "pull-request-validation.yml",
+    workflow => workflow.replace(
+      "  security-analysis:\n",
+      "  security-analysis:\n    permissions: write-all\n",
+    ),
+  ),
+  ["inventory", "pullRequest"],
+  /must not grant write permissions/,
 );
 
 console.log("Workflow security contract negative tests passed");

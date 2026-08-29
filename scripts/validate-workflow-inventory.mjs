@@ -125,6 +125,52 @@ function isReusableWorkflowJob(block) {
   return block.lines.some(line => /^ {4}uses:\s*\S+/.test(withoutComment(line)));
 }
 
+function getPermissionLines(workflow, block = null) {
+  const lines = block ? block.lines : workflow.split(/\r?\n/);
+  const permissions = [];
+  let inPermissions = false;
+
+  for (const rawLine of lines) {
+    const line = withoutComment(rawLine);
+    const indent = line.match(/^\s*/)[0].length;
+    const permission = block
+      ? line.match(/^ {4}permissions:\s*(.*)$/)
+      : line.match(/^permissions:\s*(.*)$/);
+    if (permission) {
+      if (inPermissions) {
+        throw new Error(
+          `${block ? `${workflow} job ${block.name}` : workflow} declares multiple permissions blocks`,
+        );
+      }
+      inPermissions = true;
+      if (permission[1].trim()) permissions.push(permission[1].trim());
+      continue;
+    }
+    if (inPermissions) {
+      if (!line.trim()) continue;
+      const minimumChildIndent = block ? 4 : 0;
+      if (indent <= minimumChildIndent) {
+        inPermissions = false;
+        continue;
+      }
+      permissions.push(line.trim());
+    }
+  }
+  return permissions;
+}
+
+function getWritePermissionNames(permissionLines) {
+  const names = [];
+  for (const line of permissionLines) {
+    if (/\bwrite-all\b/.test(line)) names.push("*");
+    const inlineNames = [...line.matchAll(
+      /\b([A-Za-z0-9_-]+)\s*:\s*["']?write(?:-all)?["']?\b/g,
+    )].map(match => match[1]);
+    names.push(...inlineNames);
+  }
+  return names;
+}
+
 function validateJobTimeout(block, workflowName) {
   const timeoutLines = block.lines
     .map(withoutComment)
@@ -210,8 +256,21 @@ if (getJobBlocks(pullRequestWorkflow, "pull-request-validation.yml")
 if (/\$\{\{[^}]*\bsecrets\./.test(pullRequestWorkflow)) {
   throw new Error("pull-request-validation.yml must not access repository secrets");
 }
-if (/^\s*contents:\s*write\s*$/m.test(pullRequestWorkflow)) {
-  throw new Error("pull-request-validation.yml must not grant contents: write");
+const pullRequestTopLevelWrites = getWritePermissionNames(getPermissionLines(pullRequestWorkflow));
+if (pullRequestTopLevelWrites.length > 0) {
+  throw new Error(
+    `pull-request-validation.yml must not grant write permissions: ${pullRequestTopLevelWrites.join(", ")}`,
+  );
+}
+const pullRequestJobWrites = [];
+for (const job of getJobBlocks(pullRequestWorkflow, "pull-request-validation.yml")) {
+  const writes = getWritePermissionNames(getPermissionLines(pullRequestWorkflow, job));
+  if (writes.length > 0) pullRequestJobWrites.push(`${job.name} (${writes.join(", ")})`);
+}
+if (pullRequestJobWrites.length > 0) {
+  throw new Error(
+    `pull-request-validation.yml jobs must not grant write permissions: ${pullRequestJobWrites.join(", ")}`,
+  );
 }
 
 console.log(`Workflow inventory contract passed (${workflowFiles.join(", ")}; CODEOWNERS coverage verified)`);

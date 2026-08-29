@@ -12,6 +12,85 @@ const allowedActionRepositories = new Set([
   "codecov/codecov-action"
 ]);
 
+function withoutComment(line) {
+  const commentIndex = line.indexOf("#");
+  return commentIndex < 0 ? line : line.slice(0, commentIndex);
+}
+
+function getJobBlocks(workflow) {
+  const lines = workflow.split(/\r?\n/);
+  const blocks = [];
+  let inJobs = false;
+  let current = null;
+
+  for (const line of lines) {
+    if (!inJobs) {
+      if (/^jobs:\s*$/.test(withoutComment(line).trimEnd())) {
+        inJobs = true;
+      }
+      continue;
+    }
+
+    const jobHeader = line.match(/^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$/);
+    if (jobHeader) {
+      if (current) blocks.push(current);
+      current = { name: jobHeader[1], lines: [line] };
+      continue;
+    }
+
+    if (current) current.lines.push(line);
+  }
+  if (current) blocks.push(current);
+  if (blocks.length === 0) {
+    throw new Error(`${file} does not declare any parseable jobs under jobs:`);
+  }
+  return blocks;
+}
+
+function getPermissionLines(workflow, block = null) {
+  const lines = block ? block.lines : workflow.split(/\r?\n/);
+  const permissions = [];
+  let inPermissions = false;
+
+  for (const rawLine of lines) {
+    const line = withoutComment(rawLine);
+    const indent = line.match(/^\s*/)[0].length;
+    const permission = block
+      ? line.match(/^ {4}permissions:\s*(.*)$/)
+      : line.match(/^permissions:\s*(.*)$/);
+    if (permission) {
+      if (inPermissions) {
+        throw new Error(`${file}${block ? ` job ${block.name}` : ""} declares multiple permissions blocks`);
+      }
+      inPermissions = true;
+      if (permission[1].trim()) permissions.push(permission[1].trim());
+      continue;
+    }
+    if (inPermissions) {
+      if (!line.trim()) continue;
+      const minimumChildIndent = block ? 4 : 0;
+      if (indent <= minimumChildIndent) {
+        inPermissions = false;
+        continue;
+      }
+      permissions.push(line.trim());
+    }
+  }
+  return permissions;
+}
+
+function getWritePermissionNames(permissionLines) {
+  const names = [];
+  for (const line of permissionLines) {
+    if (/\bwrite-all\b/.test(line)) names.push("*");
+    const inlineNames = [...line.matchAll(
+      /\b([A-Za-z0-9_-]+)\s*:\s*["']?write(?:-all)?["']?\b/g,
+    )].map(match => match[1]);
+    names.push(...inlineNames);
+  }
+  return names;
+}
+
 for (const marker of [
   "pull_request:",
   "types: [opened, synchronize, reopened, ready_for_review]",
@@ -45,8 +124,7 @@ for (const marker of [
 
 for (const forbidden of [
   "pull_request_target:",
-  "workflow_dispatch:",
-  "contents: write"
+  "workflow_dispatch:"
 ]) {
   if (workflow.includes(forbidden)) {
     throw new Error(`${file} contains a forbidden PR validation capability: ${forbidden}`);
@@ -54,6 +132,20 @@ for (const forbidden of [
 }
 if (/\$\{\{[^}]*\bsecrets\./.test(workflow)) {
   throw new Error(`${file} must not access repository secrets`);
+}
+
+const topLevelWrites = getWritePermissionNames(getPermissionLines(workflow));
+if (topLevelWrites.length > 0) {
+  throw new Error(`${file} must not grant write permissions: ${topLevelWrites.join(", ")}`);
+}
+
+const jobWrites = [];
+for (const job of getJobBlocks(workflow)) {
+  const writes = getWritePermissionNames(getPermissionLines(workflow, job));
+  if (writes.length > 0) jobWrites.push(`${job.name} (${writes.join(", ")})`);
+}
+if (jobWrites.length > 0) {
+  throw new Error(`${file} jobs must not grant write permissions: ${jobWrites.join(", ")}`);
 }
 
 const runnerLines = [...workflow.matchAll(/^\s*runs-on:\s*(.+)$/gm)].map(match => match[1].trim());

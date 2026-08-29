@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.396] - 2026-08-29
+
+### Administrator lifecycle and workflow boundary hardening
+- **Bulk saved-scene mutation lock**: duplicate and delete operations now share one page-generation-owned lock across selection, bulk controls, confirmation, and requests, preventing opposite mutations and stale selection writes.
+- **Teardown-safe confirmations**: pending bulk saved-scene confirmations settle when page teardown dismisses their dialog, while stale callbacks and in-flight responses remain unable to mutate a reused page.
+- **Pull-request permission isolation**: workflow contracts now reject every top-level or job-level write permission, including `write-all`, `actions`, and `id-token`, with executable negative fixtures.
+- **Regression coverage**: administrator lifecycle tests cover cross-action suppression, all five bulk controls, teardown promise settlement, stale completion, and successful refresh behavior.
+
 ## [1.5.395] - 2026-08-29
 
 ### Runtime, administrator, and workflow boundary hardening

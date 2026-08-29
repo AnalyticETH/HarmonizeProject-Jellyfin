@@ -488,7 +488,17 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.395 (Current)
+### Version 1.5.396 (Current)
+
+- **Bulk saved-scene mutation lock**: duplicate and delete operations now share one page-generation-owned lock across selection, bulk controls, confirmation, and requests, preventing opposite mutations and stale selection writes.
+
+- **Teardown-safe confirmations**: pending bulk saved-scene confirmations settle when page teardown dismisses their dialog, while stale callbacks and in-flight responses remain unable to mutate a reused page.
+
+- **Pull-request permission isolation**: workflow contracts now reject every top-level or job-level write permission, including `write-all`, `actions`, and `id-token`, with executable negative fixtures.
+
+- **Regression coverage**: administrator lifecycle tests cover cross-action suppression, all five bulk controls, teardown promise settlement, stale completion, and successful refresh behavior.
+
+### Version 1.5.395
 
 - **Scheduled cleanup arbitration**: cleanup recovery now uses the canonical bridge/area lease, preventing a saved-scene recovery from mutating an area owned by active playback or diagnostics.
 

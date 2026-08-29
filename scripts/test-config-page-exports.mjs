@@ -2311,14 +2311,37 @@ async function testColorPresetBulkDeleteLifecycleGuards() {
     assert.equal(confirmationHarness.requests.length, 0, "bulk color preset delete waits for confirmation before mutating configuration");
     assert.equal(confirmationCalls, 1, "bulk color preset delete asks for one confirmation");
     assert.equal(confirmationState.button.disabled, true, "pending bulk color preset delete disables its button");
+    for (const selector of [
+        "#previewPresetBulkSelect",
+        "#selectAllPreviewPresetsBtn",
+        "#clearSelectedPreviewPresetsBtn",
+        "#duplicateSelectedPreviewPresetsBtn",
+        "#deleteSelectedPreviewPresetsBtn"
+    ]) {
+        assert.equal(confirmationPage.querySelector(selector).disabled, true, `pending bulk color preset delete disables ${selector}`);
+    }
     const pendingConfirmation = confirmationPage._hueColorPresetBulkDeleteConfirmation;
     const duplicateConfirmation = confirmationApi.deleteColorPresetsBulk(confirmationPage);
     assert.equal(confirmationCalls, 1, "duplicate bulk color preset delete does not open another confirmation");
     assert.equal(confirmationHarness.requests.length, 0, "duplicate bulk color preset delete does not submit before confirmation");
+    let confirmationSettled = false;
+    confirmationOperation.then(() => { confirmationSettled = true; });
     confirmationApi.invalidatePageLifecycle(confirmationPage);
     confirmationApi.beginPageLifecycle(confirmationPage);
     assert.equal(pendingConfirmation.canceled, true, "pagehide cancels the pending bulk color preset delete confirmation");
     assert.equal(confirmationState.button.disabled, false, "pagehide restores the pending bulk color preset delete button");
+    assert.equal(confirmationPage._hueColorPresetBulkMutation, null, "pagehide releases the pending bulk color preset delete lock");
+    for (const selector of [
+        "#previewPresetBulkSelect",
+        "#selectAllPreviewPresetsBtn",
+        "#clearSelectedPreviewPresetsBtn",
+        "#duplicateSelectedPreviewPresetsBtn",
+        "#deleteSelectedPreviewPresetsBtn"
+    ]) {
+        assert.equal(confirmationPage.querySelector(selector).disabled, false, `pagehide restores ${selector} after bulk color preset delete confirmation`);
+    }
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(confirmationSettled, true, "pagehide settles a bulk color preset delete confirmation when its dialog callback never runs");
     confirmation(true);
     assert.equal(confirmationHarness.requests.length, 0, "stale bulk color preset delete confirmation cannot start a request after pagehide");
     await confirmationOperation;
@@ -2360,6 +2383,16 @@ async function testColorPresetBulkDeleteLifecycleGuards() {
     assert.equal(stalePage._huePageRequests.colorPresetBulkDelete, undefined, "pagehide removes the bulk color preset delete request record");
     assert.equal(stalePage._hueColorPresetBulkDeleting, false, "pagehide clears the bulk color preset delete busy state");
     assert.equal(staleState.button.disabled, false, "pagehide restores the bulk color preset delete button");
+    assert.equal(stalePage._hueColorPresetBulkMutation, null, "pagehide releases the in-flight bulk color preset delete lock");
+    for (const selector of [
+        "#previewPresetBulkSelect",
+        "#selectAllPreviewPresetsBtn",
+        "#clearSelectedPreviewPresetsBtn",
+        "#duplicateSelectedPreviewPresetsBtn",
+        "#deleteSelectedPreviewPresetsBtn"
+    ]) {
+        assert.equal(stalePage.querySelector(selector).disabled, false, `pagehide restores ${selector} after bulk color preset delete`);
+    }
     staleHarness.requests[0].resolve({ deletedCount: 2 });
     await staleOperation;
     await new Promise(resolve => setImmediate(resolve));
@@ -2400,6 +2433,24 @@ async function testColorPresetBulkDeleteLifecycleGuards() {
     await duplicateWhilePending;
     assert.equal(currentConfirmationCalls, 1, "pending bulk color preset delete blocks duplicate confirmation");
     assert.equal(currentHarness.requests.length, 1, "pending bulk color preset delete keeps one request in flight");
+    assert.equal(currentPage._hueColorPresetBulkMutation.key, "colorPresetBulkDelete", "bulk color preset delete owns the shared mutation lock");
+    const duplicateWhileDeletePending = currentApi.duplicateColorPresetsBulk(currentPage);
+    await duplicateWhileDeletePending;
+    assert.equal(currentConfirmationCalls, 1, "bulk color preset duplicate is suppressed while delete is pending");
+    assert.equal(currentHarness.requests.length, 1, "bulk color preset duplicate cannot submit while delete is pending");
+    for (const selector of [
+        "#previewPresetBulkSelect",
+        "#selectAllPreviewPresetsBtn",
+        "#clearSelectedPreviewPresetsBtn",
+        "#duplicateSelectedPreviewPresetsBtn",
+        "#deleteSelectedPreviewPresetsBtn"
+    ]) {
+        assert.equal(currentPage.querySelector(selector).disabled, true, `pending bulk color preset delete keeps ${selector} disabled`);
+    }
+    currentApi.clearSelectedColorPresets(currentPage);
+    currentApi.selectAllColorPresets(currentPage);
+    assert.equal(currentState.bulkSelect.options[0].selected, true, "bulk color preset delete blocks clear-selection mutation");
+    assert.equal(currentState.bulkSelect.options[1].selected, true, "bulk color preset delete blocks select-all mutation");
     currentHarness.requests[0].resolve({ deletedCount: 2 });
     await currentOperation;
     assert.equal(currentState.status.textContent, "Deleted 2 saved scene(s). Playlists and scheduled cues were refreshed.", "current bulk color preset delete reports success");
@@ -2409,8 +2460,192 @@ async function testColorPresetBulkDeleteLifecycleGuards() {
     assert.equal(currentState.playlistLoads, 1, "current bulk color preset delete reloads playlists once");
     assert.equal(currentState.scheduleLoads, 1, "current bulk color preset delete reloads schedules once");
     assert.equal(currentPage._hueColorPresetBulkDeleting, false, "current bulk color preset delete clears the busy state");
+    assert.equal(currentPage._hueColorPresetBulkMutation, null, "current bulk color preset delete releases the shared mutation lock");
     assert.equal(currentState.button.disabled, true, "current bulk color preset delete leaves its button disabled with no selection");
+    assert.equal(currentPage.querySelector("#duplicateSelectedPreviewPresetsBtn").disabled, true, "current bulk color preset delete leaves duplicate disabled with no selection");
     assert.equal(currentPage._huePageRequests.colorPresetBulkDelete, undefined, "current bulk color preset delete removes its settled lifecycle record");
+}
+
+function configureColorPresetBulkDuplicateHarness(harness) {
+    const state = configureColorPresetBulkDeleteHarness(harness);
+    state.button = harness.page.querySelector("#duplicateSelectedPreviewPresetsBtn");
+    return state;
+}
+
+async function testColorPresetBulkDuplicateLifecycleGuards() {
+    const confirmationHarness = makeHarness();
+    const confirmationState = configureColorPresetBulkDuplicateHarness(confirmationHarness);
+    const confirmationPage = confirmationHarness.page;
+    const confirmationApi = confirmationHarness.api;
+    let confirmation;
+    let confirmationCalls = 0;
+    confirmationHarness.dashboard.confirm = (_message, _title, callback) => {
+        confirmationCalls += 1;
+        confirmation = callback;
+    };
+    const confirmationOperation = confirmationApi.duplicateColorPresetsBulk(confirmationPage);
+    assert.ok(confirmationOperation && typeof confirmationOperation.then === "function", "bulk color preset duplicate returns a promise");
+    assert.equal(confirmationHarness.requests.length, 0, "bulk color preset duplicate waits for confirmation before mutating configuration");
+    assert.equal(confirmationCalls, 1, "bulk color preset duplicate asks for one confirmation");
+    assert.equal(confirmationState.button.disabled, true, "pending bulk color preset duplicate disables its button");
+    for (const selector of [
+        "#previewPresetBulkSelect",
+        "#selectAllPreviewPresetsBtn",
+        "#clearSelectedPreviewPresetsBtn",
+        "#duplicateSelectedPreviewPresetsBtn",
+        "#deleteSelectedPreviewPresetsBtn"
+    ]) {
+        assert.equal(confirmationPage.querySelector(selector).disabled, true, `pending bulk color preset duplicate disables ${selector}`);
+    }
+    const pendingConfirmation = confirmationPage._hueColorPresetBulkDuplicateConfirmation;
+    const duplicateConfirmation = confirmationApi.duplicateColorPresetsBulk(confirmationPage);
+    assert.equal(confirmationCalls, 1, "duplicate bulk color preset duplicate does not open another confirmation");
+    assert.equal(confirmationHarness.requests.length, 0, "duplicate bulk color preset duplicate does not submit before confirmation");
+    let confirmationSettled = false;
+    confirmationOperation.then(() => { confirmationSettled = true; });
+    confirmationApi.invalidatePageLifecycle(confirmationPage);
+    confirmationApi.beginPageLifecycle(confirmationPage);
+    assert.equal(pendingConfirmation.canceled, true, "pagehide cancels the pending bulk color preset duplicate confirmation");
+    assert.equal(confirmationState.button.disabled, false, "pagehide restores the pending bulk color preset duplicate button");
+    assert.equal(confirmationPage._hueColorPresetBulkMutation, null, "pagehide releases the pending bulk color preset duplicate lock");
+    for (const selector of [
+        "#previewPresetBulkSelect",
+        "#selectAllPreviewPresetsBtn",
+        "#clearSelectedPreviewPresetsBtn",
+        "#duplicateSelectedPreviewPresetsBtn",
+        "#deleteSelectedPreviewPresetsBtn"
+    ]) {
+        assert.equal(confirmationPage.querySelector(selector).disabled, false, `pagehide restores ${selector} after bulk color preset duplicate confirmation`);
+    }
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(confirmationSettled, true, "pagehide settles a bulk color preset duplicate confirmation when its dialog callback never runs");
+    confirmation(true);
+    assert.equal(confirmationHarness.requests.length, 0, "stale bulk color preset duplicate confirmation cannot start a request after pagehide");
+    await confirmationOperation;
+    await duplicateConfirmation;
+
+    const staleHarness = makeHarness();
+    const staleState = configureColorPresetBulkDuplicateHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    staleApi.loadColorPresets = (_page, selectedName) => {
+        staleState.presetLoads += 1;
+        assert.equal(selectedName, "Scene One Copy", "bulk color preset duplicate would select the first returned copy");
+        return Promise.resolve();
+    };
+    staleApi.loadScenePlaylists = () => {
+        staleState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.loadSceneSchedules = () => {
+        staleState.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    let staleConfirmation;
+    staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirmation = callback; };
+    const staleOperation = staleApi.duplicateColorPresetsBulk(stalePage);
+    staleConfirmation(true);
+    assert.equal(staleHarness.requests.length, 1, "confirmed bulk color preset duplicate starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "POST", "bulk color preset duplicate uses POST");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/ColorPresets/BulkDuplicate", "bulk color preset duplicate uses the bulk route");
+    assert.deepEqual(JSON.parse(staleHarness.requests[0].options.data), {
+        presetNames: ["Scene One", "Scene Two"]
+    }, "bulk color preset duplicate snapshots the selected scene names");
+    assert.ok(stalePage._huePageRequests.colorPresetBulkDuplicate, "bulk color preset duplicate is tracked by the page lifecycle");
+    assert.equal(stalePage._hueColorPresetBulkDuplicating, true, "bulk color preset duplicate marks the page busy");
+    assert.equal(staleState.button.disabled, true, "bulk color preset duplicate keeps its button disabled while pending");
+    staleState.status.textContent = "unchanged after pagehide";
+    staleState.bulkSelect.options[0].selected = false;
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight bulk color preset duplicate");
+    assert.equal(stalePage._huePageRequests.colorPresetBulkDuplicate, undefined, "pagehide removes the bulk color preset duplicate request record");
+    assert.equal(stalePage._hueColorPresetBulkDuplicating, false, "pagehide clears the bulk color preset duplicate busy state");
+    assert.equal(staleState.button.disabled, false, "pagehide restores the bulk color preset duplicate button");
+    assert.equal(stalePage._hueColorPresetBulkMutation, null, "pagehide releases the in-flight bulk color preset duplicate lock");
+    for (const selector of [
+        "#previewPresetBulkSelect",
+        "#selectAllPreviewPresetsBtn",
+        "#clearSelectedPreviewPresetsBtn",
+        "#duplicateSelectedPreviewPresetsBtn",
+        "#deleteSelectedPreviewPresetsBtn"
+    ]) {
+        assert.equal(stalePage.querySelector(selector).disabled, false, `pagehide restores ${selector} after bulk color preset duplicate`);
+    }
+    staleHarness.requests[0].resolve({ presets: [{ name: "Scene One Copy" }] });
+    await staleOperation;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(staleState.status.textContent, "unchanged after pagehide", "stale bulk color preset duplicate cannot write hidden-page status");
+    assert.equal(staleState.bulkSelect.options[0].selected, false, "stale bulk color preset duplicate cannot rewrite selection state");
+    assert.equal(staleState.bulkSelect.options[1].selected, true, "stale bulk color preset duplicate preserves the reused page selection");
+    assert.equal(staleState.presetLoads, 0, "stale bulk color preset duplicate cannot reload saved scenes");
+    assert.equal(staleState.playlistLoads, 0, "stale bulk color preset duplicate cannot reload playlists");
+    assert.equal(staleState.scheduleLoads, 0, "stale bulk color preset duplicate cannot reload schedules");
+
+    const currentHarness = makeHarness();
+    const currentState = configureColorPresetBulkDuplicateHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    currentApi.loadColorPresets = (_page, selectedName) => {
+        currentState.presetLoads += 1;
+        assert.equal(selectedName, "Scene One Copy", "current bulk color preset duplicate selects the first returned copy");
+        return Promise.resolve();
+    };
+    currentApi.loadScenePlaylists = () => {
+        currentState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    currentApi.loadSceneSchedules = (_page, selectedId) => {
+        currentState.scheduleLoads += 1;
+        assert.equal(selectedId, "cue-1", "current bulk color preset duplicate preserves the selected cue");
+        return Promise.resolve();
+    };
+    let currentConfirmation;
+    let currentConfirmationCalls = 0;
+    currentHarness.dashboard.confirm = (_message, _title, callback) => {
+        currentConfirmationCalls += 1;
+        currentConfirmation = callback;
+    };
+    const currentOperation = currentApi.duplicateColorPresetsBulk(currentPage);
+    currentConfirmation(true);
+    assert.equal(currentHarness.requests.length, 1, "current bulk color preset duplicate starts one request");
+    const duplicateWhilePending = currentApi.duplicateColorPresetsBulk(currentPage);
+    await duplicateWhilePending;
+    assert.equal(currentConfirmationCalls, 1, "pending bulk color preset duplicate blocks duplicate confirmation");
+    assert.equal(currentHarness.requests.length, 1, "pending bulk color preset duplicate keeps one request in flight");
+    assert.equal(currentPage._hueColorPresetBulkMutation.key, "colorPresetBulkDuplicate", "bulk color preset duplicate owns the shared mutation lock");
+    const deleteWhileDuplicatePending = currentApi.deleteColorPresetsBulk(currentPage);
+    await deleteWhileDuplicatePending;
+    assert.equal(currentConfirmationCalls, 1, "bulk color preset delete is suppressed while duplicate is pending");
+    assert.equal(currentHarness.requests.length, 1, "bulk color preset delete cannot submit while duplicate is pending");
+    for (const selector of [
+        "#previewPresetBulkSelect",
+        "#selectAllPreviewPresetsBtn",
+        "#clearSelectedPreviewPresetsBtn",
+        "#duplicateSelectedPreviewPresetsBtn",
+        "#deleteSelectedPreviewPresetsBtn"
+    ]) {
+        assert.equal(currentPage.querySelector(selector).disabled, true, `pending bulk color preset duplicate keeps ${selector} disabled`);
+    }
+    currentApi.clearSelectedColorPresets(currentPage);
+    currentApi.selectAllColorPresets(currentPage);
+    assert.equal(currentState.bulkSelect.options[0].selected, true, "bulk color preset duplicate blocks clear-selection mutation");
+    assert.equal(currentState.bulkSelect.options[1].selected, true, "bulk color preset duplicate blocks select-all mutation");
+    currentHarness.requests[0].resolve({
+        message: "Created two independent saved-scene copies.",
+        presets: [{ name: "Scene One Copy" }, { name: "Scene Two Copy" }]
+    });
+    await currentOperation;
+    assert.equal(currentState.status.textContent, "Created two independent saved-scene copies.", "current bulk color preset duplicate reports success");
+    assert.equal(currentState.bulkSelect.options[0].selected, false, "current bulk color preset duplicate clears the first selection");
+    assert.equal(currentState.bulkSelect.options[1].selected, false, "current bulk color preset duplicate clears the second selection");
+    assert.equal(currentState.presetLoads, 1, "current bulk color preset duplicate reloads saved scenes once");
+    assert.equal(currentState.playlistLoads, 1, "current bulk color preset duplicate reloads playlists once");
+    assert.equal(currentState.scheduleLoads, 1, "current bulk color preset duplicate reloads schedules once");
+    assert.equal(currentPage._hueColorPresetBulkDuplicating, false, "current bulk color preset duplicate clears the busy state");
+    assert.equal(currentPage._hueColorPresetBulkMutation, null, "current bulk color preset duplicate releases the shared mutation lock");
+    assert.equal(currentState.button.disabled, true, "current bulk color preset duplicate leaves its button disabled with no selection");
+    assert.equal(currentPage.querySelector("#deleteSelectedPreviewPresetsBtn").disabled, true, "current bulk color preset duplicate leaves delete disabled with no selection");
+    assert.equal(currentPage._huePageRequests.colorPresetBulkDuplicate, undefined, "current bulk color preset duplicate removes its settled lifecycle record");
 }
 
 function configureColorPresetRenameHarness(harness) {
@@ -3390,6 +3625,7 @@ await testColorPresetSaveLifecycleGuards();
 await testColorPresetDuplicateLifecycleGuards();
 await testColorPresetDeleteLifecycleGuards();
 await testColorPresetBulkDeleteLifecycleGuards();
+await testColorPresetBulkDuplicateLifecycleGuards();
 await testColorPresetRenameLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
 await testSceneScheduleSaveLifecycleGuards();
@@ -3405,4 +3641,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/rename/scene save/delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/rename/scene save/delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
