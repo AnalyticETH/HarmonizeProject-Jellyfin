@@ -114,16 +114,21 @@ const captureCurrentColorRow = readme.split("\n").find(line => line.startsWith("
 if (!captureCurrentColorRow ||
     !captureCurrentColorRow.includes("credential-free") ||
     !captureCurrentColorRow.includes("ambiguous duplicate user mappings") ||
-    !captureCurrentColorRow.includes("before bridge contact")) {
-    throw new Error("README.md single current-light capture contract is missing credential-free duplicate fail-closed guidance");
+    !captureCurrentColorRow.includes("before bridge contact") ||
+    !captureCurrentColorRow.includes('targetDeviceId') ||
+    !captureCurrentColorRow.includes('"targetDeviceId": "living-room-tv"')) {
+    throw new Error("README.md single current-light capture contract is missing credential-free duplicate or device-route guidance");
 }
 
 const captureCurrentColorsRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Preview/CaptureCurrentColors` |"));
 if (!captureCurrentColorsRow ||
     !captureCurrentColorsRow.includes("credential-free") ||
     !captureCurrentColorsRow.includes("all-target capture") ||
-    !captureCurrentColorsRow.includes("ambiguous duplicate user mappings")) {
-    throw new Error("README.md batch current-light capture contract is missing duplicate fail-closed guidance");
+    !captureCurrentColorsRow.includes("ambiguous duplicate user mappings") ||
+    !captureCurrentColorsRow.includes('targetRoutes') ||
+    !captureCurrentColorsRow.includes('"userId": "jellyfin-user-id-1"') ||
+    !captureCurrentColorsRow.includes('"deviceId": "living-room-tv"')) {
+    throw new Error("README.md batch current-light capture contract is missing duplicate or device-route guidance");
 }
 
 const targetDiagnosticsRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/TargetDiagnostics` |"));

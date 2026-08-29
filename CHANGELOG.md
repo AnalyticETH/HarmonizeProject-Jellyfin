@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.371] - 2026-08-29
+
+### Current-light capture documentation
+- **Nested device-route API parity**: document single-target `targetDeviceId` and batch `targetRoutes` request shapes so administrators and integrators can capture a specific playback-device route supported by the UI and API.
+- **Documentation regression coverage**: the API-doc contract now requires the exact single and batch nested-route examples.
+
 ## [1.5.370] - 2026-08-29
 
 ### Reconnect lifecycle diagnostics
