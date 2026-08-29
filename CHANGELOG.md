@@ -17,6 +17,7 @@ No unreleased changes.
 - **Locked restore enforcement**: `Directory.Build.props` now enables `RestoreLockedMode` globally, and the release-doc validator fails closed if the committed NuGet lock-file contract is removed.
 - **Stale queued-run runbook**: self-hosted runner operations now document read-only inspection, safe cancellation, and owner escalation for queued Actions runs with no assigned job, without deleting workflow history.
 - **Regression coverage**: API tests cover invalid filters, sanitized session failures, null enumerations, and 256-route bounds; environment-probe tests cover bounded output and cancellation cleanup.
+- **Semgrep snapshot integrity**: reviewed and refreshed the default ruleset SHA-256 pin after the registry rotated; the current 121-rule production/configuration scan remains fail-closed with zero findings, scanner errors, or analysis timeouts.
 
 ## [1.5.364] - 2026-08-28
 

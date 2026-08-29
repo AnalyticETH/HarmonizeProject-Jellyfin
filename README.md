@@ -498,6 +498,8 @@ Benchmarks measure:
 
 - **Regression coverage**: API tests cover invalid filters, sanitized session failures, null enumerations, and 256-route bounds; environment-probe tests cover bounded output and cancellation cleanup.
 
+- **Semgrep snapshot integrity**: reviewed and refreshed the default ruleset SHA-256 pin after the registry rotated; the current 121-rule production/configuration scan remains fail-closed with zero findings, scanner errors, or analysis timeouts.
+
 - **Null-safe playback events**: Jellyfin playback-start events with missing item metadata are logged safely and remain filtered as unsupported instead of throwing before lifecycle arbitration.
 
 - **Bounded environment probes**: FFmpeg version, diagnostic stderr, and PCM capability output are capped; oversized output terminates the probe and fails closed without allowing a misbehaving executable to grow memory indefinitely.
