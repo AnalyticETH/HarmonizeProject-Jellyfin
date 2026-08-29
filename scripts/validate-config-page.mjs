@@ -12,6 +12,8 @@ if (!scriptMatch) {
 new vm.Script(scriptMatch[1], { filename: file });
 
 const requiredMarkup = [
+    'id="channelIds" name="channelIds" type="text" is="emby-input" maxlength="4096"',
+    'id="mappingChannelIdsOverride" type="text" maxlength="4096" is="emby-input"',
     'id="configurationSectionNav" aria-label="Configuration sections"',
     'href="#runtimeStatusSection"',
     'href="#sessionHistorySection"',
@@ -205,7 +207,7 @@ const requiredMarkup = [
     'id="mappingDeviceRouteAreaId"',
     'id="mappingDeviceRouteAreaId" type="text" is="emby-input" aria-label="Entertainment area ID"',
     'id="mappingDeviceRouteChannels"',
-    'id="mappingDeviceRouteChannels" type="text" is="emby-input" aria-label="Channel IDs (optional, comma separated)"',
+    'id="mappingDeviceRouteChannels" type="text" is="emby-input" aria-label="Channel IDs (optional, comma separated)" maxlength="4096"',
     'id="mappingAddDeviceRouteBtn"',
     'id="mappingRemoveDeviceRouteBtn"',
     'id="mappingLoadDeviceRouteChannelsBtn"',

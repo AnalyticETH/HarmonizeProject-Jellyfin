@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.380] - 2026-08-29
+
+### Bounded channel-profile input
+- **Parser allocation guard**: administrator-supplied global, per-user, and device-route channel profiles now reject text longer than 4,096 characters before tokenization, keeping malformed configuration input bounded without changing valid channel IDs or delimiter behavior.
+- **UI contract parity**: channel-profile editors expose the same 4,096-character limit, and regression coverage verifies oversized input is rejected before parsing.
+
 ## [1.5.379] - 2026-08-29
 
 ### Cleanup resolver trust boundary

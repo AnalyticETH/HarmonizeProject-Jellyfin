@@ -347,6 +347,16 @@ for (const marker of [
 }
 
 for (const marker of [
+    "public const int MaxChannelIdsInputLength = 4_096;",
+    "if (value.Length > MaxChannelIdsInputLength)",
+    "maximum 4,096 characters"
+]) {
+    if (!pluginConfiguration.includes(marker) && !readme.includes(marker)) {
+        throw new Error(`Channel-profile input bound is missing source or API documentation marker: ${marker}`);
+    }
+}
+
+for (const marker of [
     "var candidateMappings = previousMappings",
     "candidateMappings.Add(mapping);",
     "candidateMappings.Count > PluginConfiguration.MaxUserMappings",

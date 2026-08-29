@@ -1484,7 +1484,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 if (!PluginConfiguration.TryParseChannelIds(request.ChannelIds, out var parsedChannelIds) ||
                     parsedChannelIds.Count == 0)
                 {
-                    return BadRequest("channelIds must be a comma-separated list of IDs from 0 to 65535.");
+                    return BadRequest($"channelIds must be a comma-separated list of IDs from 0 to 65535 (maximum {PluginConfiguration.MaxChannelIdsInputLength} characters).");
                 }
 
                 requestedChannelIds = parsedChannelIds;
@@ -1979,7 +1979,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 if (!PluginConfiguration.TryParseChannelIds(request.ChannelIds, out var parsedChannelIds) ||
                     parsedChannelIds.Count == 0)
                 {
-                    return BadRequest("channelIds must be a comma-separated list of IDs from 0 to 65535.");
+                    return BadRequest($"channelIds must be a comma-separated list of IDs from 0 to 65535 (maximum {PluginConfiguration.MaxChannelIdsInputLength} characters).");
                 }
 
                 requestedChannelIds = parsedChannelIds;

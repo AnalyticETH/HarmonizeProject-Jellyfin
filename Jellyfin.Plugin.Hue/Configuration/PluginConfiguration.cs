@@ -855,6 +855,11 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxBulkUserMappingDeletes = 50;
         public const int MaxBulkUserMappingUpdates = 50;
         public const int MaxDeviceTargetsPerUser = 25;
+        // Channel profiles are administrator-supplied text that is split before
+        // validation. Keep the parser bounded so a malformed configuration cannot
+        // force an avoidable large tokenization/allocation while retaining ample
+        // room for every realistic Hue entertainment-area profile.
+        public const int MaxChannelIdsInputLength = 4_096;
         public const int MaxScenePlaylists = 50;
         public const int MaxScenePlaylistItems = 20;
         public const int MaxScenePlaylistTotalDurationSeconds = MaxScenePlaylistItems * MaxPreviewDurationSeconds;
@@ -2806,6 +2811,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (string.IsNullOrWhiteSpace(value))
                 return true;
 
+            if (value.Length > MaxChannelIdsInputLength)
+                return false;
+
             var tokens = value.Split(
                 new[] { ',', ';', ' ', '\t', '\r', '\n' },
                 StringSplitOptions.RemoveEmptyEntries);
@@ -2832,7 +2840,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         {
             var errors = new List<string>();
             if (!TryParseChannelIds(mapping.ChannelIdsOverride, out _))
-                errors.Add($"{label} channel IDs override must be a comma-separated list of IDs from 0 to 65535");
+                errors.Add($"{label} channel IDs override must be a comma-separated list of IDs from 0 to 65535 (maximum {MaxChannelIdsInputLength} characters)");
 
             return errors;
         }
@@ -2844,7 +2852,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         {
             var errors = new List<string>();
             if (!TryParseChannelIds(channelIds, out _))
-                errors.Add($"{label} channel IDs must be a comma-separated list of IDs from 0 to 65535");
+                errors.Add($"{label} channel IDs must be a comma-separated list of IDs from 0 to 65535 (maximum {MaxChannelIdsInputLength} characters)");
 
             return errors;
         }
@@ -2895,7 +2903,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     errors.Add($"{targetLabel} requires an Entertainment Area ID");
 
                 if (!TryParseChannelIds(target.ChannelIdsOverride, out _))
-                    errors.Add($"{targetLabel} channel IDs override must be a comma-separated list of IDs from 0 to 65535");
+                    errors.Add($"{targetLabel} channel IDs override must be a comma-separated list of IDs from 0 to 65535 (maximum {MaxChannelIdsInputLength} characters)");
             }
 
             return errors;

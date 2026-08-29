@@ -274,12 +274,12 @@
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="channelIds">Entertainment Channel IDs</label>
                             <div style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
-                                <input id="channelIds" name="channelIds" type="text" is="emby-input" placeholder="Leave blank for all channels" style="flex: 1 1 240px;" />
+                                <input id="channelIds" name="channelIds" type="text" is="emby-input" maxlength="4096" placeholder="Leave blank for all channels" style="flex: 1 1 240px;" />
                                 <button is="emby-button" type="button" class="raised" id="loadChannelsBtn">
                                     <span>Load Channel IDs</span>
                                 </button>
                             </div>
-                            <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-65535). Load Channel IDs after selecting an area; the stored global App Key is used when the secret field is blank. Edit the list to choose a subset. Test Connection validates this global selection.</div>
+                            <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-65535; maximum 4,096 characters). Load Channel IDs after selecting an area; the stored global App Key is used when the secret field is blank. Edit the list to choose a subset. Test Connection validates this global selection.</div>
                             <div id="channelIdsStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;"></div>
                         </div>
                     </fieldset>
@@ -1549,12 +1549,12 @@
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="mappingChannelIdsOverride">Entertainment Channel IDs Override</label>
                                     <div style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
-                                        <input id="mappingChannelIdsOverride" type="text" is="emby-input" placeholder="Leave blank to inherit global" style="flex: 1 1 240px;" />
+                                        <input id="mappingChannelIdsOverride" type="text" maxlength="4096" is="emby-input" placeholder="Leave blank to inherit global" style="flex: 1 1 240px;" />
                                         <button is="emby-button" type="button" class="raised" id="mappingLoadChannelsBtn">
                                             <span>Load Channel IDs</span>
                                         </button>
                                     </div>
-                                    <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-65535). Only these channels are captured, dimmed, streamed, and restored for this user. Load Channel IDs after selecting an area; blank mapping credentials inherit the stored global target. Edit the list to choose a subset. Leave blank to inherit the global channel profile. Test Connection validates this selection and probes only the chosen channels.</div>
+                                    <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-65535; maximum 4,096 characters). Only these channels are captured, dimmed, streamed, and restored for this user. Load Channel IDs after selecting an area; blank mapping credentials inherit the stored global target. Edit the list to choose a subset. Leave blank to inherit the global channel profile. Test Connection validates this selection and probes only the chosen channels.</div>
                                     <div id="mappingChannelIdsStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;"></div>
                                 </div>
                             </fieldset>
@@ -1632,7 +1632,7 @@
                                     <div id="mappingDeviceDiscoveryStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="flex: 1 1 280px; margin: 0;">Discover recent Jellyfin playback devices to avoid typing opaque, case-sensitive device IDs.</div>
                                 </div>
                                 <div id="mappingDeviceRouteEditor" class="inputContainer" style="margin-top: .75em; padding: .75em; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;">
-                                    <div class="fieldDescription" style="margin-bottom: .75em;">Configure the selected route without hand-editing JSON. Stored route keys stay server-side; leave the key fields blank when editing an existing route to preserve them.</div>
+                                    <div class="fieldDescription" style="margin-bottom: .75em;">Configure the selected route without hand-editing JSON. Stored route keys stay server-side; leave the key fields blank when editing an existing route to preserve them. Channel profile text is limited to 4,096 characters.</div>
                                     <div style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap;">
                                         <input id="mappingDeviceRouteId" type="text" is="emby-input" aria-label="Device ID (case-sensitive)" placeholder="Device ID (case-sensitive)" style="flex: 1 1 220px;" />
                                         <input id="mappingDeviceRouteName" type="text" is="emby-input" aria-label="Device name (optional)" placeholder="Device name (optional)" style="flex: 1 1 220px;" />
@@ -1648,7 +1648,7 @@
                                         </select>
                                         <input id="mappingDeviceRouteAreaId" type="text" is="emby-input" aria-label="Entertainment area ID" placeholder="Entertainment area ID" style="flex: 1 1 220px;" />
                                         <input id="mappingDeviceRouteAreaName" type="text" is="emby-input" aria-label="Entertainment area name (optional)" placeholder="Entertainment area name (optional)" style="flex: 1 1 220px;" />
-                                        <input id="mappingDeviceRouteChannels" type="text" is="emby-input" aria-label="Channel IDs (optional, comma separated)" placeholder="Channel IDs (optional, e.g. 1,2)" style="flex: 1 1 220px;" />
+                                        <input id="mappingDeviceRouteChannels" type="text" is="emby-input" aria-label="Channel IDs (optional, comma separated)" maxlength="4096" placeholder="Channel IDs (optional, e.g. 1,2)" style="flex: 1 1 220px;" />
                                     </div>
                                     <div style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: .75em;">
                                         <button is="emby-button" type="button" class="raised" id="mappingLoadDeviceRouteAreasBtn"><span>Load Route Areas</span></button>

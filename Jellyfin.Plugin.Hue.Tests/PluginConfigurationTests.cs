@@ -4549,6 +4549,34 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void TryParseChannelIds_RejectsOversizedInputBeforeTokenization()
+    {
+        var oversized = string.Join(",", Enumerable.Repeat("1", PluginConfiguration.MaxChannelIdsInputLength));
+
+        Assert.True(oversized.Length > PluginConfiguration.MaxChannelIdsInputLength);
+        Assert.False(PluginConfiguration.TryParseChannelIds(oversized, out var channelIds));
+        Assert.Empty(channelIds);
+    }
+
+    [Fact]
+    public void Validate_WhenGlobalChannelSelectionIsOversized_ReportsTheBound()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "default-app-key",
+            HueClientKey = "default-client-key",
+            EntertainmentAreaId = "default-area",
+            ChannelIds = string.Join(",", Enumerable.Repeat("1", PluginConfiguration.MaxChannelIdsInputLength))
+        };
+
+        var errors = configuration.Validate();
+
+        Assert.Contains("maximum 4096 characters", errors.Single(error => error.Contains("Global channel IDs", StringComparison.Ordinal)));
+    }
+
+    [Fact]
     public void Validate_DeviceTargetsAcceptBoundedCompleteTargetsAndCaseDistinctIds()
     {
         var mapping = new UserBridgeMapping
@@ -4653,7 +4681,7 @@ public class PluginConfigurationTests
         Assert.Contains("User mapping 1 device target 1 requires a Hue App Key", errors);
         Assert.Contains("User mapping 1 device target 1 requires a Hue Client Key", errors);
         Assert.Contains("User mapping 1 device target 1 requires an Entertainment Area ID", errors);
-        Assert.Contains("User mapping 1 device target 1 channel IDs override must be a comma-separated list of IDs from 0 to 65535", errors);
+        Assert.Contains("User mapping 1 device target 1 channel IDs override must be a comma-separated list of IDs from 0 to 65535 (maximum 4096 characters)", errors);
     }
 
     [Fact]
@@ -4671,7 +4699,7 @@ public class PluginConfigurationTests
 
         var errors = configuration.Validate();
 
-        Assert.Contains("Global channel IDs must be a comma-separated list of IDs from 0 to 65535", errors);
+        Assert.Contains("Global channel IDs must be a comma-separated list of IDs from 0 to 65535 (maximum 4096 characters)", errors);
     }
 
     [Fact]
@@ -4696,7 +4724,7 @@ public class PluginConfigurationTests
 
         var errors = config.Validate();
 
-        Assert.Contains("User mapping 1 channel IDs override must be a comma-separated list of IDs from 0 to 65535", errors);
+        Assert.Contains("User mapping 1 channel IDs override must be a comma-separated list of IDs from 0 to 65535 (maximum 4096 characters)", errors);
     }
 
     [Fact]
