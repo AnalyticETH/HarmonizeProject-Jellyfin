@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.369] - 2026-08-29
+
+### Reconnect lifecycle safety
+- **Cancellation-safe reconnect observation**: background DTLS reconnect continuations now handle canceled tasks without reading `Task.Result`, preventing unobserved cancellation exceptions during callback and lifecycle races.
+- **Regression coverage**: the Hue streamer suite exercises preparation cancellation from an unrelated token and verifies the scheduled reconnect observation completes cleanly.
+
 ## [1.5.368] - 2026-08-29
 
 ### Staged device-route diagnostics

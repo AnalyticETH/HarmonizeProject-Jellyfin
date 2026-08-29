@@ -151,6 +151,36 @@ public class HueStreamerTests
     }
 
     [Fact]
+    public async Task ScheduleReconnect_WhenPreparationCancelsWithUnrelatedToken_DoesNotReadCanceledResult()
+    {
+        var connection = new TestDtlsConnection();
+        var streamer = new HueStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(connection));
+
+        await streamer.StartStreamAsync(
+            "192.168.1.100",
+            "app-key",
+            "00112233445566778899aabbccddeeff");
+
+        connection.IsHealthy = false;
+        using var unrelatedCancellation = new CancellationTokenSource();
+        unrelatedCancellation.Cancel();
+        streamer.OnBeforeReconnectWithCancellation = _ =>
+            Task.FromCanceled<bool>(unrelatedCancellation.Token);
+
+        var scheduleReconnect = typeof(HueStreamer).GetMethod(
+            "ScheduleReconnect",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var scheduledReconnect = (Task)scheduleReconnect.Invoke(
+            streamer,
+            new object[] { CancellationToken.None })!;
+
+        await scheduledReconnect.WaitAsync(TimeSpan.FromSeconds(5));
+        streamer.StopStream();
+    }
+
+    [Fact]
     public async Task StartStreamAsync_WhenStopRacesLifecycleCapture_DoesNotResurrectStream()
     {
         var logger = new CallbackLogger<HueStreamer>();

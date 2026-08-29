@@ -930,13 +930,13 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// Starts one bounded reconnect worker for a failed send. The reconnect gate
         /// serializes overlapping workers and the lifecycle token cancels them on stop.
         /// </summary>
-        private void ScheduleReconnect(CancellationToken cancellationToken)
+        private Task ScheduleReconnect(CancellationToken cancellationToken)
         {
-            _ = TryReconnectAsync(cancellationToken).ContinueWith(t =>
+            return TryReconnectAsync(cancellationToken).ContinueWith(t =>
             {
                 if (t.IsFaulted)
                     _logger.LogError(t.Exception!.GetBaseException(), "Unobserved exception during DTLS reconnect");
-                else if (t.Result == false && !cancellationToken.IsCancellationRequested)
+                else if (!t.IsCanceled && !cancellationToken.IsCancellationRequested && !t.Result)
                     _logger.LogWarning("DTLS reconnection failed — lights may stop syncing until next playback");
             }, TaskContinuationOptions.ExecuteSynchronously);
         }
