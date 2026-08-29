@@ -32,6 +32,7 @@ for (const marker of [
   "node scripts/test-config-page-exports.mjs",
   "node scripts/validate-api-docs.mjs",
   "node scripts/validate-workflow-inventory.mjs",
+  "node scripts/validate-trusted-workflow.mjs",
 ]) {
   if (!workflow.includes(marker)) {
     throw new Error(`${file} is missing PR validation marker: ${marker}`);

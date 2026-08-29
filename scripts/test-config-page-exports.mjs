@@ -1082,6 +1082,66 @@ async function testBridgeCertificateTrustPromptPagehideGuard() {
     assert.equal(requests.length, 1, "approval of a stale trust prompt sends no trust mutation");
 }
 
+async function testBridgeCertificateTrustRequestLifecycle() {
+    const harness = makeHarness();
+    const { page, api, requests, dashboard } = harness;
+    let confirm;
+    dashboard.confirm = (_message, _title, callback) => { confirm = callback; };
+
+    const generation = api.ensurePageLifecycle(page);
+    const operation = api.ensureBridgeCertificate(
+        page,
+        "192.168.1.50",
+        page.querySelector("#bridgeStatus"),
+        generation);
+    requests[0].resolve({ fingerprint: "AA:BB", isPinned: false });
+    await new Promise(resolve => setImmediate(resolve));
+    confirm(true);
+
+    assert.equal(requests.length, 2, "confirmed trust starts one mutation request");
+    assert.equal(requests[1].options.type, "POST", "certificate trust uses POST");
+    assert.equal(requests[1].options.url, "HueSync/BridgeCertificate/Trust", "certificate trust uses the dedicated route");
+    assert.deepEqual(
+        JSON.parse(requests[1].options.data),
+        { ipAddress: "192.168.1.50", fingerprint: "AA:BB", confirm: true },
+        "certificate trust scopes the mutation to the approved fingerprint");
+    assert.equal(
+        page._huePageRequests.bridgeCertificateTrust.request,
+        requests[1].promise,
+        "certificate trust is registered in the page lifecycle slot");
+
+    requests[1].resolve({ fingerprint: "AA:BB" });
+    await operation;
+    assert.equal(page._hueBridgeCertificatePins["192.168.1.50"], "AA:BB", "current trust completion caches the approved fingerprint");
+    assert.equal(page.querySelector("#bridgeStatus").style.background, "#4caf50", "current trust completion updates status");
+
+    const staleHarness = makeHarness();
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    let staleConfirm;
+    staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirm = callback; };
+    const staleGeneration = staleApi.ensurePageLifecycle(stalePage);
+    const staleOperation = staleApi.ensureBridgeCertificate(
+        stalePage,
+        "192.168.1.50",
+        stalePage.querySelector("#bridgeStatus"),
+        staleGeneration);
+    staleHarness.requests[0].resolve({ fingerprint: "AA:BB", isPinned: false });
+    await new Promise(resolve => setImmediate(resolve));
+    staleConfirm(true);
+    assert.equal(staleHarness.requests.length, 2, "stale lifecycle test starts a trust mutation request");
+    stalePage.querySelector("#bridgeStatus").textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[1].promise.aborted, true, "pagehide aborts an in-flight certificate trust request");
+    staleHarness.requests[1].resolve({ fingerprint: "AA:BB" });
+    await staleOperation;
+    assert.equal(stalePage._hueBridgeCertificatePins, undefined, "invalidated trust cannot mutate the hidden page's pin cache");
+    assert.equal(
+        stalePage.querySelector("#bridgeStatus").textContent,
+        "unchanged after pagehide",
+        "invalidated trust cannot write a stale status");
+}
+
 async function testCredentialPreflightCancelGuard() {
     const harness = makeHarness();
     const { page, api, requests } = harness;
@@ -2650,6 +2710,7 @@ await testMappingDeviceRouteCredentialScope();
 await testStoredDeviceRouteCredentialFlags();
 await testCredentialPreflightPagehideGuard();
 await testBridgeCertificateTrustPromptPagehideGuard();
+await testBridgeCertificateTrustRequestLifecycle();
 await testCredentialPreflightCancelGuard();
 await testCredentialPreflightTargetMutationGuard();
 await testCredentialLifecyclePreflightPagehideGuard();

@@ -2247,15 +2247,21 @@
                                         reject(staleError);
                                         return;
                                     }
-                                    ApiClient.ajax({
-                                        type: 'POST',
-                                        url: ApiClient.getUrl('HueSync/BridgeCertificate/Trust'),
-                                        data: JSON.stringify({ ipAddress: target, fingerprint: fingerprint, confirm: true }),
-                                        contentType: 'application/json',
-                                        dataType: 'json'
-                                    }).then(function (trustResponse) {
+                                    var trustRequest = HueConfigurationPage.getPageLifecycleRequest(
+                                        page,
+                                        lifecycleGeneration,
+                                        'bridgeCertificateTrust',
+                                        ApiClient.getUrl('HueSync/BridgeCertificate/Trust'),
+                                        {
+                                            type: 'POST',
+                                            data: JSON.stringify({ ipAddress: target, fingerprint: fingerprint, confirm: true }),
+                                            contentType: 'application/json',
+                                            dataType: 'json'
+                                        },
+                                        target);
+                                    trustRequest.then(function (trustResponse) {
                                         var trustedFingerprint = String((trustResponse && (trustResponse.fingerprint || trustResponse.Fingerprint)) || fingerprint).trim();
-                                        if (canWritePage()) {
+                                        if (canWritePage() && HueConfigurationPage.isPageLifecycleRequestCurrent(page, lifecycleGeneration, trustRequest)) {
                                             HueConfigurationPage.rememberBridgeCertificatePin(page, target, trustedFingerprint);
                                         }
                                         resolve(true);

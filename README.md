@@ -488,7 +488,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.389 (Current)
+### Version 1.5.390 (Current)
+
+- **Trusted-workflow parity**: pull-request validation now executes the trusted-workflow boundary contract, covering exact triggers, permissions, release provenance, immutable actions, and security-scan boundaries before merge.
+
+- **Bridge certificate trust lifecycle**: approved certificate trust POSTs are owned by the active configuration-page generation, canceled on teardown, and prevented from applying stale pin-cache or status callbacks.
+
+- **Regression coverage**: PR workflow and certificate-trust tests cover validator enforcement and in-flight pagehide cancellation.
 
 - **HueStream packet budget**: packets now enforce the AES-GCM DTLS application payload limit before allocation or transport writes, and oversized playback/preview areas fail closed before bridge activation.
 

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.390] - 2026-08-29
+
+### Workflow and trust lifecycle hardening
+- **Trusted-workflow parity**: pull-request validation now executes the trusted-workflow boundary contract, covering exact triggers, permissions, release provenance, immutable actions, and security-scan boundaries before merge.
+- **Bridge certificate trust lifecycle**: approved certificate trust POSTs are owned by the active configuration-page generation, canceled on teardown, and prevented from applying stale pin-cache or status callbacks.
+- **Regression coverage**: PR workflow and certificate-trust tests cover validator enforcement and in-flight pagehide cancellation.
+
 ## [1.5.389] - 2026-08-29
 
 ### DTLS packet and ownership hardening
