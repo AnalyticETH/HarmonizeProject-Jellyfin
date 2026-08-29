@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.382] - 2026-08-29
+
+### IPv6 bridge discovery parity
+- **Scoped link-local transport**: mDNS-discovered IPv6 link-local bridge addresses now preserve their interface scope when converted into HTTPS request URIs, so multi-interface hosts can connect to the selected bridge instead of silently dropping the scope.
+- **Certificate-pin identity parity**: URI-encoded IPv6 zone identifiers are normalized back to the persisted bridge spelling before certificate-pin lookup.
+- **Regression coverage**: Hue client tests verify both HTTP-safe scoped URI construction and scoped IPv6 certificate-pin identity normalization.
+
 ## [1.5.381] - 2026-08-29
 
 ### Strict channel-profile bound

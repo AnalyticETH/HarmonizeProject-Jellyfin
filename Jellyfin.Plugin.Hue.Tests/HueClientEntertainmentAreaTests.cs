@@ -74,7 +74,8 @@ public class HueClientEntertainmentAreaTests : IDisposable
         await client.RegisterWithBridge("fe80::50%42");
 
         Assert.NotNull(capturedRequest);
-        Assert.Equal("fe80::50%42", capturedRequest!.RequestUri!.DnsSafeHost);
+        // Uri exposes the RFC 6874 zone separator in its HTTP-safe encoded form.
+        Assert.Equal("fe80::50%2542", capturedRequest!.RequestUri!.DnsSafeHost);
     }
 
     #endregion

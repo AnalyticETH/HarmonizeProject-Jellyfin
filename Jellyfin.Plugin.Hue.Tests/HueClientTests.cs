@@ -334,6 +334,45 @@ public class HueClientTests : IDisposable
         Assert.Equal("Living Room", area.Name);
     }
 
+    [Theory]
+    [InlineData("fe80::50%42")]
+    [InlineData("[fe80::50%42]")]
+    public async Task GetEntertainmentAreas_LinkLocalIpv6ScopeUsesHttpSafeUri(string bridgeAddress)
+    {
+        HttpRequestMessage? capturedRequest = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) => capturedRequest = request)
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(@"{""data"":[]}", Encoding.UTF8, "application/json")
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        await client.GetEntertainmentAreas(bridgeAddress, "test-app-key");
+
+        Assert.NotNull(capturedRequest);
+        Assert.Equal(
+            "fe80::50%2542",
+            capturedRequest.RequestUri!.DnsSafeHost);
+        Assert.Equal(
+            "/clip/v2/resource/entertainment_configuration",
+            capturedRequest.RequestUri.AbsolutePath);
+    }
+
+    [Fact]
+    public void GetBridgeIdentityHost_RestoresScopedIpv6PinKey()
+    {
+        var requestUri = new Uri("https://[fe80::50%2542]/api");
+
+        Assert.Equal("fe80::50%42", HueClient.GetBridgeIdentityHost(requestUri));
+    }
+
     [Fact]
     public async Task GetEntertainmentAreas_OversizedSuccessResponse_ReturnsNull()
     {

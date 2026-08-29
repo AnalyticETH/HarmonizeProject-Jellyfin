@@ -201,8 +201,8 @@ telemetry are excluded from the token so normal history updates do not invalidat
 
 | Endpoint | Purpose |
 | :--- | :--- |
-| `GET /HueSync/DiscoverBridge` | Discover private/local Hue Bridge addresses. `ipAddress` remains the first result for compatibility; `ipAddresses` contains every distinct candidate. |
-| `GET /HueSync/DiscoverBridges` | Discover every private/local Hue Bridge address in one pass. The configuration page uses this route for multi-room bridge selection. |
+| `GET /HueSync/DiscoverBridge` | Discover private/local Hue Bridge addresses. `ipAddress` remains the first result for compatibility; `ipAddresses` contains every distinct candidate, including the interface scope on link-local IPv6 results. |
+| `GET /HueSync/DiscoverBridges` | Discover every private/local Hue Bridge address in one pass. The configuration page uses this route for multi-room bridge selection and preserves link-local IPv6 interface scopes. |
 | `GET /HueSync/BridgeCertificate?ipAddress=...` | Read a local bridge's certificate without sending credentials and return its SHA-256 fingerprint. Review the fingerprint out of band before explicitly trusting it; no pin is accepted implicitly. |
 | `POST /HueSync/BridgeCertificate/Trust` | Explicitly pin a freshly probed local bridge certificate with `{ "ipAddress": "...", "fingerprint": "<sha256>", "confirm": true }`. The server compares the supplied value with a new credential-free probe and stores no change when they differ. Certificate pins are required before Link Bridge, Test Connection, playback, or scene automation can send App Keys. |
 | `DELETE /HueSync/BridgeCertificate/Trust?ipAddress=...` | Forget every stored certificate pin for one validated private bridge host. This does not contact the bridge; no fingerprint remains trusted, and credential-bearing requests fail closed until an administrator explicitly trusts a replacement fingerprint. |
@@ -434,8 +434,9 @@ an authenticated upload is required to succeed.
   must be a private/local bridge address or a .local mDNS name.
 * **Discovery finds no bridge:** the Jellyfin server must be able to reach the local network and
   allow mDNS/Bonjour traffic. Cloud discovery is tried first, then the plugin queries the local
-  `_hue._tcp.local` service for private addresses. If both paths are unavailable, use a private
-  IP or `.local` host name manually.
+  `_hue._tcp.local` service for private addresses. Link-local IPv6 results may include a `%`
+  interface scope; retain that suffix when editing the address manually. If both paths are
+  unavailable, use a private IP or `.local` host name manually.
 * **No areas are listed:** verify the bridge IP and App Key, then click **Refresh
   Entertainment Areas**. The selected area must contain color-capable lights.
 * **Lights stop updating:** run **System Diagnostics** first to confirm that `ffmpeg` and the managed DTLS transport are ready for the Jellyfin
@@ -487,7 +488,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.381 (Current)
+### Version 1.5.382 (Current)
+
+- **Scoped IPv6 bridge transport**: mDNS-discovered link-local IPv6 addresses preserve their interface scope in HTTPS request URIs, allowing bridges on multi-interface hosts to remain reachable.
+
+- **Certificate-pin parity**: URI-encoded IPv6 zone identifiers normalize back to the persisted bridge address before certificate-pin lookup, with regression coverage for both transport and identity handling.
 
 - **Strict channel-profile bound**: the 4,096-character limit is applied before blank-value handling, including whitespace-only input; ordinary blank fields below the limit still preserve all-channel/inherited behavior.
 

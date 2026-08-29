@@ -142,8 +142,40 @@ namespace Jellyfin.Plugin.Hue.Hue
                 throw new ArgumentException("Bridge address must be a private IP address or .local host name.", nameof(bridgeIp));
             }
 
-            return IPAddress.TryParse(host, out var address) && address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
-                ? $"[{host}]"
+            var parseableHost = host.Length >= 2 &&
+                                host[0] == '[' &&
+                                host[^1] == ']'
+                ? host[1..^1]
+                : host;
+            if (IPAddress.TryParse(parseableHost, out var address) &&
+                address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            {
+                // RFC 6874 requires the percent separator in an IPv6 zone identifier
+                // to be percent-encoded inside a URI. Without this, Uri treats the
+                // raw "%42" scope as an escape and silently drops the interface ID,
+                // turning a usable link-local bridge address into an unroutable one.
+                var uriHost = parseableHost.Replace("%", "%25", StringComparison.Ordinal);
+                return $"[{uriHost}]";
+            }
+
+            return host;
+        }
+
+        internal static string GetBridgeIdentityHost(Uri requestUri)
+        {
+            ArgumentNullException.ThrowIfNull(requestUri);
+            var host = requestUri.DnsSafeHost;
+            // Uri preserves RFC 6874 zone identifiers in DnsSafeHost as "%25". The
+            // certificate-pin registry stores the administrator's bridge spelling,
+            // where the zone separator is a single percent, so normalize only that
+            // delimiter before comparing persisted identities.
+            var zoneMarker = host.IndexOf("%25", StringComparison.OrdinalIgnoreCase);
+            if (zoneMarker < 0)
+                return host;
+
+            var normalized = host[..zoneMarker] + "%" + host[(zoneMarker + 3)..];
+            return IPAddress.TryParse(normalized, out _)
+                ? normalized
                 : host;
         }
 
@@ -179,9 +211,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     .ConfigureAwait(false);
                 var builder = new UriBuilder(requestUri)
                 {
-                    Host = resolvedAddress.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
-                        ? $"[{resolvedAddress}]"
-                        : resolvedAddress.ToString()
+                    Host = FormatBridgeHost(resolvedAddress.ToString())
                 };
                 request.RequestUri = builder.Uri;
             }
@@ -191,7 +221,7 @@ namespace Jellyfin.Plugin.Hue.Hue
             // The fingerprint is public metadata; bridge credentials remain in the
             // existing Hue application-key header and are never logged.
             var configuredFingerprint = HueBridgeCertificateValidation
-                .GetConfiguredCertificateFingerprint(requestUri.Host, resolvedAddress);
+                .GetConfiguredCertificateFingerprint(GetBridgeIdentityHost(requestUri), resolvedAddress);
             if (!string.IsNullOrWhiteSpace(configuredFingerprint))
             {
                 request.Headers.TryAddWithoutValidation(
