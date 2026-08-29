@@ -2983,6 +2983,12 @@
                         if (sceneScheduleDeleteButton) sceneScheduleDeleteButton.disabled = false;
                         page._hueSceneScheduleDeleteButton = null;
                     }
+                    if (key === 'colorPresetDelete') {
+                        page._hueColorPresetDeleting = false;
+                        var colorPresetDeleteButton = page._hueColorPresetDeleteButton;
+                        if (colorPresetDeleteButton) colorPresetDeleteButton.disabled = false;
+                        page._hueColorPresetDeleteButton = null;
+                    }
                 },
                 invalidatePageLifecycle: function (page) {
                     if (!page) return;
@@ -3015,6 +3021,12 @@
                         if (pendingSceneScheduleDeleteConfirmation.button) pendingSceneScheduleDeleteConfirmation.button.disabled = false;
                     }
                     page._hueSceneScheduleDeleteConfirmation = null;
+                    var pendingColorPresetDeleteConfirmation = page._hueColorPresetDeleteConfirmation;
+                    if (pendingColorPresetDeleteConfirmation) {
+                        pendingColorPresetDeleteConfirmation.canceled = true;
+                        if (pendingColorPresetDeleteConfirmation.button) pendingColorPresetDeleteConfirmation.button.disabled = false;
+                    }
+                    page._hueColorPresetDeleteConfirmation = null;
                     page._huePageGeneration += 1;
                     page._huePageActive = false;
                     page._hueBridgeCertificatePinPending = false;
@@ -3061,6 +3073,9 @@
                     page._hueSceneScheduleDeleting = false;
                     if (page._hueSceneScheduleDeleteButton) page._hueSceneScheduleDeleteButton.disabled = false;
                     page._hueSceneScheduleDeleteButton = null;
+                    page._hueColorPresetDeleting = false;
+                    if (page._hueColorPresetDeleteButton) page._hueColorPresetDeleteButton.disabled = false;
+                    page._hueColorPresetDeleteButton = null;
                     page._hueColorPresetSaving = false;
                     page._hueColorPresetDuplicating = false;
                     page._hueDiagnosticsLoading = false;
@@ -5208,13 +5223,14 @@
                 updatePresetButtons: function (page) {
                     var selectEl = page.querySelector('#previewPresetSelect');
                     var duplicateTargetsBlocked = HueConfigurationPage.hasEnabledDuplicateTargetMappings(page);
+                    var deleteBusy = !!(page._hueColorPresetDeleting || page._hueColorPresetDeleteConfirmation);
                     var deleteBtn = page.querySelector('#deletePreviewPresetBtn');
                     var duplicateBtn = page.querySelector('#duplicatePreviewPresetBtn');
                     var renameBtn = page.querySelector('#renamePreviewPresetBtn');
                     var inspectBtn = page.querySelector('#inspectPreviewPresetBtn');
                     var previewAllBtn = page.querySelector('#previewSavedPresetAllBtn');
                     if (deleteBtn) {
-                        deleteBtn.disabled = !selectEl || !selectEl.value;
+                        deleteBtn.disabled = deleteBusy || !selectEl || !selectEl.value;
                     }
                     if (duplicateBtn) {
                         duplicateBtn.disabled = !selectEl || !selectEl.value;
@@ -5775,41 +5791,86 @@
                     });
                 },
                 deleteColorPreset: function (page) {
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueColorPresetDeleting === true || page._hueColorPresetDeleteConfirmation) return Promise.resolve();
                     var selectEl = page.querySelector('#previewPresetSelect');
-                    var statusEl = page.querySelector('#previewPresetStatus');
                     var name = selectEl ? selectEl.value : '';
                     if (!name) {
                         Dashboard.alert("Choose a saved scene first.");
                         return;
                     }
 
-                    Dashboard.confirm("Delete the saved scene '" + name + "'?", "Delete Scene", function (confirmed) {
-                        if (!confirmed) return;
-                        var button = page.querySelector('#deletePreviewPresetBtn');
-                        button.disabled = true;
-                        ApiClient.ajax({
-                            type: "DELETE",
-                            url: ApiClient.getUrl("HueSync/ColorPresets/" + encodeURIComponent(name))
-                        }).then(function () {
-                            if (statusEl) {
-                                statusEl.textContent = "Scene '" + name + "' deleted.";
-                                statusEl.style.color = "#8bc34a";
+                    var button = page.querySelector('#deletePreviewPresetBtn');
+                    var confirmation = { generation: pageGeneration, button: button || null, canceled: false };
+                    page._hueColorPresetDeleteConfirmation = confirmation;
+                    if (button) button.disabled = true;
+                    return new Promise(function (resolve) {
+                        Dashboard.confirm("Delete the saved scene '" + name + "'?", "Delete Scene", function (confirmed) {
+                            var ownsConfirmation = page._hueColorPresetDeleteConfirmation === confirmation;
+                            if (ownsConfirmation) page._hueColorPresetDeleteConfirmation = null;
+                            if (!ownsConfirmation || confirmation.canceled || !confirmed ||
+                                !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                                if (ownsConfirmation && button) button.disabled = false;
+                                resolve();
+                                return;
                             }
-                            page.querySelector('#previewPresetName').value = '';
-                            var selectedSchedule = page.querySelector('#sceneScheduleSelect');
-                            var selectedScheduleId = selectedSchedule ? selectedSchedule.value : '';
-                            return HueConfigurationPage.loadColorPresets(page).then(function () {
-                                return HueConfigurationPage.loadScenePlaylists(page).then(function () {
-                                    return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
+
+                            var statusEl = page.querySelector('#previewPresetStatus');
+                            page._hueColorPresetDeleting = true;
+                            page._hueColorPresetDeleteButton = button || null;
+                            var request = HueConfigurationPage.getPageLifecycleRequest(
+                                page,
+                                pageGeneration,
+                                'colorPresetDelete',
+                                ApiClient.getUrl("HueSync/ColorPresets/" + encodeURIComponent(name)),
+                                {
+                                    type: "DELETE",
+                                    dataType: "json"
                                 });
-                            });
-                        }).catch(function (err) {
-                            console.error("Failed to delete color preset:", err);
-                            if (statusEl) {
-                                statusEl.textContent = "Unable to delete the saved scene. It may still be used by a playlist or scheduled cue.";
-                                statusEl.style.color = "#d9534f";
-                            }
-                            HueConfigurationPage.updatePresetButtons(page);
+                            var isCurrent = function () {
+                                return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                            };
+                            resolve(request.then(function () {
+                                if (!isCurrent()) return;
+                                if (statusEl) {
+                                    statusEl.textContent = "Scene '" + name + "' deleted.";
+                                    statusEl.style.color = "#8bc34a";
+                                }
+                                var presetNameEl = page.querySelector('#previewPresetName');
+                                if (presetNameEl) presetNameEl.value = '';
+                                var selectedSchedule = page.querySelector('#sceneScheduleSelect');
+                                var selectedScheduleId = selectedSchedule ? selectedSchedule.value : '';
+                                return HueConfigurationPage.loadColorPresets(page).then(function () {
+                                    if (!isCurrent()) return;
+                                    return HueConfigurationPage.loadScenePlaylists(page).then(function () {
+                                        if (!isCurrent()) return;
+                                        return HueConfigurationPage.loadSceneSchedules(page, selectedScheduleId);
+                                    });
+                                });
+                            }).catch(function (err) {
+                                if (!isCurrent()) return;
+                                console.error("Failed to delete color preset:", err);
+                                if (statusEl) {
+                                    statusEl.textContent = "Unable to delete the saved scene. It may still be used by a playlist or scheduled cue.";
+                                    statusEl.style.color = "#d9534f";
+                                }
+                            }).finally(function () {
+                                var current = isCurrent();
+                                var requestRecord = request && request._huePageRequestRecord;
+                                var tracked = page && page._huePageRequests &&
+                                    page._huePageRequests.colorPresetDelete === requestRecord;
+                                if (current || tracked) {
+                                    page._hueColorPresetDeleting = false;
+                                    if (page._hueColorPresetDeleteButton === button) {
+                                        if (button) button.disabled = false;
+                                        page._hueColorPresetDeleteButton = null;
+                                    }
+                                    if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'colorPresetDelete');
+                                    if (current) HueConfigurationPage.updatePresetButtons(page);
+                                }
+                            }));
                         });
                     });
                 },

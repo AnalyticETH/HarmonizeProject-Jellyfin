@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.389] - 2026-08-29
+
+### DTLS packet and ownership hardening
+- **HueStream packet budget**: packets now enforce the AES-GCM DTLS application payload limit before allocation or transport writes, and oversized playback/preview areas fail closed before bridge activation.
+- **Repository ownership coverage**: CODEOWNERS now protects release, build, dependency-lock, security, project, and validation-script paths so changes receive the configured owner review.
+- **Regression coverage**: packet tests cover the exact maximum channel boundary and oversized-area rejection; workflow contracts require every protected ownership entry.
+
+## [1.5.388] - 2026-08-29
+
+### Lifecycle and governance hardening
+- **Saved-scene deletion lifecycle**: confirmation and DELETE requests are now owned by the active configuration-page generation, canceled on teardown, guarded against duplicate submissions, and prevented from applying stale form, status, or reload callbacks.
+- **Repository ownership coverage**: CODEOWNERS now protects release, build, dependency-lock, security, project, and validation-script paths so changes receive the configured owner review.
+- **Regression coverage**: configuration lifecycle contracts cover stale confirmation/completion and duplicate saved-scene deletion; workflow contracts require every protected ownership entry.
+
 ## [1.5.387] - 2026-08-29
 
 ### Lifecycle and diagnostics hardening

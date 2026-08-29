@@ -23,6 +23,22 @@ for (const requiredEntry of [
   "/.github/dependabot.yml @AnalyticETH",
   "/.github/semgrep/ @AnalyticETH",
   "/.github/workflows/ @AnalyticETH",
+  "/build-release.sh @AnalyticETH",
+  "/build-release.ps1 @AnalyticETH",
+  "/Directory.Build.props @AnalyticETH",
+  "/Jellyfin.Plugin.Hue.sln @AnalyticETH",
+  "/global.json @AnalyticETH",
+  "/meta.json @AnalyticETH",
+  "/.gitleaks.toml @AnalyticETH",
+  "/codecov.yml @AnalyticETH",
+  "/SECURITY.md @AnalyticETH",
+  "/SELF_HOSTED_RUNNERS.md @AnalyticETH",
+  "/README.md @AnalyticETH",
+  "/CHANGELOG.md @AnalyticETH",
+  "/Jellyfin.Plugin.Hue/ @AnalyticETH",
+  "/Jellyfin.Plugin.Hue.Tests/ @AnalyticETH",
+  "/Jellyfin.Plugin.Hue.Benchmarks/ @AnalyticETH",
+  "/scripts/ @AnalyticETH",
 ]) {
   if (!codeowners.split(/\r?\n/).some((line) => line.trim() === requiredEntry)) {
     throw new Error(`${codeownersPath} is missing owner coverage: ${requiredEntry}`);

@@ -28,6 +28,12 @@ namespace Jellyfin.Plugin.Hue.Hue
     /// </summary>
     public class HueStreamer
     {
+        internal const int HueStreamPacketHeaderBytes = 16;
+        internal const int HueStreamChannelBytes = 9;
+        internal const int MaxHueStreamPacketBytes = HueDtlsLimits.ApplicationPayloadBytes;
+        internal const int MaxHueStreamChannels =
+            (MaxHueStreamPacketBytes - HueStreamPacketHeaderBytes) / HueStreamChannelBytes;
+
         private readonly ILogger<HueStreamer> _logger;
         private IHueDtlsConnection? _dtlsConnection;
         private readonly object _lock = new object();
@@ -720,9 +726,10 @@ namespace Jellyfin.Plugin.Hue.Hue
         public byte[] BuildHueStreamPacket(Dictionary<int, byte[]> channelColors)
         {
             ArgumentNullException.ThrowIfNull(channelColors);
+            ValidateChannelCount(channelColors.Count);
             ValidateChannelColors(channelColors);
 
-            using var ms = new MemoryStream(16 + channelColors.Count * 9);
+            using var ms = new MemoryStream(HueStreamPacketHeaderBytes + channelColors.Count * HueStreamChannelBytes);
 
             // Fixed 9-byte ASCII magic
             ms.Write(Encoding.ASCII.GetBytes("HueStream"), 0, 9);
@@ -779,6 +786,18 @@ namespace Jellyfin.Plugin.Hue.Hue
 
             if (cancellationToken.IsCancellationRequested)
                 return false;
+
+            // The DTLS record layer has less application capacity than the raw UDP
+            // datagram limit. Reject before health checks, reconnects, threshold
+            // comparison, packet allocation, or transport writes.
+            if (!IsHueStreamChannelCountWithinPacketBudget(channelColors.Count))
+            {
+                _logger.LogWarning(
+                    "Cannot send colors: {0} channels exceed the Hue DTLS packet budget of {1} channels",
+                    channelColors.Count,
+                    MaxHueStreamChannels);
+                return RecordPacketSendFailure(cancellationToken);
+            }
 
             // Validate before health checks or threshold comparison. A malformed frame
             // must fail closed without triggering a reconnect for an otherwise unrelated
@@ -877,6 +896,20 @@ namespace Jellyfin.Plugin.Hue.Hue
             }
 
             return true;
+        }
+
+        internal static bool IsHueStreamChannelCountWithinPacketBudget(int channelCount)
+            => channelCount >= 0 && channelCount <= MaxHueStreamChannels;
+
+        private static void ValidateChannelCount(int channelCount)
+        {
+            if (!IsHueStreamChannelCountWithinPacketBudget(channelCount))
+            {
+                throw new ArgumentOutOfRangeException(
+                    "channelColors",
+                    channelCount,
+                    $"Hue stream packets support at most {MaxHueStreamChannels} channels.");
+            }
         }
 
         private static void ValidateChannelColors(Dictionary<int, byte[]> channelColors)

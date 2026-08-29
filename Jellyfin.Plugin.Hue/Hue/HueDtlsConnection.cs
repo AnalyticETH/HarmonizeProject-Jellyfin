@@ -11,6 +11,28 @@ using Org.BouncyCastle.Tls.Crypto.Impl.BC;
 namespace Jellyfin.Plugin.Hue.Hue;
 
 /// <summary>
+/// Fixed DTLS application limits for the Hue transport contract.
+/// </summary>
+/// <remarks>
+/// HuePskTlsClient is intentionally locked to DTLS 1.2 with AES-128-GCM. Bouncy
+/// Castle subtracts the DTLS record header, explicit AEAD nonce, and authentication
+/// tag from the datagram transport limit when calculating the plaintext send limit.
+/// Keep these values in sync if the configured protocol or cipher suite changes.
+/// </remarks>
+internal static class HueDtlsLimits
+{
+    internal const int DatagramBytes = 16 * 1024;
+    internal const int DtlsRecordHeaderBytes = 13;
+    internal const int AeadExplicitNonceBytes = 8;
+    internal const int AeadAuthenticationTagBytes = 16;
+    internal const int ApplicationPayloadBytes =
+        DatagramBytes -
+        DtlsRecordHeaderBytes -
+        AeadExplicitNonceBytes -
+        AeadAuthenticationTagBytes;
+}
+
+/// <summary>
 /// Small send/health/close abstraction around the managed Hue DTLS session.
 /// Keeping the streaming surface independent from Bouncy Castle makes lifecycle
 /// tests deterministic without launching a credential-bearing child process.
@@ -208,7 +230,6 @@ internal sealed class HueDtlsConnection : IHueDtlsConnection
 /// </summary>
 internal sealed class HueDatagramTransport : DatagramTransport, IDisposable
 {
-    private const int DatagramLimit = 16 * 1024;
     private readonly Socket _socket;
     private int _closed;
 
@@ -219,9 +240,9 @@ internal sealed class HueDatagramTransport : DatagramTransport, IDisposable
 
     public bool IsOpen => Volatile.Read(ref _closed) == 0;
 
-    public int GetReceiveLimit() => DatagramLimit;
+    public int GetReceiveLimit() => HueDtlsLimits.DatagramBytes;
 
-    public int GetSendLimit() => DatagramLimit;
+    public int GetSendLimit() => HueDtlsLimits.DatagramBytes;
 
     public int Receive(byte[] buf, int off, int len, int waitMillis)
     {

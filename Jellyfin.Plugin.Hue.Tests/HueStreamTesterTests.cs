@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
@@ -33,6 +34,17 @@ public sealed class HueStreamTesterTests
     {
         using var document = JsonDocument.Parse(
             "{\"channels\":[{\"channel_id\":-1}]}");
+
+        var valid = HueStreamTester.TryBuildProbeColors(document.RootElement, out var colors);
+
+        Assert.False(valid);
+        Assert.Empty(colors);
+    }
+
+    [Fact]
+    public void TryBuildProbeColors_RejectsAreaBeyondDtlsPacketBudget()
+    {
+        using var document = CreateAreaConfiguration(HueStreamer.MaxHueStreamChannels + 1);
 
         var valid = HueStreamTester.TryBuildProbeColors(document.RootElement, out var colors);
 
@@ -143,6 +155,24 @@ public sealed class HueStreamTesterTests
             100,
             out var invalidColors));
         Assert.Empty(invalidColors);
+    }
+
+    [Fact]
+    public void TryBuildSolidColors_RejectsAreaBeyondDtlsPacketBudget()
+    {
+        using var document = CreateAreaConfiguration(HueStreamer.MaxHueStreamChannels + 1);
+
+        var valid = HueStreamTester.TryBuildSolidColors(
+            document.RootElement,
+            null,
+            red: 255,
+            green: 255,
+            blue: 255,
+            brightnessPercent: 100,
+            out var colors);
+
+        Assert.False(valid);
+        Assert.Empty(colors);
     }
 
     [Fact]
@@ -612,6 +642,32 @@ public sealed class HueStreamTesterTests
             loggerFactory.Object,
             Mock.Of<ILogger<HueStreamTester>>());
         using var document = JsonDocument.Parse("{\"channels\":[]}");
+
+        var result = await tester.TestAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-id",
+            document.RootElement);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("valid controllable channels", result.Message, StringComparison.OrdinalIgnoreCase);
+        handler.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task TestAsync_WithAreaBeyondDtlsPacketBudgetDoesNotActivateBridge()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        using var httpClient = new HttpClient(handler.Object);
+        var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>());
+        var loggerFactory = new Mock<ILoggerFactory>();
+        loggerFactory.Setup(factory => factory.CreateLogger(It.IsAny<string>())).Returns(Mock.Of<ILogger>());
+        var tester = new HueStreamTester(
+            hueClient,
+            loggerFactory.Object,
+            Mock.Of<ILogger<HueStreamTester>>());
+        using var document = CreateAreaConfiguration(HueStreamer.MaxHueStreamChannels + 1);
 
         var result = await tester.TestAsync(
             "192.168.1.100",
@@ -1531,6 +1587,21 @@ public sealed class HueStreamTesterTests
     private static JsonDocument CreatePlaylistAreaConfiguration()
         => JsonDocument.Parse(
             "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+
+    private static JsonDocument CreateAreaConfiguration(int channelCount)
+    {
+        var json = new StringBuilder("{\"channels\":[");
+        for (var channelId = 0; channelId < channelCount; channelId++)
+        {
+            if (channelId > 0)
+                json.Append(',');
+
+            json.Append("{\"channel_id\":").Append(channelId).Append('}');
+        }
+
+        json.Append("]}");
+        return JsonDocument.Parse(json.ToString());
+    }
 
     private static HuePlaylistPreviewStep CreatePlaylistStep(
         int index,

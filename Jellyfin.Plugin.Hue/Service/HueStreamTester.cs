@@ -2565,6 +2565,13 @@ public sealed class HueStreamTester :
             if (channelIds != null && !channelIds.Contains(channelId))
                 continue;
 
+            if (!channelColors.ContainsKey(channelId) &&
+                !HueStreamer.IsHueStreamChannelCountWithinPacketBudget(channelColors.Count + 1))
+            {
+                channelColors.Clear();
+                return false;
+            }
+
             channelColors[channelId] = new[]
             {
                 ProbeColor, ProbeColor,
@@ -2620,6 +2627,13 @@ public sealed class HueStreamTester :
             availableChannelIds.Add(channelId);
             if (channelIds != null && !channelIds.Contains(channelId))
                 continue;
+
+            if (!channelColors.ContainsKey(channelId) &&
+                !HueStreamer.IsHueStreamChannelCountWithinPacketBudget(channelColors.Count + 1))
+            {
+                channelColors.Clear();
+                return false;
+            }
 
             channelColors[channelId] = new[]
             {

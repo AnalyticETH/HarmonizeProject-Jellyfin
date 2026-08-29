@@ -5208,6 +5208,17 @@ namespace Jellyfin.Plugin.Hue.Service
                     return;
                 }
 
+                if (!HueStreamer.IsHueStreamChannelCountWithinPacketBudget(lights.Count))
+                {
+                    _logger.LogWarning(
+                        "Entertainment area {0} has {1} channels, exceeding the Hue DTLS packet budget of {2}",
+                        areaId,
+                        lights.Count,
+                        HueStreamer.MaxHueStreamChannels);
+                    SetRuntimeError("The selected entertainment area has too many channels for the Hue DTLS stream.");
+                    return;
+                }
+
                 if (token.IsCancellationRequested)
                     return;
 

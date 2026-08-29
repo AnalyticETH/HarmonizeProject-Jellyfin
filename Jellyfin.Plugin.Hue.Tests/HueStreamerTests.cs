@@ -470,6 +470,21 @@ public class HueStreamerTests
     }
 
     [Fact]
+    public async Task SendColors_WhenFrameExceedsDtlsPacketBudget_FailsBeforeTransportSendOrReconnect()
+    {
+        var connection = new TestDtlsConnection();
+        SetPrivateField(_streamer, "_dtlsConnection", connection);
+        var oversizedColors = CreateChannelColors(HueStreamer.MaxHueStreamChannels + 1);
+
+        Assert.False(await _streamer.SendColors("area-id", oversizedColors));
+
+        Assert.Equal(0, connection.SendCount);
+        Assert.Equal(1, _streamer.PacketSendFailures);
+        Assert.Equal(0, _streamer.ReconnectAttempts);
+        Assert.True(connection.IsHealthy);
+    }
+
+    [Fact]
     public void HuePskTlsClient_UsesHueDtls12PskContract()
     {
         var client = new HuePskTlsClient(
@@ -583,6 +598,15 @@ public class HueStreamerTests
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(target)!;
     }
 
+    private static Dictionary<int, byte[]> CreateChannelColors(int count)
+    {
+        var colors = new Dictionary<int, byte[]>(count);
+        for (var channelId = 0; channelId < count; channelId++)
+            colors[channelId] = new byte[] { 1, 1, 2, 2, 3, 3 };
+
+        return colors;
+    }
+
     private sealed class CallbackLogger<T> : ILogger<T>
     {
         public Action<string>? OnMessage { get; set; }
@@ -607,12 +631,15 @@ public class HueStreamerTests
     {
         public bool IsHealthy { get; set; } = true;
 
+        public int SendCount { get; private set; }
+
         public bool ThrowOnSend { get; set; }
 
         public bool ThrowObjectDisposedOnSend { get; set; }
 
         public void Send(byte[] buffer, int offset, int count)
         {
+            SendCount++;
             if (ThrowObjectDisposedOnSend)
                 throw new ObjectDisposedException("synthetic DTLS transport");
 
@@ -923,6 +950,32 @@ public class HueStreamerTests
         };
 
         Assert.Throws<ArgumentOutOfRangeException>(() => _streamer.BuildHueStreamPacket(channelColors));
+    }
+
+    [Fact]
+    public void BuildHueStreamPacket_AcceptsMaximumDtlsApplicationPayloadChannelCount()
+    {
+        var channelColors = CreateChannelColors(HueStreamer.MaxHueStreamChannels);
+
+        var packet = _streamer.BuildHueStreamPacket(channelColors);
+
+        Assert.Equal(
+            HueStreamer.HueStreamPacketHeaderBytes +
+            HueStreamer.MaxHueStreamChannels * HueStreamer.HueStreamChannelBytes,
+            packet.Length);
+        Assert.InRange(packet.Length, 0, HueStreamer.MaxHueStreamPacketBytes);
+    }
+
+    [Fact]
+    public void BuildHueStreamPacket_RejectsFirstChannelBeyondDtlsApplicationPayloadBudget()
+    {
+        var channelColors = CreateChannelColors(HueStreamer.MaxHueStreamChannels + 1);
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            _streamer.BuildHueStreamPacket(channelColors));
+
+        Assert.Equal("channelColors", exception.ParamName);
+        Assert.Equal(HueStreamer.MaxHueStreamChannels + 1, exception.ActualValue);
     }
 
 

@@ -1696,6 +1696,136 @@ async function testColorPresetDuplicateLifecycleGuards() {
     assert.equal(duplicateState.button.disabled, false, "duplicate color preset submit re-enables its button");
 }
 
+function configureColorPresetDeleteHarness(harness) {
+    const { page } = harness;
+    page.querySelector("#previewPresetSelect").value = "Scene One";
+    page.querySelector("#sceneScheduleSelect").value = "cue-1";
+    page.querySelector("#previewPresetName").value = "Scene One";
+    return {
+        button: page.querySelector("#deletePreviewPresetBtn"),
+        status: page.querySelector("#previewPresetStatus"),
+        name: page.querySelector("#previewPresetName")
+    };
+}
+
+async function testColorPresetDeleteLifecycleGuards() {
+    const confirmationHarness = makeHarness();
+    const confirmationState = configureColorPresetDeleteHarness(confirmationHarness);
+    const confirmationPage = confirmationHarness.page;
+    const confirmationApi = confirmationHarness.api;
+    let confirmation;
+    let confirmationCalls = 0;
+    confirmationHarness.dashboard.confirm = (_message, _title, callback) => {
+        confirmationCalls += 1;
+        confirmation = callback;
+    };
+    const confirmationOperation = confirmationApi.deleteColorPreset(confirmationPage);
+    assert.ok(confirmationOperation && typeof confirmationOperation.then === "function", "color preset delete returns a promise");
+    assert.equal(confirmationHarness.requests.length, 0, "color preset delete waits for confirmation before mutating configuration");
+    assert.equal(confirmationCalls, 1, "color preset delete asks for one confirmation");
+    assert.equal(confirmationState.button.disabled, true, "pending color preset delete disables its button");
+    const duplicateConfirmation = confirmationApi.deleteColorPreset(confirmationPage);
+    assert.equal(confirmationCalls, 1, "duplicate color preset delete does not open another confirmation");
+    assert.equal(confirmationHarness.requests.length, 0, "duplicate color preset delete does not submit before confirmation");
+    confirmationApi.invalidatePageLifecycle(confirmationPage);
+    confirmationApi.beginPageLifecycle(confirmationPage);
+    assert.equal(confirmationState.button.disabled, false, "pagehide restores the pending color preset delete button");
+    confirmation(true);
+    assert.equal(confirmationHarness.requests.length, 0, "stale color preset delete confirmation cannot start a request after pagehide");
+    await confirmationOperation;
+    await duplicateConfirmation;
+
+    const staleHarness = makeHarness();
+    const staleState = configureColorPresetDeleteHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    let stalePresetLoads = 0;
+    let stalePlaylistLoads = 0;
+    let staleScheduleLoads = 0;
+    staleApi.loadColorPresets = () => {
+        stalePresetLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.loadScenePlaylists = () => {
+        stalePlaylistLoads += 1;
+        return Promise.resolve();
+    };
+    staleApi.loadSceneSchedules = () => {
+        staleScheduleLoads += 1;
+        return Promise.resolve();
+    };
+    let staleConfirmation;
+    staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirmation = callback; };
+    const staleOperation = staleApi.deleteColorPreset(stalePage);
+    staleConfirmation(true);
+    assert.equal(staleHarness.requests.length, 1, "confirmed color preset delete starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "DELETE", "color preset delete uses DELETE");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/ColorPresets/Scene%20One", "color preset delete scopes the request to the selected scene");
+    assert.equal(staleHarness.requests[0].options.dataType, "json", "color preset delete accepts the API response safely");
+    assert.ok(stalePage._huePageRequests.colorPresetDelete, "color preset delete is tracked by the page lifecycle");
+    assert.equal(stalePage._hueColorPresetDeleting, true, "color preset delete marks the page busy");
+    assert.equal(staleState.button.disabled, true, "color preset delete keeps its button disabled while pending");
+    staleState.status.textContent = "unchanged after pagehide";
+    staleState.name.value = "current draft";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight color preset delete");
+    assert.equal(stalePage._huePageRequests.colorPresetDelete, undefined, "pagehide removes the color preset delete request record");
+    assert.equal(stalePage._hueColorPresetDeleting, false, "pagehide clears the color preset delete busy state");
+    assert.equal(staleState.button.disabled, false, "pagehide restores the color preset delete button");
+    staleHarness.requests[0].resolve({ message: "stale delete" });
+    await staleOperation;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(staleState.status.textContent, "unchanged after pagehide", "stale color preset delete cannot write hidden-page status");
+    assert.equal(staleState.name.value, "current draft", "stale color preset delete cannot clear a reused page form");
+    assert.equal(stalePresetLoads, 0, "stale color preset delete cannot reload saved scenes");
+    assert.equal(stalePlaylistLoads, 0, "stale color preset delete cannot reload playlists");
+    assert.equal(staleScheduleLoads, 0, "stale color preset delete cannot reload schedules");
+
+    const currentHarness = makeHarness();
+    const currentState = configureColorPresetDeleteHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    let currentPresetLoads = 0;
+    let currentPlaylistLoads = 0;
+    let currentScheduleLoads = 0;
+    currentApi.loadColorPresets = () => {
+        currentPresetLoads += 1;
+        return Promise.resolve();
+    };
+    currentApi.loadScenePlaylists = () => {
+        currentPlaylistLoads += 1;
+        return Promise.resolve();
+    };
+    currentApi.loadSceneSchedules = (_page, selectedId) => {
+        currentScheduleLoads += 1;
+        assert.equal(selectedId, "cue-1", "current color preset delete preserves the selected cue");
+        return Promise.resolve();
+    };
+    let currentConfirmation;
+    let currentConfirmationCalls = 0;
+    currentHarness.dashboard.confirm = (_message, _title, callback) => {
+        currentConfirmationCalls += 1;
+        currentConfirmation = callback;
+    };
+    const currentOperation = currentApi.deleteColorPreset(currentPage);
+    currentConfirmation(true);
+    assert.equal(currentHarness.requests.length, 1, "current color preset delete starts one request");
+    const duplicateWhilePending = currentApi.deleteColorPreset(currentPage);
+    await duplicateWhilePending;
+    assert.equal(currentConfirmationCalls, 1, "pending color preset delete blocks duplicate confirmation");
+    assert.equal(currentHarness.requests.length, 1, "pending color preset delete keeps one request in flight");
+    currentHarness.requests[0].resolve({ message: "deleted" });
+    await currentOperation;
+    assert.equal(currentState.status.textContent, "Scene 'Scene One' deleted.", "current color preset delete reports success");
+    assert.equal(currentState.name.value, "", "current color preset delete clears the scene form");
+    assert.equal(currentPresetLoads, 1, "current color preset delete reloads saved scenes once");
+    assert.equal(currentPlaylistLoads, 1, "current color preset delete reloads playlists once");
+    assert.equal(currentScheduleLoads, 1, "current color preset delete reloads schedules once");
+    assert.equal(currentPage._hueColorPresetDeleting, false, "current color preset delete clears the busy state");
+    assert.equal(currentState.button.disabled, false, "current color preset delete restores its button");
+    assert.equal(currentPage._huePageRequests.colorPresetDelete, undefined, "current color preset delete removes its settled lifecycle record");
+}
+
 function configureScenePlaylistSaveHarness(harness) {
     const { page, api } = harness;
     api.getScenePlaylistTargetSelection = () => ({
@@ -2531,6 +2661,7 @@ await testConfigurationSaveInvalidationSuppressesCallbacks();
 await testConfigurationSaveDuplicateSubmitIsBounded();
 await testColorPresetSaveLifecycleGuards();
 await testColorPresetDuplicateLifecycleGuards();
+await testColorPresetDeleteLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
 await testSceneScheduleSaveLifecycleGuards();
 await testSceneScheduleDeleteLifecycleGuards();
@@ -2545,4 +2676,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save/delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/scene save/delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
