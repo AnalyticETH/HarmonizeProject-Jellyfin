@@ -1,6 +1,7 @@
 import fs from "node:fs";
 
 const readme = fs.readFileSync("README.md", "utf8");
+const buildProps = fs.readFileSync("Directory.Build.props", "utf8");
 const workflow = fs.readFileSync(".github/workflows/dotnet-ci.yml", "utf8");
 const releaseShell = fs.readFileSync("build-release.sh", "utf8");
 const releasePowerShell = fs.readFileSync("build-release.ps1", "utf8");
@@ -24,6 +25,15 @@ const requiredReadmeMarkers = [
   "meta.json",
   "HueSync",
 ];
+
+for (const marker of [
+  "<RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>",
+  "<RestoreLockedMode>true</RestoreLockedMode>",
+]) {
+  if (!buildProps.includes(marker)) {
+    throw new Error(`Directory.Build.props is missing the committed lock-file marker: ${marker}`);
+  }
+}
 
 for (const marker of requiredReadmeMarkers) {
   if (!readme.includes(marker)) {

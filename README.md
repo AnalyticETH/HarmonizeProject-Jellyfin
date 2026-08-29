@@ -205,7 +205,7 @@ telemetry are excluded from the token so normal history updates do not invalidat
 | `GET /HueSync/DiscoverBridges` | Discover every private/local Hue Bridge address in one pass. The configuration page uses this route for multi-room bridge selection. |
 | `GET /HueSync/BridgeCertificate?ipAddress=...` | Read a local bridge's certificate without sending credentials and return its SHA-256 fingerprint. Review the fingerprint out of band before explicitly trusting it; no pin is accepted implicitly. |
 | `POST /HueSync/BridgeCertificate/Trust` | Explicitly pin a freshly probed local bridge certificate with `{ "ipAddress": "...", "fingerprint": "<sha256>", "confirm": true }`. The server compares the supplied value with a new credential-free probe and stores no change when they differ. Certificate pins are required before Link Bridge, Test Connection, playback, or scene automation can send App Keys. |
-| `GET /HueSync/PlaybackDevices` | Return at most 256 recent, credential-free Jellyfin playback-device identities (`userId`, exact case-sensitive `deviceId`, display labels, client/device metadata, active state, and last activity). An optional valid `userId` query scopes enumeration server-side. The elevated configuration page uses this to build nested route choices; bridge keys and playback titles are never returned. |
+| `GET /HueSync/PlaybackDevices` | Return at most 256 recent, credential-free Jellyfin playback-device identities (`userId`, exact case-sensitive `deviceId`, display labels, client/device metadata, active state, and last activity). An optional valid `userId` query scopes enumeration server-side. The elevated configuration page uses this to build nested route choices; bridge keys and playback titles are never returned. Invalid user IDs return `400`; a session-service failure returns a sanitized `503`; a null session enumeration is treated as an empty result. |
 | `POST /HueSync/Register` | Complete the administrator Link Bridge flow after pressing the physical bridge Link Button and explicitly trusting its certificate fingerprint. Send `{ "ipAddress": "..." }` for a private bridge IP or `.local` host name; invalid/public or unpinned targets are rejected before any credential-bearing request. The response contains the generated App Key and Client Key for immediate administrator setup—treat both values as secrets and never log or share them. |
 | `POST /HueSync/EntertainmentAreas` | Load areas with `{ "ipAddress": "...", "appKey": "", "userId": "...", "deviceId": "..." }` in the request body. A blank key may use the stored global, custom mapping, or exact case-sensitive nested device-route key only when the bridge target and owning identity match; an explicit device ID never falls back to another target. |
 | `POST /HueSync/EntertainmentChannels` | Load the selected area's channel IDs with `{ "ipAddress": "...", "appKey": "", "userId": "...", "deviceId": "...", "entertainmentAreaId": "..." }`; stored credentials remain server-side when the exact user/device/bridge route matches. |
@@ -486,7 +486,17 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.364 (Current)
+### Version 1.5.365 (Current)
+
+- **Playback-device discovery resilience**: invalid user filters fail with `400`, session enumeration failures return a sanitized `503`, null session lists remain empty, and credential-free device routes stay deterministically sorted and bounded to 256 results.
+
+- **Probe process cleanup hardening**: bounded FFmpeg/version probes now cancel, terminate the entire process tree, close redirected streams, observe reader failures, and drain cleanup with a one-second limit so cancellation and oversized-output paths cannot strand diagnostics.
+
+- **Locked restore enforcement**: `Directory.Build.props` now enables `RestoreLockedMode` globally, and the release-doc validator fails closed if the committed NuGet lock-file contract is removed.
+
+- **Stale queued-run runbook**: self-hosted runner operations now document read-only inspection, safe cancellation, and owner escalation for queued Actions runs with no assigned job, without deleting workflow history.
+
+- **Regression coverage**: API tests cover invalid filters, sanitized session failures, null enumerations, and 256-route bounds; environment-probe tests cover bounded output and cancellation cleanup.
 
 - **Null-safe playback events**: Jellyfin playback-start events with missing item metadata are logged safely and remain filtered as unsupported instead of throwing before lifecycle arbitration.
 

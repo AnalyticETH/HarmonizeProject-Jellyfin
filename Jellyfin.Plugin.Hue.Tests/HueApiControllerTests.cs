@@ -1606,6 +1606,85 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void GetPlaybackDevices_WithInvalidUserIdReturnsBadRequestWithoutQueryingSessions()
+    {
+        var sessionManager = new Mock<ISessionManager>();
+        var controller = CreateController(sessionManager: sessionManager.Object);
+
+        var action = controller.GetPlaybackDevices("not-a-guid");
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        sessionManager.Verify(
+            manager => manager.GetSessions(Guid.Empty, null, 86400, null, false),
+            Times.Never);
+    }
+
+    [Fact]
+    public void GetPlaybackDevices_WhenSessionEnumerationFailsReturnsServiceUnavailableWithoutDetails()
+    {
+        var sessionManager = new Mock<ISessionManager>();
+        sessionManager
+            .Setup(manager => manager.GetSessions(Guid.Empty, null, 86400, null, false))
+            .Throws(new InvalidOperationException("internal session details"));
+        var controller = CreateController(sessionManager: sessionManager.Object);
+
+        var action = controller.GetPlaybackDevices();
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, response.StatusCode);
+        Assert.Equal(
+            "Playback device discovery is temporarily unavailable.",
+            response.Value);
+        Assert.DoesNotContain("internal session details", JsonSerializer.Serialize(response.Value), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetPlaybackDevices_WhenSessionEnumerationReturnsNullTreatsItAsEmpty()
+    {
+        var sessionManager = new Mock<ISessionManager>();
+        sessionManager
+            .Setup(manager => manager.GetSessions(Guid.Empty, null, 86400, null, false))
+            .Returns((IReadOnlyList<SessionInfoDto>)null!);
+        var controller = CreateController(sessionManager: sessionManager.Object);
+
+        var action = controller.GetPlaybackDevices();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var devices = Assert.IsAssignableFrom<IEnumerable<HuePlaybackDeviceSummary>>(response.Value);
+        Assert.Empty(devices);
+    }
+
+    [Fact]
+    public void GetPlaybackDevices_LimitsUniqueRoutesAfterSorting()
+    {
+        var userId = Guid.NewGuid();
+        var sessions = Enumerable.Range(0, 300)
+            .Select(index => new SessionInfoDto
+            {
+                UserId = userId,
+                UserName = "Viewer",
+                DeviceId = $"device-{index:D3}",
+                DeviceName = $"Device {index:D3}",
+                LastActivityDate = DateTime.UtcNow.AddSeconds(-index)
+            })
+            .ToArray();
+        var sessionManager = new Mock<ISessionManager>();
+        sessionManager
+            .Setup(manager => manager.GetSessions(Guid.Empty, null, 86400, null, false))
+            .Returns(sessions);
+        var controller = CreateController(sessionManager: sessionManager.Object);
+
+        var action = controller.GetPlaybackDevices(userId.ToString());
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var devices = Assert.IsAssignableFrom<IEnumerable<HuePlaybackDeviceSummary>>(response.Value).ToArray();
+        Assert.Equal(256, devices.Length);
+        Assert.Equal("device-000", devices[0].DeviceId);
+        Assert.DoesNotContain(devices, device => device.DeviceId == "device-256");
+    }
+
+    [Fact]
     public async Task PostEntertainmentAreas_ForwardsRequestCancellationToBridgeCall()
     {
         CancellationToken observedToken = default;

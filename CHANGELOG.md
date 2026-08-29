@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.365] - 2026-08-28
+
+### Runtime, dependency, and runner safety hardening
+- **Playback-device discovery resilience**: invalid user filters fail with `400`, session enumeration failures return a sanitized `503`, null session lists remain empty, and credential-free device routes stay deterministically sorted and bounded to 256 results.
+- **Probe process cleanup hardening**: bounded FFmpeg/version probes now cancel, terminate the entire process tree, close redirected streams, observe reader failures, and drain cleanup with a one-second limit so cancellation and oversized-output paths cannot strand diagnostics.
+- **Locked restore enforcement**: `Directory.Build.props` now enables `RestoreLockedMode` globally, and the release-doc validator fails closed if the committed NuGet lock-file contract is removed.
+- **Stale queued-run runbook**: self-hosted runner operations now document read-only inspection, safe cancellation, and owner escalation for queued Actions runs with no assigned job, without deleting workflow history.
+- **Regression coverage**: API tests cover invalid filters, sanitized session failures, null enumerations, and 256-route bounds; environment-probe tests cover bounded output and cancellation cleanup.
+
 ## [1.5.364] - 2026-08-28
 
 ### Runtime and runner safety hardening

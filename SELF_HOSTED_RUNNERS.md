@@ -33,6 +33,38 @@ cancel or be canceled by the `workflow_call` security gate invoked by a trusted 
 Cancellation remains intentional for an older scan in the same event/ref lane; preserve this
 event component whenever the workflow or its triggers are changed.
 
+## Stale queued-run recovery
+
+Persistent-runner outages can leave a GitHub Actions run displayed as `queued` even though it
+has no assigned job. Treat a queued run older than one hour as an operator incident rather than
+re-running the workflow repeatedly:
+
+```bash
+gh run list --repo AnalyticETH/HarmonizeProject-Jellyfin --status queued --limit 50 \
+  --json databaseId,createdAt,headBranch,headSha,event,status,workflowName
+run_id=REPLACE_WITH_THE_DATABASE_ID
+gh api "repos/AnalyticETH/HarmonizeProject-Jellyfin/actions/runs/$run_id" \
+  --jq '{id,status,conclusion,event,head_branch,head_sha,created_at,updated_at}'
+gh api "repos/AnalyticETH/HarmonizeProject-Jellyfin/actions/runs/$run_id/jobs" \
+  --jq '{total_count,jobs: [.jobs[] | {id,status,conclusion,runner_name,labels: [.labels[].name]}]}'
+```
+
+Only cancel a confirmed stale run after checking that its ref is the trusted `main` ref and
+that no job is actively using a runner. Try the supported cancellation endpoint and record the
+HTTP result:
+
+```bash
+gh api --method POST \
+  "repos/AnalyticETH/HarmonizeProject-Jellyfin/actions/runs/$run_id/cancel"
+```
+
+If GitHub returns `409` because the run has not entered the cancellable queue, do not delete the
+run or its artifacts. Capture the run ID, timestamps, API response, and zero-job result, then
+escalate through the repository Actions UI/owner support path until GitHub reconciles the run.
+After reconciliation, verify that no queued run older than one hour remains and that the next
+trusted `main` push executes on the expected runner labels. Never paste registration tokens,
+personal access tokens, or runner credentials into the incident record.
+
 Untrusted pull requests, including Dependabot update branches, are validated by
 `.github/workflows/pull-request-validation.yml` on the ephemeral GitHub-hosted
 `ubuntu-24.04` runner. That workflow has only `contents: read`, does not receive secrets,

@@ -42,6 +42,7 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
     private const int MaximumProbeOutputChars = 64 * 1024;
     private const int MaximumAudioProbeBytes = 64 * 1024;
     private const int ProbeReadBufferSize = 4096;
+    private static readonly TimeSpan ProcessCleanupTimeout = TimeSpan.FromSeconds(1);
 
     private readonly string _ffmpegCommand;
     private readonly string _versionArgument;
@@ -189,15 +190,18 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(ProbeTimeout);
 
+        Task<string> standardOutputTask = Task.FromResult(string.Empty);
+        Task<string> standardErrorTask = Task.FromResult(string.Empty);
+        Task processExitTask = Task.CompletedTask;
         try
         {
-            var standardOutputTask = ReadTextAsync(process.StandardOutput, timeoutSource.Token);
-            var standardErrorTask = ReadTextAsync(process.StandardError, timeoutSource.Token);
+            standardOutputTask = ReadTextAsync(process.StandardOutput, timeoutSource.Token);
+            standardErrorTask = ReadTextAsync(process.StandardError, timeoutSource.Token);
+            processExitTask = process.WaitForExitAsync(timeoutSource.Token);
             await WaitForProcessAndOutputAsync(
-                process,
+                processExitTask,
                 standardOutputTask,
-                standardErrorTask,
-                timeoutSource.Token).ConfigureAwait(false);
+                standardErrorTask).ConfigureAwait(false);
 
             var version = ExtractVersionLine(standardOutputTask.Result, standardErrorTask.Result);
             var available = process.ExitCode == 0;
@@ -213,7 +217,12 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
         }
         catch (ProbeOutputLimitExceededException)
         {
-            StopProcess(process);
+            await StopProcessAndObserveAsync(
+                process,
+                timeoutSource,
+                processExitTask,
+                standardOutputTask,
+                standardErrorTask).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             return new HueToolStatus
             {
@@ -224,12 +233,22 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            StopProcess(process);
+            await StopProcessAndObserveAsync(
+                process,
+                timeoutSource,
+                processExitTask,
+                standardOutputTask,
+                standardErrorTask).ConfigureAwait(false);
             throw;
         }
         catch (OperationCanceledException)
         {
-            StopProcess(process);
+            await StopProcessAndObserveAsync(
+                process,
+                timeoutSource,
+                processExitTask,
+                standardOutputTask,
+                standardErrorTask).ConfigureAwait(false);
             return new HueToolStatus
             {
                 Available = false,
@@ -239,7 +258,12 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
         }
         catch
         {
-            StopProcess(process);
+            await StopProcessAndObserveAsync(
+                process,
+                timeoutSource,
+                processExitTask,
+                standardOutputTask,
+                standardErrorTask).ConfigureAwait(false);
             return new HueToolStatus
             {
                 Available = false,
@@ -332,15 +356,18 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(AudioProbeTimeout);
 
+        Task<byte[]> standardOutputTask = Task.FromResult(Array.Empty<byte>());
+        Task<string> standardErrorTask = Task.FromResult(string.Empty);
+        Task processExitTask = Task.CompletedTask;
         try
         {
-            var standardOutputTask = ReadBytesAsync(process.StandardOutput.BaseStream, timeoutSource.Token);
-            var standardErrorTask = ReadTextAsync(process.StandardError, timeoutSource.Token);
+            standardOutputTask = ReadBytesAsync(process.StandardOutput.BaseStream, timeoutSource.Token);
+            standardErrorTask = ReadTextAsync(process.StandardError, timeoutSource.Token);
+            processExitTask = process.WaitForExitAsync(timeoutSource.Token);
             await WaitForProcessAndOutputAsync(
-                process,
+                processExitTask,
                 standardOutputTask,
-                standardErrorTask,
-                timeoutSource.Token).ConfigureAwait(false);
+                standardErrorTask).ConfigureAwait(false);
 
             var pcm = await standardOutputTask.ConfigureAwait(false);
             var standardError = await standardErrorTask.ConfigureAwait(false);
@@ -361,7 +388,12 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
         }
         catch (ProbeOutputLimitExceededException)
         {
-            StopProcess(process);
+            await StopProcessAndObserveAsync(
+                process,
+                timeoutSource,
+                processExitTask,
+                standardOutputTask,
+                standardErrorTask).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             return new HueToolStatus
             {
@@ -372,12 +404,22 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            StopProcess(process);
+            await StopProcessAndObserveAsync(
+                process,
+                timeoutSource,
+                processExitTask,
+                standardOutputTask,
+                standardErrorTask).ConfigureAwait(false);
             throw;
         }
         catch (OperationCanceledException)
         {
-            StopProcess(process);
+            await StopProcessAndObserveAsync(
+                process,
+                timeoutSource,
+                processExitTask,
+                standardOutputTask,
+                standardErrorTask).ConfigureAwait(false);
             return new HueToolStatus
             {
                 Available = false,
@@ -387,7 +429,12 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
         }
         catch
         {
-            StopProcess(process);
+            await StopProcessAndObserveAsync(
+                process,
+                timeoutSource,
+                processExitTask,
+                standardOutputTask,
+                standardErrorTask).ConfigureAwait(false);
             return new HueToolStatus
             {
                 Available = false,
@@ -398,12 +445,10 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
     }
 
     private static async Task WaitForProcessAndOutputAsync(
-        Process process,
+        Task processExitTask,
         Task standardOutputTask,
-        Task standardErrorTask,
-        CancellationToken cancellationToken)
+        Task standardErrorTask)
     {
-        var processExitTask = process.WaitForExitAsync(cancellationToken);
         var pendingTasks = new[] { processExitTask, standardOutputTask, standardErrorTask };
 
         while (pendingTasks.Length > 0)
@@ -429,13 +474,88 @@ public sealed class HueEnvironmentProbe : IHueEnvironmentProbe
     {
         try
         {
-            if (!process.HasExited)
-                process.Kill(entireProcessTree: true);
+            // Kill without a HasExited pre-check so the process-exit/kill race is
+            // handled by the API rather than widening the window between the two.
+            process.Kill(entireProcessTree: true);
         }
         catch
         {
             // Diagnostics must not mask the original cancellation or probe failure.
         }
+    }
+
+    private static async Task StopProcessAndObserveAsync(
+        Process process,
+        CancellationTokenSource timeoutSource,
+        params Task[] probeTasks)
+    {
+        try
+        {
+            timeoutSource.Cancel();
+        }
+        catch
+        {
+            // Cleanup must not mask the original probe failure or cancellation.
+        }
+
+        StopProcess(process);
+        CloseProcessOutput(process);
+
+        var allProbeTasks = Task.WhenAll(probeTasks);
+        ObserveTaskFailure(allProbeTasks);
+        foreach (var probeTask in probeTasks)
+            ObserveTaskFailure(probeTask);
+
+        try
+        {
+            await allProbeTasks.WaitAsync(ProcessCleanupTimeout).ConfigureAwait(false);
+        }
+        catch
+        {
+            // A redirected stream inherited by a child can outlive the direct
+            // process. The bounded wait keeps diagnostics responsive; the
+            // continuations above still observe any eventual reader failures.
+        }
+
+        try
+        {
+            process.WaitForExit(ProcessCleanupTimeout);
+        }
+        catch
+        {
+            // The process may have won the exit/kill race or the host may not
+            // support a synchronous wait for this process handle.
+        }
+    }
+
+    private static void CloseProcessOutput(Process process)
+    {
+        try
+        {
+            process.StandardOutput.Dispose();
+        }
+        catch
+        {
+            // The process may have already disposed its redirected output.
+        }
+
+        try
+        {
+            process.StandardError.Dispose();
+        }
+        catch
+        {
+            // The process may have already disposed its redirected error stream.
+        }
+    }
+
+    private static void ObserveTaskFailure(Task task)
+    {
+        _ = task.ContinueWith(
+            completedTask => _ = completedTask.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private static async Task<string> ReadTextAsync(TextReader reader, CancellationToken cancellationToken)

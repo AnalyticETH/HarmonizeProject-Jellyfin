@@ -374,7 +374,7 @@ namespace Jellyfin.Plugin.Hue.Api
                     null,
                     PlaybackDeviceActivityWindowSeconds,
                     null,
-                    false);
+                    false) ?? Array.Empty<SessionInfoDto>();
             }
             catch (Exception ex)
             {
