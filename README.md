@@ -486,7 +486,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.366 (Current)
+### Version 1.5.367 (Current)
+
+- **Single-mapping saved-scene previews**: selecting exactly one mapped user now sends only the selected-target representation for both individual and bulk previews, so the API no longer rejects the request as an ambiguous legacy/selected-target mix.
+
+- **Regression coverage**: the configuration lifecycle contract verifies the corrected payload for individual and bulk saved-scene previews.
 
 - **Process-tree-safe FFmpeg teardown**: serialized capture lifecycle transitions retain and observe stderr/health tasks, close redirected streams, terminate descendants, and bound cleanup so playback restarts cannot strand child processes or pipe readers.
 

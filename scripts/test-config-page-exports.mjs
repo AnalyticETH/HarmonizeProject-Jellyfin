@@ -1844,6 +1844,59 @@ async function testDisabledMappingCannotPreview() {
     });
 }
 
+async function testSavedSceneSingleMappingUsesSelectedTargetPayload() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    page._huePreviewTargetMetadataReady = true;
+
+    const targetSelect = page.querySelector("#previewSavedPresetTarget");
+    targetSelect.options = [{ value: "user-one", selected: true }];
+    targetSelect.selectedOptions = targetSelect.options;
+
+    const selection = api.getSavedPresetTargetSelection(page);
+    assert.deepEqual(Array.from(selection.targetUserIds), ["user-one"], "one mapping remains selected-target mode");
+    assert.equal(selection.targetUserId, "", "one selected mapping does not populate the legacy targetUserId field");
+
+    const singleOperation = api.fetchSavedColorPreview("scene-one", selection);
+    assert.equal(requests.length, 1, "single saved-scene preview starts one request");
+    assert.deepEqual(
+        JSON.parse(requests[0].options.data),
+        {
+            targetUserId: "",
+            targetAllEnabledMappings: false,
+            targetUserIds: ["user-one"],
+            targetRoutes: [],
+            includeDefaultTarget: false
+        },
+        "single saved-scene preview sends only the selected-target representation"
+    );
+    requests[0].resolve({ succeeded: true, message: "single preview" });
+    await singleOperation;
+
+    const bulkSelect = page.querySelector("#previewPresetBulkSelect");
+    bulkSelect.options = [{ value: "scene-one", selected: true }];
+    let confirm;
+    harness.dashboard.confirm = (_message, _title, callback) => { confirm = callback; };
+    api.previewColorPresetsBulk(page, false);
+    assert.equal(typeof confirm, "function", "bulk saved-scene preview asks for confirmation");
+    confirm(true);
+    assert.equal(requests.length, 2, "bulk saved-scene preview starts one request");
+    assert.deepEqual(
+        JSON.parse(requests[1].options.data),
+        {
+            presetNames: ["scene-one"],
+            targetUserId: "",
+            targetUserIds: ["user-one"],
+            targetRoutes: [],
+            includeDefaultTarget: false,
+            targetAllEnabledMappings: false
+        },
+        "bulk saved-scene preview sends only the selected-target representation"
+    );
+    requests[1].resolve({ succeeded: true, message: "bulk preview", previews: [] });
+    await new Promise(resolve => setImmediate(resolve));
+}
+
 for (const testCase of exportCases) {
     await testSuccessfulExport(testCase);
     await testStaleQuerySuppressesExport(testCase);
@@ -1876,5 +1929,6 @@ await testDuplicateMappingResolutionLifecycleGuards();
 await testUserMappingReconciliationLifecycleGuards();
 await testRuntimeStopLifecycleGuards();
 await testDisabledMappingCannotPreview();
+await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save stale-scope/pagehide, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, and disabled-mapping preview paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit, scoped route credentials/channel isolation, certificate preflight/cancel/pagehide/target-mutation, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save stale-scope/pagehide, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

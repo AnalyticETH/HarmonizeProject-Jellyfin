@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.367] - 2026-08-29
+
+### Saved-scene target selection
+- **Single-mapping preview parity**: saved-scene single and bulk previews now keep a one-mapping selection in selected-target mode, avoiding the ambiguous combination of legacy `targetUserId` and `targetUserIds` that the API correctly rejects.
+- **Regression coverage**: the administrator configuration contract verifies the single-mapping payload for both individual and bulk saved-scene previews.
+
 ## [1.5.366] - 2026-08-29
 
 ### Playback, scheduler, and scanner hardening

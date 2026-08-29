@@ -4528,7 +4528,11 @@
                         includeDefaultTarget: !all && includeDefaultTarget,
                         targetUserIds: targetUserIds,
                         targetRoutes: targetRoutes,
-                        targetUserId: all || includeDefaultTarget || targetRoutes.length > 0 || targetUserIds.length !== 1
+                        // A populated targetUserIds list is the selected-target mode,
+                        // including the single-mapping case. Do not also send the
+                        // legacy targetUserId field: the API rejects that mixed shape
+                        // as ambiguous instead of silently choosing one target.
+                        targetUserId: all || includeDefaultTarget || targetRoutes.length > 0 || targetUserIds.length > 0
                             ? ''
                             : targetUserIds[0]
                     };
