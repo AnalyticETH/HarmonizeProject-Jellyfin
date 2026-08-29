@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.386] - 2026-08-29
+
+### mDNS class validation
+- **Internet-class enforcement**: discovery now accepts only DNS class IN records (while preserving mDNS cache-flush and question unicast-response bits), preventing unrelated class data from being interpreted as Hue service endpoints.
+- **Regression coverage**: discovery tests reject non-Internet question and resource-record classes and retain compatibility with the mDNS cache-flush bit.
+
 ## [1.5.385] - 2026-08-29
 
 ### mDNS compression-pointer safety

@@ -488,7 +488,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.385 (Current)
+### Version 1.5.386 (Current)
+
+- **mDNS class validation**: discovery accepts only Internet-class DNS questions and records while preserving mDNS cache-flush/unicast-response flag bits, so unrelated class data cannot be treated as a Hue endpoint.
+
+- **Regression coverage**: discovery tests reject non-Internet question and resource-record classes and verify cache-flush compatibility.
 
 - **mDNS compression safety**: discovery rejects forward DNS compression pointers, which are invalid on the wire and could otherwise manufacture service/host associations from later records.
 

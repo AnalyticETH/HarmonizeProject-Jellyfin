@@ -117,6 +117,36 @@ public sealed class HueBridgeMdnsDiscoveryTests
         Assert.Empty(addresses);
     }
 
+    [Fact]
+    public void ParseResponse_RejectsNonInternetRecordClass()
+    {
+        var response = BuildResponse("192.168.1.50", recordClass: 3); // CHAOS
+
+        var addresses = HueBridgeMdnsDiscovery.ParseResponse(response);
+
+        Assert.Empty(addresses);
+    }
+
+    [Fact]
+    public void ParseResponse_RejectsNonInternetQuestionClass()
+    {
+        var response = BuildResponse("192.168.1.50", questionClass: 3); // CHAOS
+
+        var addresses = HueBridgeMdnsDiscovery.ParseResponse(response);
+
+        Assert.Empty(addresses);
+    }
+
+    [Fact]
+    public void ParseResponse_AcceptsMdnsCacheFlushClassBit()
+    {
+        var response = BuildResponse("192.168.1.50", recordClass: 0x8001);
+
+        var addresses = HueBridgeMdnsDiscovery.ParseResponse(response);
+
+        Assert.Contains("192.168.1.50", addresses);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -170,7 +200,10 @@ public sealed class HueBridgeMdnsDiscoveryTests
             new HueBridgeMdnsDiscovery().DiscoverAsync(cancellationSource.Token));
     }
 
-    private static byte[] BuildResponse(string address)
+    private static byte[] BuildResponse(
+        string address,
+        ushort questionClass = 1,
+        ushort recordClass = 1)
     {
         var response = new List<byte>();
         AppendUInt16(response, 0);
@@ -182,11 +215,11 @@ public sealed class HueBridgeMdnsDiscoveryTests
 
         AppendName(response, HueBridgeMdnsDiscovery.ServiceType);
         AppendUInt16(response, 12); // PTR
-        AppendUInt16(response, 1); // IN
+        AppendUInt16(response, questionClass);
 
         AppendUInt16(response, 0xc00c); // pointer to _hue._tcp.local
         AppendUInt16(response, 12); // PTR
-        AppendUInt16(response, 1); // IN
+        AppendUInt16(response, recordClass);
         AppendUInt32(response, 120);
         var instance = EncodeName("Hue Bridge._hue._tcp.local");
         AppendUInt16(response, (ushort)instance.Length);
@@ -194,7 +227,7 @@ public sealed class HueBridgeMdnsDiscoveryTests
 
         AppendName(response, "Hue Bridge._hue._tcp.local");
         AppendUInt16(response, 33); // SRV
-        AppendUInt16(response, 1); // IN
+        AppendUInt16(response, recordClass);
         AppendUInt32(response, 120);
         var host = EncodeName("hue-bridge.local");
         AppendUInt16(response, (ushort)(6 + host.Length));
@@ -208,7 +241,7 @@ public sealed class HueBridgeMdnsDiscoveryTests
         AppendUInt16(
             response,
             parsedAddress.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 28 : 1);
-        AppendUInt16(response, 1); // IN
+        AppendUInt16(response, recordClass);
         AppendUInt32(response, 120);
         var addressBytes = parsedAddress.GetAddressBytes();
         AppendUInt16(response, addressBytes.Length);

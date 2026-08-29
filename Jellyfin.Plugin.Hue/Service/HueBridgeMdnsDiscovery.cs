@@ -32,6 +32,10 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
     private const ushort DnsTypeSrv = 33;
     private const ushort DnsTypeAaaa = 28;
     private const ushort DnsClassIn = 1;
+    // mDNS repurposes the top class bit for cache-flush/unicast-response flags.
+    // The remaining 15 bits are the DNS class and must be Internet (IN) for the
+    // service query handled here.
+    private const ushort DnsClassValueMask = 0x7fff;
     private const int DnsHeaderLength = 12;
     private const int MdnsPort = 5353;
     private const int MaxRecords = 256;
@@ -267,7 +271,10 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
 
         for (var index = 0; index < questionCount; index++)
         {
-            if (!TryReadDnsName(message, ref offset, out _) || !TrySkip(message, ref offset, 4))
+            if (!TryReadDnsName(message, ref offset, out _) ||
+                !TryReadUInt16(message, ref offset, out _) ||
+                !TryReadUInt16(message, ref offset, out var questionClass) ||
+                (questionClass & DnsClassValueMask) != DnsClassIn)
                 return Array.Empty<string>();
         }
 
@@ -478,7 +485,8 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
         record = new MdnsRecord(string.Empty, 0, null, null);
         if (!TryReadDnsName(message, ref offset, out var name) ||
             !TryReadUInt16(message, ref offset, out var type) ||
-            !TryReadUInt16(message, ref offset, out _) ||
+            !TryReadUInt16(message, ref offset, out var recordClass) ||
+            (recordClass & DnsClassValueMask) != DnsClassIn ||
             !TryReadUInt32(message, ref offset, out _) ||
             !TryReadUInt16(message, ref offset, out var dataLength))
         {
