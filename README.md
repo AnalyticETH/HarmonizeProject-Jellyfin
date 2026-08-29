@@ -486,7 +486,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.367 (Current)
+### Version 1.5.368 (Current)
+
+- **Staged device-route diagnostics**: Test Connection and color Preview now send the staged route App Key and Client Key from the matching editor, so a newly staged route can be verified before the parent mapping is saved while persisted routes keep server-side credential fallback.
+
+- **Regression coverage**: the configuration lifecycle contract verifies staged route credentials in both connection-test and preview payloads.
 
 - **Single-mapping saved-scene previews**: selecting exactly one mapped user now sends only the selected-target representation for both individual and bulk previews, so the API no longer rejects the request as an ambiguous legacy/selected-target mix.
 

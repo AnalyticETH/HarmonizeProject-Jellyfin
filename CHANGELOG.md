@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.368] - 2026-08-29
+
+### Staged device-route diagnostics
+- **Credential parity**: Test Connection and color Preview now use the exact staged route App Key and Client Key when the matching route editor is active, while persisted routes retain secure server-side credential fallback.
+- **Regression coverage**: the administrator configuration contract verifies staged route credentials in both connection-test and preview payloads.
+
 ## [1.5.367] - 2026-08-29
 
 ### Saved-scene target selection

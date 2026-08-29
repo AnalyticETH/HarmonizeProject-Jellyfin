@@ -12522,10 +12522,29 @@
                         var readRouteValue = function (pascalName, camelName) {
                             return HueConfigurationPage.getMappingDeviceTargetValue(route, pascalName, camelName);
                         };
-                        bridgeIp = readRouteValue('HueBridgeIp', 'hueBridgeIp') || bridgeIp;
-                        appKey = readRouteValue('HueAppKey', 'hueAppKey');
-                        clientKey = readRouteValue('HueClientKey', 'hueClientKey');
-                        areaId = readRouteValue('EntertainmentAreaId', 'entertainmentAreaId') || areaId;
+                        var routeBridgeIp = readRouteValue('HueBridgeIp', 'hueBridgeIp') || bridgeIp;
+                        var routeEditor = HueConfigurationPage.getMappingDeviceRouteTarget();
+                        var editorMatchesRoute = routeEditor && routeEditor.deviceId === deviceRoute.deviceId;
+                        // Route secrets are deliberately removed from the JSON editor. When
+                        // a route is staged, the matching editor/cache is therefore the
+                        // only client-side source for its write-only keys until the parent
+                        // mapping is saved. Keep blank keys for an already-persisted route
+                        // so the API can resolve its Has*Key-backed server-side secrets.
+                        var routeCredentials = HueConfigurationPage.getMappingDeviceRouteCredentials(
+                            deviceRoute.deviceId,
+                            editorMatchesRoute && routeEditor.bridgeIp ? routeEditor.bridgeIp : routeBridgeIp,
+                            userId,
+                            HueConfigurationPage.mappingEditingMappingId);
+                        bridgeIp = editorMatchesRoute && routeEditor.bridgeIp ? routeEditor.bridgeIp : routeBridgeIp;
+                        appKey = editorMatchesRoute && routeEditor.appKey
+                            ? routeEditor.appKey
+                            : routeCredentials.appKey || readRouteValue('HueAppKey', 'hueAppKey');
+                        clientKey = editorMatchesRoute && routeEditor.clientKey
+                            ? routeEditor.clientKey
+                            : routeCredentials.clientKey || readRouteValue('HueClientKey', 'hueClientKey');
+                        areaId = editorMatchesRoute && routeEditor.areaId
+                            ? routeEditor.areaId
+                            : readRouteValue('EntertainmentAreaId', 'entertainmentAreaId') || areaId;
                     }
 
                     return {

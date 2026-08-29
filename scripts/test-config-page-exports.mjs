@@ -1005,6 +1005,8 @@ async function testMappingDeviceRouteChannelIsolation() {
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(requests.length, 2, "mapping connection test starts one request");
     const connectionPayload = JSON.parse(requests[1].options.data);
+    assert.equal(connectionPayload.appKey, "route-app-key", "mapping connection test sends staged route app key");
+    assert.equal(connectionPayload.clientKey, "route-client-key", "mapping connection test sends staged route client key");
     assert.equal(connectionPayload.channelIds, "4, 9", "mapping connection test uses the selected route channels");
     assert.equal(connectionPayload.deviceId, deviceId, "mapping connection test keeps the selected route identity");
     const connectionRequest = page._huePreviewRequest;
@@ -1017,6 +1019,8 @@ async function testMappingDeviceRouteChannelIsolation() {
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(requests.length, 3, "mapping preview starts one request");
     const previewPayload = JSON.parse(requests[2].options.data);
+    assert.equal(previewPayload.appKey, "route-app-key", "mapping preview sends staged route app key");
+    assert.equal(previewPayload.clientKey, "route-client-key", "mapping preview sends staged route client key");
     assert.equal(previewPayload.channelIds, "4, 9", "mapping preview uses the selected route channels");
     assert.equal(previewPayload.deviceId, deviceId, "mapping preview keeps the selected route identity");
     const previewRequest = page._huePreviewRequest;
