@@ -487,7 +487,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.377 (Current)
+### Version 1.5.378 (Current)
+
+- **Administrator delete lifecycle safety**: single user-mapping deletes now bind confirmation and DELETE callbacks to the active configuration page, cancel on page teardown, prevent duplicate submissions, and suppress stale reloads/resets.
+
+- **Durable cleanup alias recovery**: scheduled cleanup journals now reconcile IP/.local bridge aliases through vetted local addresses or matching certificate pins, while mismatched/ambiguous targets remain fail-closed.
+
+- **Regression coverage**: lifecycle and scheduler tests cover stale mapping-delete confirmation/completion, alias recovery, and unrelated-target rejection.
 
 - **Reviewed Semgrep snapshots**: blocking self-hosted and PR scans now use SHA-256-verified local registry snapshots, preventing mutable aliases or CDN responses from changing policy mid-run.
 

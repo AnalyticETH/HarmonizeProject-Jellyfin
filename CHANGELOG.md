@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.378] - 2026-08-29
+
+### Lifecycle and cleanup recovery
+- **Administrator delete lifecycle safety**: single user-mapping deletes now bind confirmation and DELETE callbacks to the active configuration page, cancel on page teardown, prevent duplicate submissions, and suppress stale reloads/resets.
+- **Durable cleanup alias recovery**: scheduled cleanup journals now reconcile IP/.local bridge aliases through vetted local addresses or matching certificate pins, while mismatched/ambiguous targets remain fail-closed.
+- **Regression coverage**: lifecycle and scheduler tests cover stale mapping-delete confirmation/completion, alias recovery, and unrelated-target rejection.
+
 ## [1.5.377] - 2026-08-29
 
 ### Security scan reproducibility

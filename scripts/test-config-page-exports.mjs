@@ -738,6 +738,87 @@ async function testUserMappingSaveLifecycleGuards() {
     assert.equal(currentPage.querySelector("#addMappingBtn").disabled, false, "current save restores the button");
 }
 
+async function testUserMappingDeleteLifecycleGuards() {
+    const confirmationHarness = makeHarness();
+    const confirmationPage = confirmationHarness.page;
+    const confirmationApi = confirmationHarness.api;
+    const confirmationButton = confirmationPage.querySelector("#mappingDeleteButton");
+    let confirmation;
+    confirmationHarness.dashboard.confirm = (_message, _title, callback) => { confirmation = callback; };
+    const confirmationOperation = confirmationApi.deleteUserMapping(
+        confirmationPage,
+        "user-one",
+        "mapping-one",
+        confirmationButton
+    );
+    assert.ok(confirmationOperation && typeof confirmationOperation.then === "function", "user-mapping delete returns a promise");
+    assert.equal(confirmationHarness.requests.length, 0, "user-mapping delete waits for confirmation before mutating configuration");
+    assert.equal(confirmationButton.disabled, true, "pending user-mapping delete disables its row button");
+    confirmationApi.invalidatePageLifecycle(confirmationPage);
+    confirmationApi.beginPageLifecycle(confirmationPage);
+    assert.equal(confirmationButton.disabled, false, "pagehide restores the pending user-mapping delete button");
+    confirmation(true);
+    assert.equal(confirmationHarness.requests.length, 0, "a stale user-mapping delete confirmation cannot start a request after pagehide");
+    await confirmationOperation;
+    assert.deepEqual(confirmationHarness.dashboard.alerts, [], "a stale delete confirmation cannot alert");
+
+    const staleHarness = makeHarness();
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    const staleButton = stalePage.querySelector("#mappingDeleteButton");
+    const staleFollowUps = [];
+    staleApi.loadUserMappings = () => { staleFollowUps.push("mappings"); };
+    staleApi.resetMappingForm = () => { staleFollowUps.push("reset"); };
+    let staleConfirmation;
+    staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirmation = callback; };
+    const staleOperation = staleApi.deleteUserMapping(stalePage, "user-one", "mapping-one", staleButton);
+    staleConfirmation(true);
+    assert.equal(staleHarness.requests.length, 1, "confirmed user-mapping delete starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "DELETE", "user-mapping delete uses DELETE");
+    assert.equal(
+        staleHarness.requests[0].options.url,
+        "HueSync/UserMappings/user-one?mappingId=mapping-one",
+        "user-mapping delete scopes the request to the selected mapping"
+    );
+    assert.equal(staleHarness.requests[0].options.dataType, "json", "user-mapping delete accepts the API response safely");
+    assert.ok(stalePage._huePageRequests.userMappingDelete, "user-mapping delete is tracked by the page lifecycle");
+    assert.equal(stalePage._hueUserMappingDeleting, true, "user-mapping delete marks the page busy");
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight user-mapping delete");
+    assert.equal(stalePage._huePageRequests.userMappingDelete, undefined, "pagehide removes the user-mapping delete request record");
+    assert.equal(stalePage._hueUserMappingDeleting, false, "pagehide clears the user-mapping delete busy state");
+    assert.equal(staleButton.disabled, false, "pagehide restores the user-mapping delete button");
+    staleHarness.requests[0].resolve({ message: "stale delete" });
+    await staleOperation;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(staleFollowUps, [], "an invalidated delete cannot reload mappings or reset a new draft");
+    assert.deepEqual(staleHarness.dashboard.alerts, [], "an invalidated delete cannot alert after pagehide");
+
+    const currentHarness = makeHarness();
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    const currentButton = currentPage.querySelector("#mappingDeleteButton");
+    const currentFollowUps = [];
+    currentApi.mappingEditingMappingId = "mapping-two";
+    currentApi.loadUserMappings = () => { currentFollowUps.push("mappings"); };
+    currentApi.resetMappingForm = () => { currentFollowUps.push("reset"); };
+    currentHarness.dashboard.confirm = (_message, _title, callback) => { confirmation = callback; };
+    const currentOperation = currentApi.deleteUserMapping(currentPage, "user-two", "mapping-two", currentButton);
+    confirmation(true);
+    assert.equal(currentHarness.requests.length, 1, "current user-mapping delete starts one request");
+    assert.equal(currentButton.disabled, true, "current user-mapping delete keeps its row button disabled while pending");
+    const duplicate = currentApi.deleteUserMapping(currentPage, "user-two", "mapping-two", currentButton);
+    await duplicate;
+    assert.equal(currentHarness.requests.length, 1, "duplicate user-mapping delete does not submit twice");
+    currentHarness.requests[0].resolve({ message: "deleted" });
+    await currentOperation;
+    assert.deepEqual(currentFollowUps, ["mappings", "reset"], "current delete reloads mappings and resets the matching edit");
+    assert.equal(currentHarness.dashboard.alerts.length, 1, "current delete reports success");
+    assert.equal(currentPage._hueUserMappingDeleting, false, "current delete clears its busy state");
+    assert.equal(currentButton.disabled, false, "current delete restores its row button");
+    assert.equal(currentPage._huePageRequests.userMappingDelete, undefined, "current delete removes its settled lifecycle record");
+}
+
 async function testConfigurationImportValidationLifecycleGuards() {
     const harness = makeHarness();
     const { page, api, requests } = harness;
@@ -2330,6 +2411,7 @@ for (const testCase of exportCases) {
 
 await testEditMappingLifecycleGuards();
 await testUserMappingSaveLifecycleGuards();
+await testUserMappingDeleteLifecycleGuards();
 await testConfigurationImportValidationLifecycleGuards();
 await testConfigurationImportFileLifecycleGuards();
 await testMappingDeviceRouteCredentialScope();
@@ -2360,4 +2442,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/scene save stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

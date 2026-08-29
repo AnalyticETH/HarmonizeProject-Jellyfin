@@ -254,9 +254,10 @@ internal static class HueBridgeCertificateValidation
 
     /// <summary>
     /// Finds persisted certificate-pin hosts that identify the same local bridge as
-    /// the requested host. This is intentionally asynchronous and is reserved for
-    /// administrator trust/forget mutations; playback arbitration must use the
-    /// synchronous fingerprint resolver and never perform DNS/mDNS work.
+    /// the requested host. This is intentionally asynchronous and is used only by
+    /// bounded administrator trust/forget mutations and durable cleanup recovery;
+    /// playback arbitration must use the synchronous fingerprint resolver and never
+    /// perform DNS/mDNS work.
     /// </summary>
     internal static async Task<IReadOnlyList<string>> FindEquivalentCertificatePinHostsAsync(
         Configuration.PluginConfiguration? config,

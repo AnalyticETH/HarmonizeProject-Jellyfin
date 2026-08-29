@@ -7799,6 +7799,112 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_ReplaysPendingCleanupWhenBridgeAliasChanges()
+    {
+        const string fingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = false,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "recovery-app-secret",
+            EntertainmentAreaId = "area-1",
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["hue-bridge.local"] = fingerprint
+            }
+        };
+        InstallConfiguration(configuration);
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var journal = new HueScheduledCleanupJournal(lifecycleGate);
+        using (journal.BeginScope(new HueScheduledCleanupScope
+        {
+            CleanupId = "cleanup-recovery-alias-1",
+            ScheduleId = "schedule-recovery-alias-1",
+            BridgeIp = "hue-bridge.local",
+            EntertainmentAreaId = "area-1"
+        }))
+        {
+            Assert.True(journal.Capture(new[]
+            {
+                new HueClient.LightState("light-1", true, 45, 0.2, 0.3)
+            }));
+        }
+
+        configuration.PersistedSceneAutomationPendingCleanups[0].NextAttemptAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        var handler = new CleanupRecoveryHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate,
+            journal,
+            bridgeAddressResolver: (bridgeHost, _) => Task.FromResult(
+                IPAddress.Parse(string.Equals(bridgeHost, "hue-bridge.local", StringComparison.OrdinalIgnoreCase)
+                    ? "192.168.1.100"
+                    : bridgeHost)));
+
+        await service.RunDueSchedulesAsync(DateTime.Now, CancellationToken.None);
+
+        Assert.Empty(configuration.PersistedSceneAutomationPendingCleanups);
+        Assert.Equal(2, handler.SuccessfulPutCount);
+        Assert.Contains(handler.RequestUris, uri => uri.Contains("entertainment_configuration/area-1", StringComparison.Ordinal));
+        Assert.Contains(handler.RequestUris, uri => uri.Contains("light/light-1", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_LeavesPendingCleanupWhenBridgeAliasIsUnrelated()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = false,
+            HueBridgeIp = "192.168.1.101",
+            HueAppKey = "recovery-app-secret",
+            EntertainmentAreaId = "area-1",
+            HueBridgeCertificatePins = new Dictionary<string, string>
+            {
+                ["hue-bridge.local"] = new string('a', 64)
+            }
+        };
+        InstallConfiguration(configuration);
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var journal = new HueScheduledCleanupJournal(lifecycleGate);
+        using (journal.BeginScope(new HueScheduledCleanupScope
+        {
+            CleanupId = "cleanup-recovery-unrelated-1",
+            ScheduleId = "schedule-recovery-unrelated-1",
+            BridgeIp = "hue-bridge.local",
+            EntertainmentAreaId = "area-1"
+        }))
+        {
+            Assert.True(journal.Capture(new[]
+            {
+                new HueClient.LightState("light-1", true, 45, 0.2, 0.3)
+            }));
+        }
+
+        configuration.PersistedSceneAutomationPendingCleanups[0].NextAttemptAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        var handler = new CleanupRecoveryHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = new HueSceneAutomationService(
+            Mock.Of<IHueStreamTester>(),
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate,
+            journal,
+            bridgeAddressResolver: (bridgeHost, _) => Task.FromResult(
+                IPAddress.Parse(string.Equals(bridgeHost, "hue-bridge.local", StringComparison.OrdinalIgnoreCase)
+                    ? "192.168.1.100"
+                    : bridgeHost)));
+
+        await service.RunDueSchedulesAsync(DateTime.Now, CancellationToken.None);
+
+        var pending = Assert.Single(configuration.PersistedSceneAutomationPendingCleanups);
+        Assert.Equal("The configured cleanup target changed since the snapshot was captured.", pending.LastError);
+        Assert.Equal(0, handler.SuccessfulPutCount);
+    }
+
+    [Fact]
     public void StatusExposesPendingCleanupTelemetryWithoutBridgeSecretsOrSnapshots()
     {
         var configuration = new PluginConfiguration

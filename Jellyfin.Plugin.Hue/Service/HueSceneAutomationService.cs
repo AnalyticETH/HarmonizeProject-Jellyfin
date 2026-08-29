@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -27,6 +28,7 @@ public sealed class HueSceneAutomationService : BackgroundService
     private readonly ILogger<HueSceneAutomationService> _logger;
     private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
     private readonly HueScheduledCleanupJournal? _scheduledCleanupJournal;
+    private readonly Func<string, CancellationToken, Task<IPAddress>> _bridgeAddressResolver;
     private readonly object _runSlotLock = new();
     private readonly Dictionary<string, DateTime> _lastRunSlots = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _deferredRunLock = new();
@@ -75,13 +77,15 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueClient hueClient,
         ILogger<HueSceneAutomationService> logger,
         HueBridgeLifecycleGate? bridgeLifecycleGate,
-        HueScheduledCleanupJournal? scheduledCleanupJournal)
+        HueScheduledCleanupJournal? scheduledCleanupJournal,
+        Func<string, CancellationToken, Task<IPAddress>>? bridgeAddressResolver = null)
     {
         _streamTester = streamTester ?? throw new ArgumentNullException(nameof(streamTester));
         _hueClient = hueClient ?? throw new ArgumentNullException(nameof(hueClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _bridgeLifecycleGate = bridgeLifecycleGate ?? new HueBridgeLifecycleGate();
         _scheduledCleanupJournal = scheduledCleanupJournal;
+        _bridgeAddressResolver = bridgeAddressResolver ?? HueBridgeCertificateValidation.ResolveLocalBridgeAddressAsync;
     }
 
     /// <summary>
@@ -4738,6 +4742,23 @@ public sealed class HueSceneAutomationService : BackgroundService
                 continue;
             }
 
+            if (!await IsSamePendingCleanupBridgeAsync(
+                    config,
+                    target.BridgeIp,
+                    entry.BridgeIp,
+                    cancellationToken).ConfigureAwait(false) ||
+                !string.Equals(
+                    target.EntertainmentAreaId,
+                    entry.EntertainmentAreaId?.Trim(),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                _scheduledCleanupJournal.RecordFailure(
+                    entry.CleanupId,
+                    "The configured cleanup target changed since the snapshot was captured.",
+                    nowUtc);
+                continue;
+            }
+
             if (!HueScheduledCleanupJournal.TryDeserializeStates(entry, out var savedLightStates, out var snapshotError))
             {
                 _scheduledCleanupJournal.RecordFailure(entry.CleanupId, snapshotError, nowUtc);
@@ -4843,29 +4864,157 @@ public sealed class HueSceneAutomationService : BackgroundService
         var requestedDeviceId = string.IsNullOrWhiteSpace(entry.TargetDeviceId)
             ? null
             : entry.TargetDeviceId.Trim();
-        if (!TryResolveSingleTarget(
+        return TryResolveSingleTarget(
+            config,
+            new HueSceneSchedule(),
+            entry.TargetUserId,
+            requestedDeviceId,
+            out target,
+            out error,
+            requireClientKey: false);
+    }
+
+    private async Task<bool> IsSamePendingCleanupBridgeAsync(
+        PluginConfiguration config,
+        string targetBridgeHost,
+        string? capturedBridgeHost,
+        CancellationToken cancellationToken)
+    {
+        if (HueBridgeCertificateValidation.IsSameBridgeHost(targetBridgeHost, capturedBridgeHost))
+        {
+            return true;
+        }
+
+        // An explicit pin on each persisted spelling is already a physical-identity
+        // proof. Resolve the hosts only when one side lacks a direct pin; this keeps
+        // tests and restart recovery deterministic when a stale .local name is gone,
+        // while conflicting direct pins still fail closed before any bridge request.
+        var hasTargetPin = HasExplicitPendingCleanupCertificatePin(config, targetBridgeHost);
+        var hasCapturedPin = HasExplicitPendingCleanupCertificatePin(config, capturedBridgeHost);
+        if (hasTargetPin && hasCapturedPin)
+        {
+            var targetFingerprint = HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(
                 config,
-                new HueSceneSchedule(),
-                entry.TargetUserId,
-                requestedDeviceId,
-                out target,
-                out error,
-                requireClientKey: false))
+                targetBridgeHost);
+            var capturedFingerprint = HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(
+                config,
+                capturedBridgeHost);
+            return !string.IsNullOrWhiteSpace(targetFingerprint) &&
+                   string.Equals(targetFingerprint, capturedFingerprint, StringComparison.OrdinalIgnoreCase);
+        }
+
+        var targetAddress = await TryResolvePendingCleanupBridgeAddressAsync(
+                targetBridgeHost,
+                cancellationToken)
+            .ConfigureAwait(false);
+        var capturedAddress = await TryResolvePendingCleanupBridgeAddressAsync(
+                capturedBridgeHost,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (targetAddress != null && capturedAddress != null && targetAddress.Equals(capturedAddress))
         {
+            // A matching vetted address proves the physical route. If any configured
+            // pin explicitly refers to either spelling/address, nevertheless require
+            // both views to resolve one unambiguous certificate identity; this keeps a
+            // conflicting alias pair from being treated as equivalent merely because
+            // one side has an exact pin.
+            return HasConsistentPendingCleanupCertificateIdentity(
+                config,
+                targetBridgeHost,
+                capturedBridgeHost,
+                targetAddress,
+                capturedAddress);
+        }
+
+        if (targetAddress != null && capturedAddress != null)
+        {
+            // Different vetted addresses are unrelated unless the explicit-pin proof
+            // above matched. Do not fall back to a sole local pin for an unknown IP.
             return false;
         }
 
-        // Hue entertainment-area identifiers are UUID-shaped resource IDs. Match their
-        // casing the same way resource arbitration does so an imported or hand-edited
-        // upper/lowercase spelling cannot strand an otherwise recoverable snapshot.
-        if (!HueBridgeCertificateValidation.IsSameBridgeHost(target.BridgeIp, entry.BridgeIp) ||
-            !string.Equals(target.EntertainmentAreaId, entry.EntertainmentAreaId?.Trim(), StringComparison.OrdinalIgnoreCase))
-        {
-            error = "The configured cleanup target changed since the snapshot was captured.";
+        if (string.IsNullOrWhiteSpace(capturedBridgeHost))
             return false;
-        }
 
-        return true;
+        // Address resolution may be unavailable after a restart or a host migration.
+        // The existing asynchronous pin resolver can still prove equivalence when both
+        // persisted spellings carry the same explicit certificate identity. It never
+        // treats a sole unrelated local pin as an alias, and it remains outside the
+        // synchronous playback/resource-key path.
+        var equivalentPinHosts = await HueBridgeCertificateValidation
+            .FindEquivalentCertificatePinHostsAsync(
+                config,
+                targetBridgeHost,
+                targetAddress,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return equivalentPinHosts.Any(candidate =>
+            HueBridgeCertificateValidation.IsSameBridgeHost(candidate, capturedBridgeHost));
+    }
+
+    private async Task<IPAddress?> TryResolvePendingCleanupBridgeAddressAsync(
+        string? bridgeHost,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(bridgeHost))
+            return null;
+
+        try
+        {
+            return await _bridgeAddressResolver(bridgeHost, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // An unavailable alias cannot prove target identity by spelling alone. The
+            // caller may still use explicit matching certificate pins as a safe proof.
+            return null;
+        }
+    }
+
+    private static bool HasExplicitPendingCleanupCertificatePin(
+        PluginConfiguration config,
+        string? bridgeHost)
+        => !string.IsNullOrWhiteSpace(bridgeHost) &&
+           (config.HueBridgeCertificatePins ?? new Dictionary<string, string>())
+               .Keys
+               .Any(pinHost => HueBridgeCertificateValidation.IsSameBridgeHost(pinHost, bridgeHost));
+
+    private static bool HasConsistentPendingCleanupCertificateIdentity(
+        PluginConfiguration config,
+        string targetBridgeHost,
+        string? capturedBridgeHost,
+        IPAddress targetAddress,
+        IPAddress capturedAddress)
+    {
+        if (string.IsNullOrWhiteSpace(capturedBridgeHost))
+            return false;
+
+        var targetFingerprint = HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(
+            config,
+            targetBridgeHost,
+            targetAddress);
+        var capturedFingerprint = HueBridgeCertificateValidation.GetConfiguredCertificateFingerprint(
+            config,
+            capturedBridgeHost,
+            capturedAddress);
+        var hasRelevantPin = (config.HueBridgeCertificatePins ?? new Dictionary<string, string>())
+            .Keys
+            .Any(pinHost =>
+                HueBridgeCertificateValidation.IsSameBridgeHost(pinHost, targetBridgeHost) ||
+                HueBridgeCertificateValidation.IsSameBridgeHost(pinHost, capturedBridgeHost) ||
+                HueBridgeCertificateValidation.IsSameBridgeHost(pinHost, targetAddress.ToString()) ||
+                HueBridgeCertificateValidation.IsSameBridgeHost(pinHost, capturedAddress.ToString()));
+
+        if (!hasRelevantPin)
+            return true;
+
+        return !string.IsNullOrWhiteSpace(targetFingerprint) &&
+               string.Equals(targetFingerprint, capturedFingerprint, StringComparison.OrdinalIgnoreCase);
     }
 
     internal async Task RunDueSchedulesAsync(DateTime localNow, CancellationToken cancellationToken)

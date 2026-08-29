@@ -754,7 +754,7 @@ const requiredScript = [
     "selection.syncEnabled = syncEnabled",
     "data: JSON.stringify(selection)",
     "inspectUserMappingDependencies(this.closest(\\'.page\\'), this.dataset.userid, this.dataset.mappingid)",
-    "deleteUserMapping(this.closest(\\'.page\\'), this.dataset.userid, this.dataset.mappingid)",
+    "deleteUserMapping(this.closest(\\'.page\\'), this.dataset.userid, this.dataset.mappingid, this)",
     "cleanupStaleUserMappings: function",
     "HueSync/UserMappings/Cleanup",
     "cleanupStaleUserMappingsBtn",

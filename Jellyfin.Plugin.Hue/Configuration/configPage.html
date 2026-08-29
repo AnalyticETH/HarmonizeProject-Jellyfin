@@ -2971,6 +2971,12 @@
                         var reconciliationButton = page.querySelector && page.querySelector('#reconcileUserMappingsBtn');
                         if (reconciliationButton) reconciliationButton.disabled = false;
                     }
+                    if (key === 'userMappingDelete') {
+                        page._hueUserMappingDeleting = false;
+                        var deleteButton = page._hueUserMappingDeleteButton;
+                        if (deleteButton) deleteButton.disabled = false;
+                        page._hueUserMappingDeleteButton = null;
+                    }
                 },
                 invalidatePageLifecycle: function (page) {
                     if (!page) return;
@@ -2991,6 +2997,12 @@
                         HueConfigurationPage._hueMappingRegistrationPreflight.canceled = true;
                     }
                     HueConfigurationPage._hueMappingRegistrationPreflight = null;
+                    var pendingDeleteConfirmation = page._hueUserMappingDeleteConfirmation;
+                    if (pendingDeleteConfirmation) {
+                        pendingDeleteConfirmation.canceled = true;
+                        if (pendingDeleteConfirmation.button) pendingDeleteConfirmation.button.disabled = false;
+                    }
+                    page._hueUserMappingDeleteConfirmation = null;
                     page._huePageGeneration += 1;
                     page._huePageActive = false;
                     page._hueBridgeCertificatePinPending = false;
@@ -3031,6 +3043,9 @@
                     page._hueConfigurationExporting = false;
                     page._hueConfigurationSaving = false;
                     page._hueUserMappingSaving = false;
+                    page._hueUserMappingDeleting = false;
+                    if (page._hueUserMappingDeleteButton) page._hueUserMappingDeleteButton.disabled = false;
+                    page._hueUserMappingDeleteButton = null;
                     page._hueColorPresetSaving = false;
                     page._hueColorPresetDuplicating = false;
                     page._hueDiagnosticsLoading = false;
@@ -12166,7 +12181,7 @@
                             html += '<td style="padding: 8px; text-align: right;">';
                             html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" data-mappingid="' + escapeAttribute(mappingId) + '" onclick="HueConfigurationPage.editUserMapping(this.closest(\'.page\'), this.dataset.userid, this.dataset.mappingid)">Edit</button> ';
                             html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" data-mappingid="' + escapeAttribute(mappingId) + '" onclick="HueConfigurationPage.inspectUserMappingDependencies(this.closest(\'.page\'), this.dataset.userid, this.dataset.mappingid)">View References</button> ';
-                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" data-mappingid="' + escapeAttribute(mappingId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), this.dataset.userid, this.dataset.mappingid)">Delete</button>';
+                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" data-mappingid="' + escapeAttribute(mappingId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), this.dataset.userid, this.dataset.mappingid, this)">Delete</button>';
                             html += '</td></tr>';
                         });
 
@@ -14210,25 +14225,76 @@
                         });
                 },
 
-                deleteUserMapping: function (page, userId, mappingId) {
-                    Dashboard.confirm("Are you sure you want to delete this user mapping?", "Delete Mapping", function (result) {
-                        if (result) {
-                            ApiClient.ajax({
-                                type: "DELETE",
-                                url: ApiClient.getUrl("HueSync/UserMappings/" + encodeURIComponent(userId) +
-                                    (mappingId ? "?mappingId=" + encodeURIComponent(mappingId) : ""))
-                            }).then(function () {
+                deleteUserMapping: function (page, userId, mappingId, button) {
+                    if (!page) page = document.querySelector('.pluginConfigurationPage');
+                    var targetUserId = String(userId || '').trim();
+                    var targetMappingId = String(mappingId || '').trim();
+                    if (!page || !targetUserId) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueUserMappingDeleting === true || page._hueUserMappingDeleteConfirmation) return Promise.resolve();
+
+                    var confirmation = { generation: pageGeneration, button: button || null, canceled: false };
+                    page._hueUserMappingDeleteConfirmation = confirmation;
+                    if (button) button.disabled = true;
+                    return new Promise(function (resolve) {
+                        Dashboard.confirm("Are you sure you want to delete this user mapping?", "Delete Mapping", function (result) {
+                            var ownsConfirmation = page._hueUserMappingDeleteConfirmation === confirmation;
+                            if (ownsConfirmation) page._hueUserMappingDeleteConfirmation = null;
+                            if (!ownsConfirmation || confirmation.canceled || !result ||
+                                !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                                if (ownsConfirmation && button) button.disabled = false;
+                                resolve();
+                                return;
+                            }
+
+                            page._hueUserMappingDeleting = true;
+                            page._hueUserMappingDeleteButton = button || null;
+                            var request = HueConfigurationPage.getPageLifecycleRequest(
+                                page,
+                                pageGeneration,
+                                'userMappingDelete',
+                                ApiClient.getUrl("HueSync/UserMappings/" + encodeURIComponent(targetUserId) +
+                                    (targetMappingId ? "?mappingId=" + encodeURIComponent(targetMappingId) : "")),
+                                {
+                                    type: "DELETE",
+                                    dataType: "json"
+                                },
+                                { userId: targetUserId, mappingId: targetMappingId });
+                            var isCurrent = function () {
+                                return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                            };
+                            resolve(request.then(function () {
+                                if (!isCurrent()) return;
                                 Dashboard.alert("User mapping deleted.");
                                 HueConfigurationPage.loadUserMappings(page);
-                                if ((mappingId && String(HueConfigurationPage.mappingEditingMappingId || '').toLowerCase() === String(mappingId).toLowerCase()) ||
-                                    (!mappingId && HueConfigurationPage.areSameJellyfinUserId(HueConfigurationPage.mappingEditingUserId, userId))) {
+                                if ((targetMappingId && String(HueConfigurationPage.mappingEditingMappingId || '').toLowerCase() === targetMappingId.toLowerCase()) ||
+                                    (!targetMappingId && HueConfigurationPage.areSameJellyfinUserId(HueConfigurationPage.mappingEditingUserId, targetUserId))) {
                                     HueConfigurationPage.resetMappingForm(page);
                                 }
                             }).catch(function (err) {
+                                if (!isCurrent()) return;
                                 console.error("Failed to delete user mapping:", err);
                                 Dashboard.alert("Failed to delete user mapping: " + (err.message || err));
-                            });
-                        }
+                            }).finally(function () {
+                                var current = isCurrent();
+                                var requestRecord = request && request._huePageRequestRecord;
+                                var tracked = page && page._huePageRequests &&
+                                    page._huePageRequests.userMappingDelete === requestRecord;
+                                if (current || tracked) {
+                                    page._hueUserMappingDeleting = false;
+                                    if (page._hueUserMappingDeleteButton === button) {
+                                        if (button) button.disabled = false;
+                                        page._hueUserMappingDeleteButton = null;
+                                    }
+                                    // Remove the completed record as well as invalidated
+                                    // records. Keeping a settled request in the page map
+                                    // would let a later pagehide abort an old operation
+                                    // and makes lifecycle ownership harder to reason about.
+                                    if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingDelete');
+                                }
+                            }));
+                        });
                     });
                 }
             };
