@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.413] - 2026-08-30
+
+### Mapping and schedule boundary hardening
+- **Page-scoped mapping route editors**: retained configuration pages now keep route selectors, editor fields, credentials, area/channel loads, previews, and mapping saves isolated to their owning page.
+- **Weekly schedule boundary safety**: interval schedules anchored at the minimum supported date now compute week alignment without `DateTime` underflow.
+
 ## [1.5.412] - 2026-08-30
 
 ### Lifecycle and boundary hardening

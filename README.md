@@ -496,7 +496,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.412 (Current)
+### Version 1.5.413 (Current)
+
+- **Page-scoped mapping route editors**: retained configuration pages now keep route selectors, editor fields, credentials, area/channel loads, previews, and mapping saves isolated to their owning page.
+
+- **Weekly schedule boundary safety**: interval schedules anchored at the minimum supported date now compute week alignment without `DateTime` underflow.
 
 - **Page-scoped playback-device routing**: discovery results and route refreshes stay on the configuration page that initiated the request, preventing retained pages from receiving another page's devices.
 
