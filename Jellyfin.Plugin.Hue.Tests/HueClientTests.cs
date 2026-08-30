@@ -547,6 +547,39 @@ public class HueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task GetEntertainmentConfiguration_AcceptsMaximumChannelCount()
+    {
+        var channels = string.Join(
+            ",",
+            Enumerable.Range(0, HueClient.MaxEntertainmentChannels)
+                .Select(channelId => $"{{\"channel_id\":{channelId}}}"));
+        SetupHttpResponse(HttpStatusCode.OK, $"{{\"data\":[{{\"id\":\"area-1\",\"channels\":[{channels}]}}]}}");
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "test-app-key", "area-1");
+
+        Assert.NotNull(result);
+        Assert.Equal(HueClient.MaxEntertainmentChannels, result.Value.GetProperty("channels").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task GetEntertainmentConfiguration_OverMaximumChannelCount_ReturnsNull()
+    {
+        var channels = string.Join(
+            ",",
+            Enumerable.Range(0, HueClient.MaxEntertainmentChannels + 1)
+                .Select(channelId => $"{{\"channel_id\":{channelId}}}"));
+        SetupHttpResponse(HttpStatusCode.OK, $"{{\"data\":[{{\"id\":\"area-1\",\"channels\":[{channels}]}}]}}");
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "test-app-key", "area-1");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public async Task GetEntertainmentConfiguration_MismatchedResourceId_ReturnsNull()
     {
         // A bridge response for a different area must never be used for the requested target.

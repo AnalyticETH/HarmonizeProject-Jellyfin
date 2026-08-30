@@ -1804,6 +1804,11 @@
 
             var HueConfigurationPage = {
                 pluginId: "4e078f02-ec43-473e-85f1-98e86eb9a761",
+                // Keep local restore work bounded to the same request ceiling enforced
+                // by HueSync/Configuration/Import. FileReader otherwise parses an
+                // arbitrarily large administrator-selected file before the server can
+                // reject it, allowing a malformed local file to monopolize the page.
+                maxConfigurationImportFileBytes: 8 * 1024 * 1024,
                 globalBridgeIp: "",
                 globalHasAppKey: false,
                 globalHasClientKey: false,
@@ -4227,6 +4232,33 @@
                     var camelName = name.charAt(0).toLowerCase() + name.slice(1);
                     return typeof source[camelName] === 'undefined' ? fallback : source[camelName];
                 },
+                isConfigurationImportDocument: function (importDocument) {
+                    if (!importDocument || typeof importDocument !== 'object' || Array.isArray(importDocument)) {
+                        return false;
+                    }
+
+                    var configuration = HueConfigurationPage.readConfigurationValue(
+                        importDocument,
+                        'Configuration',
+                        null);
+                    if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration)) {
+                        return false;
+                    }
+
+                    // These collections are optional for backwards-compatible imports,
+                    // but a present collection must retain the export shape. This keeps
+                    // credential-field rendering from throwing on a scalar/object value
+                    // before the server's full import validation can run.
+                    return [
+                        'UserMappings',
+                        'ColorPresets',
+                        'ScenePlaylists',
+                        'SceneSchedules'
+                    ].every(function (name) {
+                        var value = HueConfigurationPage.readConfigurationValue(importDocument, name, undefined);
+                        return typeof value === 'undefined' || Array.isArray(value);
+                    });
+                },
                 writeConfigurationValue: function (source, name, value) {
                     if (!source) return;
                     if (Object.prototype.hasOwnProperty.call(source, name)) {
@@ -4570,6 +4602,15 @@
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
                     HueConfigurationPage.clearConfigurationImport(page);
+                    var maxFileBytes = HueConfigurationPage.maxConfigurationImportFileBytes;
+                    if (typeof file.size === 'number' && Number.isFinite(file.size) &&
+                        file.size > maxFileBytes) {
+                        if (status) {
+                            status.textContent = "The selected configuration file is too large. Choose a file no larger than 8 MiB.";
+                            status.style.color = "#d9534f";
+                        }
+                        return;
+                    }
                     var reader = new FileReader();
                     page._hueImportReader = reader;
                     var isCurrent = function () {
@@ -4593,7 +4634,8 @@
 
                         var configuration = HueConfigurationPage.readConfigurationValue(importDocument, 'Configuration', null);
                         var schemaVersion = HueConfigurationPage.readConfigurationValue(importDocument, 'SchemaVersion', null);
-                        if (!importDocument || !configuration || schemaVersion !== 1) {
+                        if (!HueConfigurationPage.isConfigurationImportDocument(importDocument) ||
+                            !configuration || schemaVersion !== 1) {
                             if (status) {
                                 status.textContent = "The selected file is not a supported Hue configuration export.";
                                 status.style.color = "#d9534f";

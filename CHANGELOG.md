@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.410] - 2026-08-30
+
+### Configuration import and bridge response bounds
+- **Administrator import file guard**: configuration restore rejects local files larger than 8 MiB before FileReader parsing and validates top-level collection shapes before rendering migration credential fields.
+- **Bounded entertainment channels**: bridge entertainment-configuration responses are capped at 256 channels before downstream enumeration.
+
 ## [1.5.409] - 2026-08-30
 
 ### Bounded bridge discovery

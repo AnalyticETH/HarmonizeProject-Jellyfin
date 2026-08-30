@@ -1444,6 +1444,38 @@ async function testConfigurationImportValidationLifecycleGuards() {
 }
 
 async function testConfigurationImportFileLifecycleGuards() {
+    const oversizedHarness = makeHarness();
+    const oversizedStatus = oversizedHarness.page.querySelector("#configurationPortabilityStatus");
+    oversizedHarness.api.importConfigurationFile(oversizedHarness.page, {
+        name: "oversized-config.json",
+        size: oversizedHarness.api.maxConfigurationImportFileBytes + 1
+    });
+    assert.equal(oversizedHarness.readers.length, 0, "an oversized configuration import is rejected before FileReader starts");
+    assert.equal(
+        oversizedStatus.textContent,
+        "The selected configuration file is too large. Choose a file no larger than 8 MiB.",
+        "an oversized configuration import reports a bounded-file error"
+    );
+
+    const malformedHarness = makeHarness();
+    const malformedPage = malformedHarness.page;
+    const malformedApi = malformedHarness.api;
+    let malformedPrepareCalls = 0;
+    malformedApi.prepareConfigurationImport = () => { malformedPrepareCalls += 1; };
+    malformedApi.importConfigurationFile(malformedPage, { name: "malformed-config.json" });
+    assert.equal(malformedHarness.readers.length, 1, "a malformed configuration import still uses the cancellable reader");
+    malformedHarness.readers[0].resolve(JSON.stringify({
+        SchemaVersion: 1,
+        Configuration: {},
+        UserMappings: { unexpected: "object" }
+    }));
+    assert.equal(malformedPrepareCalls, 0, "a malformed collection cannot reach credential-field rendering");
+    assert.equal(
+        malformedPage.querySelector("#configurationPortabilityStatus").textContent,
+        "The selected file is not a supported Hue configuration export.",
+        "a malformed configuration import reports the supported-shape error"
+    );
+
     const staleHarness = makeHarness();
     const { page, api, readers } = staleHarness;
     let prepareCalls = 0;

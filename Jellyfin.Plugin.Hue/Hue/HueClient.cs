@@ -33,6 +33,13 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// Keep area discovery bounded before materializing every returned resource.
         /// </summary>
         internal const int MaxEntertainmentAreas = 256;
+        /// <summary>
+        /// Maximum number of channels accepted in one entertainment-area response.
+        /// Hue streaming supports far fewer channels in one DTLS packet; this larger
+        /// bound preserves room for future bridge layouts while preventing a malformed
+        /// bridge response from driving unbounded channel enumeration downstream.
+        /// </summary>
+        internal const int MaxEntertainmentChannels = 256;
         private const int MaxLightStateTokenLength = 128;
         /// <summary>
         /// Maximum number of unique light resources captured from one entertainment
@@ -608,6 +615,16 @@ namespace Jellyfin.Plugin.Hue.Hue
 
                     if (matchingConfiguration.HasValue)
                     {
+                        if (matchingConfiguration.Value.TryGetProperty("channels", out var matchingChannels) &&
+                            matchingChannels.ValueKind == JsonValueKind.Array &&
+                            matchingChannels.GetArrayLength() > MaxEntertainmentChannels)
+                        {
+                            _logger.LogWarning(
+                                "Hue bridge returned more than the maximum allowed entertainment channels ({0})",
+                                MaxEntertainmentChannels);
+                            return (JsonElement?)null;
+                        }
+
                         // Clone the element so the JsonDocument can be safely disposed.
                         return (JsonElement?)matchingConfiguration.Value.Clone();
                     }
@@ -615,6 +632,16 @@ namespace Jellyfin.Plugin.Hue.Hue
                     if (hasResourceIds)
                     {
                         _logger.LogWarning("Entertainment configuration response did not contain requested area {0}", areaId);
+                        return (JsonElement?)null;
+                    }
+
+                    if (data[0].TryGetProperty("channels", out var legacyChannels) &&
+                        legacyChannels.ValueKind == JsonValueKind.Array &&
+                        legacyChannels.GetArrayLength() > MaxEntertainmentChannels)
+                    {
+                        _logger.LogWarning(
+                            "Hue bridge returned more than the maximum allowed entertainment channels ({0})",
+                            MaxEntertainmentChannels);
                         return (JsonElement?)null;
                     }
 
