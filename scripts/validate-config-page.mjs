@@ -333,6 +333,27 @@ for (const [role, ids] of Object.entries(requiredLiveRegions)) {
     }
 }
 
+for (const [functionName, captionText] of [
+    ["loadSceneScheduleRuntimeStatus", "Scheduled cue runtime status"],
+    ["loadSceneScheduleConflicts", "Scheduled cue conflicts"],
+    ["loadSceneScheduleOccurrences", "Upcoming scheduled cue occurrences"],
+    ["loadSceneScheduleHistory", "Scheduled cue history"],
+    ["loadSessionHistory", "Recent Hue session history"]
+]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var caption = document.createElement('caption');",
+        `caption.textContent = '${captionText}';`,
+        "header.setAttribute('scope', 'col');"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} must expose accessible table context: ${marker}`);
+        }
+    }
+}
+
 const requiredScript = [
     "function escapeAttribute(str)",
     "getGlobalCredentialState: function",
@@ -1064,12 +1085,18 @@ for (const [functionName, markers] of [
 }
 
 {
+    const claimStart = scriptMatch[1].indexOf("claimRuntimeStopLoading: function");
+    const claimEnd = scriptMatch[1].indexOf("\n                },", claimStart);
+    const claimBody = claimStart >= 0 && claimEnd > claimStart ? scriptMatch[1].slice(claimStart, claimEnd) : "";
+    if (!claimBody.includes("HueConfigurationPage._hueGlobalLoadingOwner = owner;")) {
+        throw new Error(`${file} claimRuntimeStopLoading must use the shared global loader owner`);
+    }
     const helperStart = scriptMatch[1].indexOf("releaseRuntimeStopLoading: function");
     const helperEnd = scriptMatch[1].indexOf("\n                },", helperStart);
     const helperBody = helperStart >= 0 && helperEnd > helperStart ? scriptMatch[1].slice(helperStart, helperEnd) : "";
     for (const marker of [
-        "if (HueConfigurationPage._hueRuntimeStopLoadingOwner !== owner) return false;",
-        "HueConfigurationPage._hueRuntimeStopLoadingOwner = null;",
+        "if (HueConfigurationPage._hueGlobalLoadingOwner !== owner) return false;",
+        "HueConfigurationPage._hueGlobalLoadingOwner = null;",
         "Dashboard.hideLoadingMsg();"
     ]) {
         if (!helperBody.includes(marker)) {
@@ -1087,6 +1114,38 @@ for (const [functionName, markers] of [
             if (!functionBody.includes(marker)) {
                 throw new Error(`${file} ${functionName} must release only its owned loader: ${marker}`);
             }
+        }
+    }
+}
+
+{
+    const claimStart = scriptMatch[1].indexOf("claimConfigurationExportLoading: function");
+    const claimEnd = scriptMatch[1].indexOf("\n                },", claimStart);
+    const claimBody = claimStart >= 0 && claimEnd > claimStart ? scriptMatch[1].slice(claimStart, claimEnd) : "";
+    if (!claimBody.includes("HueConfigurationPage._hueGlobalLoadingOwner = owner;")) {
+        throw new Error(`${file} claimConfigurationExportLoading must use the shared global loader owner`);
+    }
+    const helperStart = scriptMatch[1].indexOf("releaseConfigurationExportLoading: function");
+    const helperEnd = scriptMatch[1].indexOf("\n                },", helperStart);
+    const helperBody = helperStart >= 0 && helperEnd > helperStart ? scriptMatch[1].slice(helperStart, helperEnd) : "";
+    for (const marker of [
+        "if (HueConfigurationPage._hueGlobalLoadingOwner !== owner) return false;",
+        "HueConfigurationPage._hueGlobalLoadingOwner = null;",
+        "Dashboard.hideLoadingMsg();"
+    ]) {
+        if (!helperBody.includes(marker)) {
+            throw new Error(`${file} releaseConfigurationExportLoading must only hide the loader for its current owner: ${marker}`);
+        }
+    }
+    const start = scriptMatch[1].indexOf("exportConfiguration: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var loadingOwner = HueConfigurationPage.claimConfigurationExportLoading(page, request);",
+        "HueConfigurationPage.releaseConfigurationExportLoading(loadingOwner);"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} exportConfiguration must release only its owned loader: ${marker}`);
         }
     }
 }

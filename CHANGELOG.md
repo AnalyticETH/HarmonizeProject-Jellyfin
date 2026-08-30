@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.421] - 2026-08-30
+
+### Global loader ownership and accessible report tables
+- **Global loader ownership**: retained configuration pages now share one latest-operation owner for runtime-stop and configuration-export indicators, so stale completions cannot hide an active global loader.
+- **Accessible report tables**: scheduled-cue and session-history tables now expose captions and explicit column headers for assistive technology.
+- **Regression coverage**: configuration-page contracts cover cross-operation retained-page loader races and accessible report-table semantics.
+
 ## [1.5.420] - 2026-08-30
 
 ### Runtime-stop loader ownership and import opt-out compatibility

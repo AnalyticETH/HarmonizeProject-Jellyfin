@@ -3051,16 +3051,30 @@
                     return !!page && page._huePageActive === true && page._huePageGeneration === generation;
                 },
                 // Dashboard's loading indicator is global, while retained pages can
-                // finish their explicit stop request after a newer page has started
-                // its own stop. Keep the latest runtime-stop operation as the owner.
+                // finish a runtime-stop or configuration-export request after a
+                // newer page has started its own operation. Keep the latest of
+                // those global-loader operations as the owner.
                 claimRuntimeStopLoading: function (page, request) {
                     var owner = { page: page, request: request };
-                    HueConfigurationPage._hueRuntimeStopLoadingOwner = owner;
+                    HueConfigurationPage._hueGlobalLoadingOwner = owner;
                     return owner;
                 },
                 releaseRuntimeStopLoading: function (owner) {
-                    if (HueConfigurationPage._hueRuntimeStopLoadingOwner !== owner) return false;
-                    HueConfigurationPage._hueRuntimeStopLoadingOwner = null;
+                    if (HueConfigurationPage._hueGlobalLoadingOwner !== owner) return false;
+                    HueConfigurationPage._hueGlobalLoadingOwner = null;
+                    Dashboard.hideLoadingMsg();
+                    return true;
+                },
+                // Configuration exports share the global-loader owner with runtime
+                // stops so either operation cannot hide the other's loader.
+                claimConfigurationExportLoading: function (page, request) {
+                    var owner = { page: page, request: request };
+                    HueConfigurationPage._hueGlobalLoadingOwner = owner;
+                    return owner;
+                },
+                releaseConfigurationExportLoading: function (owner) {
+                    if (HueConfigurationPage._hueGlobalLoadingOwner !== owner) return false;
+                    HueConfigurationPage._hueGlobalLoadingOwner = null;
                     Dashboard.hideLoadingMsg();
                     return true;
                 },
@@ -4291,6 +4305,7 @@
                         pageGeneration,
                         'configurationExport',
                         ApiClient.getUrl("HueSync/Configuration/Export"));
+                    var loadingOwner = HueConfigurationPage.claimConfigurationExportLoading(page, request);
                     var isCurrent = function () {
                         return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
                     };
@@ -4326,7 +4341,7 @@
                             if (button) button.disabled = false;
                             if (!current) HueConfigurationPage.cancelPageLifecycleRequest(page, 'configurationExport');
                         }
-                        Dashboard.hideLoadingMsg();
+                        HueConfigurationPage.releaseConfigurationExportLoading(loadingOwner);
                     });
                 },
                 setConfigurationImportValidated: function (page, validated) {
@@ -9917,9 +9932,13 @@
                         table.style.width = '100%';
                         table.style.borderCollapse = 'collapse';
                         table.style.minWidth = '980px';
+                        var caption = document.createElement('caption');
+                        caption.textContent = 'Scheduled cue runtime status';
+                        table.appendChild(caption);
                         var headerRow = document.createElement('tr');
                         ["Cue", "Target", "Schedule", "Readiness", "Next run (cue zone)", "Last run", "Result", "Runs"].forEach(function (heading) {
                             var header = document.createElement('th');
+                            header.setAttribute('scope', 'col');
                             header.textContent = heading;
                             header.style.textAlign = 'left';
                             header.style.padding = '6px 8px';
@@ -10200,9 +10219,13 @@
                         table.style.width = '100%';
                         table.style.borderCollapse = 'collapse';
                         table.style.minWidth = '900px';
+                        var caption = document.createElement('caption');
+                        caption.textContent = 'Scheduled cue conflicts';
+                        table.appendChild(caption);
                         var headerRow = document.createElement('tr');
                         ["First cue", "Second cue", "Overlap", "Execution order guidance"].forEach(function (heading) {
                             var header = document.createElement('th');
+                            header.setAttribute('scope', 'col');
                             header.textContent = heading;
                             header.style.textAlign = 'left';
                             header.style.padding = '6px 8px';
@@ -10420,9 +10443,13 @@
                         table.style.width = '100%';
                         table.style.borderCollapse = 'collapse';
                         table.style.minWidth = '820px';
+                        var caption = document.createElement('caption');
+                        caption.textContent = 'Upcoming scheduled cue occurrences';
+                        table.appendChild(caption);
                         var headerRow = document.createElement('tr');
                         ["Cue", "Target", "Cue-local occurrence", "UTC occurrence", "Time zone"].forEach(function (heading) {
                             var header = document.createElement('th');
+                            header.setAttribute('scope', 'col');
                             header.textContent = heading;
                             header.style.textAlign = 'left';
                             header.style.padding = '6px 8px';
@@ -10760,9 +10787,13 @@
                         table.style.width = '100%';
                         table.style.borderCollapse = 'collapse';
                         table.style.minWidth = '760px';
+                        var caption = document.createElement('caption');
+                        caption.textContent = 'Scheduled cue history';
+                        table.appendChild(caption);
                         var headerRow = document.createElement('tr');
                         ["When", "Cue", "Scene", "Target", "Result", "Details"].forEach(function (heading) {
                             var header = document.createElement('th');
+                            header.setAttribute('scope', 'col');
                             header.textContent = heading;
                             header.style.textAlign = 'left';
                             header.style.padding = '6px 8px';
@@ -12870,9 +12901,13 @@
                         var table = document.createElement('table');
                         table.style.width = '100%';
                         table.style.borderCollapse = 'collapse';
+                        var caption = document.createElement('caption');
+                        caption.textContent = 'Recent Hue session history';
+                        table.appendChild(caption);
                         var headerRow = document.createElement('tr');
                         ["Ended", "Item", "User", "Device", "Outcome", "Target", "Duration", "Effective FPS", "Packets", "Warnings"].forEach(function (heading) {
                             var header = document.createElement('th');
+                            header.setAttribute('scope', 'col');
                             header.textContent = heading;
                             header.style.textAlign = 'left';
                             header.style.padding = '6px 8px';

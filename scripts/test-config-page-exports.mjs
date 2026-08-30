@@ -527,6 +527,61 @@ async function testInvalidatedPageSuppressesExport(testCase) {
     assert.equal(downloads.length, 0, `${testCase.method} suppresses an invalidated download`);
 }
 
+async function testConfigurationExportLoaderOwnershipAcrossRetainedPages() {
+    const harness = makeHarness();
+    const { page: hiddenPage, makePage, api, requests, dashboard } = harness;
+    const visiblePage = makePage();
+    let loadingVisible = false;
+    dashboard.showLoadingMsg = () => { loadingVisible = true; };
+    dashboard.hideLoadingMsg = () => { loadingVisible = false; };
+
+    const hiddenOperation = api.exportConfiguration(hiddenPage);
+    api.invalidatePageLifecycle(hiddenPage);
+    const visibleOperation = api.exportConfiguration(visiblePage);
+    assert.equal(requests.length, 2, "retained-page loader test starts both configuration exports");
+    assert.equal(loadingVisible, true, "the visible page's export operation shows the loader");
+
+    requests[0].resolve({ UserMappings: [], Marker: "hidden" });
+    await hiddenOperation;
+    assert.equal(
+        loadingVisible,
+        true,
+        "a hidden page's export completion cannot hide the visible page's loader");
+    assert.equal(visiblePage._hueConfigurationExporting, true, "the visible export remains active after stale completion");
+
+    requests[1].resolve({ UserMappings: [], Marker: "visible" });
+    await visibleOperation;
+    assert.equal(loadingVisible, false, "the visible export completion releases its loader");
+}
+
+async function testGlobalLoaderOwnershipAcrossRuntimeStopAndConfigurationExport() {
+    const harness = makeHarness();
+    const { page: hiddenPage, makePage, api, requests, dashboard } = harness;
+    const visiblePage = makePage();
+    let loadingVisible = false;
+    api.loadRuntimeStatus = () => Promise.resolve();
+    dashboard.showLoadingMsg = () => { loadingVisible = true; };
+    dashboard.hideLoadingMsg = () => { loadingVisible = false; };
+
+    const hiddenStop = api.stopRuntimeSync(hiddenPage);
+    api.invalidatePageLifecycle(hiddenPage);
+    const visibleExport = api.exportConfiguration(visiblePage);
+    assert.equal(requests.length, 2, "cross-operation loader test starts stop and export requests");
+    assert.equal(loadingVisible, true, "the newer configuration export keeps the loader visible");
+
+    requests[0].resolve({ State: "Stopped" });
+    await hiddenStop;
+    assert.equal(
+        loadingVisible,
+        true,
+        "a stale runtime-stop completion cannot hide the configuration export loader");
+    assert.equal(visiblePage._hueConfigurationExporting, true, "the visible export remains active after stale runtime completion");
+
+    requests[1].resolve({ UserMappings: [], Marker: "visible" });
+    await visibleExport;
+    assert.equal(loadingVisible, false, "the visible configuration export releases the shared loader");
+}
+
 async function testCurrentFailure(testCase) {
     const harness = makeHarness();
     const { page, api, requests, downloads } = harness;
@@ -6076,8 +6131,10 @@ await testDuplicateMappingResolutionLifecycleGuards();
 await testUserMappingReconciliationLifecycleGuards();
 await testRuntimeStopLifecycleGuards();
 await testRuntimeStopLoaderOwnershipAcrossRetainedPages();
+await testConfigurationExportLoaderOwnershipAcrossRetainedPages();
+await testGlobalLoaderOwnershipAcrossRuntimeStopAndConfigurationExport();
 await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus page-scoped mapping-device discovery and route-refresh ownership, mapping discovery-cache read ownership, retained mapping-page state isolation, sibling mapping-registration preflight/request ownership, mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, user-mapping dependency inspection pagehide/current-result lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide/loader ownership, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus page-scoped mapping-device discovery and route-refresh ownership, mapping discovery-cache read ownership, retained mapping-page state isolation, sibling mapping-registration preflight/request ownership, mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, user-mapping dependency inspection pagehide/current-result lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide/loader ownership, configuration-export loader ownership, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

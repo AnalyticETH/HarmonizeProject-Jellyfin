@@ -496,7 +496,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.420 (Current)
+### Version 1.5.421 (Current)
+
+- **Global loader ownership**: retained configuration pages now share one latest-operation owner for runtime-stop and configuration-export indicators, so stale completions cannot hide an active global loader.
+
+- **Accessible report tables**: scheduled-cue and session-history tables now expose captions and explicit column headers for assistive technology.
+
+- **Regression coverage**: configuration-page contracts cover cross-operation retained-page loader races and accessible report-table semantics.
+
+### Version 1.5.420
 
 - **Runtime-stop loader ownership**: a retained hidden configuration page can no longer hide the global loader owned by a newer visible stop operation.
 
