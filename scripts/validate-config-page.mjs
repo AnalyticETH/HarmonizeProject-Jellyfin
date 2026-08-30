@@ -812,6 +812,7 @@ const requiredScript = [
     'discoverMappingDevices: function',
     "discoverMappingDevices(this.closest('.page'))",
     'canUseStoredDeviceRouteCredentials: function',
+    'isMappingPlaybackDevicesOwner: function',
     'getMappingConfigurationPage: function',
     'getMappingPageElement: function',
     'getMappingDeviceRouteTarget: function (page)',
@@ -876,6 +877,20 @@ for (const forbidden of [
     }
     if (!scopeBody.includes("document.querySelector('#mappingDiscoverDevicesBtn').addEventListener")) {
         throw new Error(`${file} mapping controls must remain inside the page-scoped listener registration block`);
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("refreshMappingDeviceRoutes: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var discovered = HueConfigurationPage.isMappingPlaybackDevicesOwner(page) &&",
+        "Array.isArray(HueConfigurationPage._huePlaybackDevices)"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} refreshMappingDeviceRoutes must not render shared discovery rows on a non-owner page: ${marker}`);
+        }
     }
 }
 
@@ -990,7 +1005,13 @@ for (const [functionName, markers] of [
     ["previewDefaultColor", ["runWithBridgeCertificate", "fetchColorPreview", "usesMultiTargetSelection", "isPageLifecycleCurrent", "isCredentialInputCurrent"]],
     ["previewMappingColor", ["runWithBridgeCertificate", "fetchColorPreview", "isPageLifecycleCurrent", "isCredentialInputCurrent"]],
     ["registerBridge", ["_hueRegistrationPreflight", "isPageLifecycleCurrent", "isCurrentRegistrationTarget"]],
-    ["registerMappingBridge", ["_hueMappingRegistrationPreflight", "isPageLifecycleCurrent", "isCurrentRegistrationTarget"]]
+    ["registerMappingBridge", [
+        "_hueMappingRegistrationPreflight",
+        "var preflight = { page: page, generation: pageGeneration, canceled: false }",
+        "request._hueMappingRegistrationPage = page",
+        "isPageLifecycleCurrent",
+        "isCurrentRegistrationTarget"
+    ]]
 ]) {
     const start = scriptMatch[1].indexOf(`${functionName}: function`);
     const end = scriptMatch[1].indexOf("\n                },", start);
@@ -998,6 +1019,21 @@ for (const [functionName, markers] of [
     for (const marker of markers) {
         if (!functionBody.includes(marker)) {
             throw new Error(`${file} ${functionName} must trust the bridge certificate before credential-bearing requests: ${marker}`);
+        }
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("invalidatePageLifecycle: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var mappingRegistrationPreflight = HueConfigurationPage._hueMappingRegistrationPreflight;",
+        "mappingRegistrationPreflight && mappingRegistrationPreflight.page === page",
+        "HueConfigurationPage._hueMappingRegistrationPreflight = null;"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} invalidatePageLifecycle must only cancel the mapping registration preflight owned by the invalidated page: ${marker}`);
         }
     }
 }

@@ -2850,7 +2850,12 @@
                     var select = page.querySelector('#mappingDeviceRouteSelect');
                     if (!select) return;
                     var routes = HueConfigurationPage.readMappingDeviceTargets(page);
-                    var discovered = Array.isArray(HueConfigurationPage._huePlaybackDevices)
+                    // Discovered devices are held in a compatibility cache shared
+                    // by legacy helpers. A non-owner page may still render its
+                    // configured routes, but must never read another page's
+                    // user-specific discovery rows.
+                    var discovered = HueConfigurationPage.isMappingPlaybackDevicesOwner(page) &&
+                        Array.isArray(HueConfigurationPage._huePlaybackDevices)
                         ? HueConfigurationPage._huePlaybackDevices
                         : [];
                     var entries = [];
@@ -3311,10 +3316,11 @@
                     }
                     if (page._hueRegistrationPreflight) page._hueRegistrationPreflight.canceled = true;
                     page._hueRegistrationPreflight = null;
-                    if (HueConfigurationPage._hueMappingRegistrationPreflight) {
-                        HueConfigurationPage._hueMappingRegistrationPreflight.canceled = true;
+                    var mappingRegistrationPreflight = HueConfigurationPage._hueMappingRegistrationPreflight;
+                    if (mappingRegistrationPreflight && mappingRegistrationPreflight.page === page) {
+                        mappingRegistrationPreflight.canceled = true;
+                        HueConfigurationPage._hueMappingRegistrationPreflight = null;
                     }
-                    HueConfigurationPage._hueMappingRegistrationPreflight = null;
                     var pendingDeleteConfirmation = page._hueUserMappingDeleteConfirmation;
                     if (pendingDeleteConfirmation) {
                         pendingDeleteConfirmation.canceled = true;
@@ -15209,12 +15215,15 @@
                         Dashboard.alert("Please enter a bridge address first.");
                         return;
                     }
+                    // Link-button registration is a physical bridge-wide operation,
+                    // so keep one global in-flight lock. Track its page owner so a
+                    // retained sibling can never cancel or release this preflight.
                     if (HueConfigurationPage._hueMappingRegistrationRequest || HueConfigurationPage._hueMappingRegistrationPreflight) {
                         Dashboard.alert("Bridge registration is already running. Wait for it to finish first.");
                         return;
                     }
 
-                    var preflight = { generation: pageGeneration, canceled: false };
+                    var preflight = { page: page, generation: pageGeneration, canceled: false };
                     HueConfigurationPage._hueMappingRegistrationPreflight = preflight;
                     HueConfigurationPage.ensureBridgeCertificate(page, ip, statusEl, pageGeneration).then(function () {
                         if (preflight.canceled || !isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
@@ -15255,6 +15264,7 @@
                             return;
                         }
 
+                        request._hueMappingRegistrationPage = page;
                         HueConfigurationPage._hueMappingRegistrationRequest = request;
                         request.then(function (response) {
                             if (!isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||

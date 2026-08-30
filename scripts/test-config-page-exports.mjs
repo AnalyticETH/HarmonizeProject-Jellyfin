@@ -1926,6 +1926,78 @@ async function testRegistrationLifecycleGuards() {
     assert.equal(mappingTargetHarness.requests.length, 0, "editing the mapping bridge while trust is pending cannot start registration");
 }
 
+async function testMappingRegistrationSiblingPagehideGuard() {
+    const harness = makeHarness();
+    const { page, makePage, api, requests, dashboard } = harness;
+    const siblingPage = makePage();
+    let resolvePreflight;
+    api.ensureBridgeCertificate = () => new Promise(resolve => { resolvePreflight = resolve; });
+    page.querySelector("#mappingBridgeIp").value = "192.168.1.60";
+    siblingPage.querySelector("#mappingBridgeIp").value = "192.168.1.61";
+    let confirm;
+    dashboard.confirm = (_message, _title, callback) => { confirm = callback; };
+
+    api.registerMappingBridge(page);
+    assert.equal(api._hueMappingRegistrationPreflight.page, page, "mapping registration records its owning page");
+    api.invalidatePageLifecycle(siblingPage);
+    resolvePreflight(true);
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(typeof confirm, "function", "a sibling pagehide cannot cancel the active mapping registration preflight");
+    assert.equal(requests.length, 0, "sibling pagehide does not start or alter the active registration request");
+    confirm(false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(api._hueMappingRegistrationPreflight, null, "the owning page can still release its registration preflight");
+
+    const requestHarness = makeHarness();
+    const requestPage = requestHarness.page;
+    const requestSiblingPage = requestHarness.makePage();
+    const requestApi = requestHarness.api;
+    const requestDashboard = requestHarness.dashboard;
+    let requestConfirm;
+    requestDashboard.confirm = (_message, _title, callback) => { requestConfirm = callback; };
+    requestApi.ensureBridgeCertificate = () => Promise.resolve(true);
+    requestPage.querySelector("#mappingBridgeIp").value = "192.168.1.62";
+    requestApi.registerMappingBridge(requestPage);
+    await new Promise(resolve => setImmediate(resolve));
+    requestConfirm(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requestHarness.requests.length, 1, "confirmed mapping registration starts one request");
+    const registrationRequest = requestApi._hueMappingRegistrationRequest;
+    assert.equal(registrationRequest._hueMappingRegistrationPage, requestPage, "in-flight registration records its owning page");
+    requestApi.invalidatePageLifecycle(requestSiblingPage);
+    assert.equal(
+        requestApi._hueMappingRegistrationRequest,
+        registrationRequest,
+        "a sibling pagehide cannot release the owning page's in-flight registration lock"
+    );
+    requestHarness.requests[0].resolve({ username: "app-key", clientKey: "client-key" });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requestApi._hueMappingRegistrationRequest, null, "the owning request releases the global registration lock when settled");
+}
+
+function testMappingPlaybackDeviceCacheReadOwnershipGuard() {
+    const harness = makeHarness();
+    const { page, makePage, api } = harness;
+    const siblingPage = makePage();
+    api._huePlaybackDevicesOwner = page;
+    api._huePlaybackDevices = [{ DeviceId: "owner-only-device", DeviceName: "Owner-only device" }];
+
+    api.refreshMappingDeviceRoutes(siblingPage, undefined, true);
+    assert.equal(
+        siblingPage.querySelector("#mappingDeviceRouteSelect").children.some(option => option.value === "owner-only-device"),
+        false,
+        "a non-owner page cannot render another page's discovered device rows"
+    );
+
+    api.refreshMappingDeviceRoutes(page, undefined, true);
+    assert.equal(
+        page.querySelector("#mappingDeviceRouteSelect").children.some(option => option.value === "owner-only-device"),
+        true,
+        "the cache owner can render its discovered device rows"
+    );
+}
+
 async function testMappingDeviceRouteChannelIsolation() {
     const harness = makeHarness();
     const { page, api, requests } = harness;
@@ -5779,6 +5851,8 @@ await testCredentialPreflightCancelGuard();
 await testCredentialPreflightTargetMutationGuard();
 await testCredentialLifecyclePreflightPagehideGuard();
 await testRegistrationLifecycleGuards();
+await testMappingRegistrationSiblingPagehideGuard();
+testMappingPlaybackDeviceCacheReadOwnershipGuard();
 await testMappingDeviceRouteChannelIsolation();
 await testMappingDeviceDiscoveryLifecycleGuards();
 await testBridgeDiscoveryLifecycleGuards();
@@ -5820,4 +5894,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus page-scoped mapping-device discovery and route-refresh ownership, retained mapping-page state isolation, mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus page-scoped mapping-device discovery and route-refresh ownership, mapping discovery-cache read ownership, retained mapping-page state isolation, sibling mapping-registration preflight/request ownership, mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
