@@ -811,6 +811,17 @@ const requiredScript = [
     'discoverMappingDevices: function',
     "discoverMappingDevices(this.closest('.page'))",
     'canUseStoredDeviceRouteCredentials: function',
+    'getMappingConfigurationPage: function',
+    'getMappingPageElement: function',
+    'getMappingDeviceRouteTarget: function (page)',
+    'getSelectedMappingDeviceRoute: function (page)',
+    'loadMappingDeviceRouteAreas(this.closest(\'.page\'))',
+    'loadMappingDeviceRouteChannels(this.closest(\'.page\'))',
+    'upsertMappingDeviceRoute(this.closest(\'.page\'))',
+    'removeMappingDeviceRoute(this.closest(\'.page\'))',
+    'testMappingConnection(this.closest(\'.page\'))',
+    'registerMappingBridge(this.closest(\'.page\'))',
+    'addUserMapping(this.closest(\'.page\'))',
     'Selected route " + target.deviceId'
 ];
 
@@ -820,13 +831,29 @@ for (const marker of requiredScript) {
     }
 }
 
+// Jellyfin can retain a hidden configuration page while another instance is
+// being shown. Mapping editors must therefore resolve every mutable control
+// through the page that owns the event/request; document-level ID lookups can
+// otherwise read or overwrite the hidden sibling with the same IDs.
+for (const forbidden of [
+    "document.getElementById('mapping",
+    'document.getElementById("mapping',
+    "getSelectedMappingDeviceRoute()",
+    "getMappingDeviceRouteTarget()",
+    "readMappingDeviceTargets()"
+]) {
+    if (scriptMatch[1].includes(forbidden)) {
+        throw new Error(`${file} contains an unscoped mapping-page lookup: ${forbidden}`);
+    }
+}
+
 {
     const functionName = "getMappingDeviceRouteCredentialKey";
     const start = scriptMatch[1].indexOf(`\n                ${functionName}: function`);
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
     for (const marker of [
-        "getMappingDeviceRouteCredentialContext(userId, mappingId)",
+        "getMappingDeviceRouteCredentialContext(userId, mappingId, page)",
         "normalizedDeviceId",
         "normalizedBridgeIp",
         "normalizedUserId",
@@ -846,8 +873,9 @@ for (const marker of requiredScript) {
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
     for (const marker of [
         "bridgeIp, userId, mappingId",
-        "getMappingDeviceRouteCredentialKey(deviceId, bridgeIp, userId, mappingId)",
-        "if (!key) return;"
+        "getMappingDeviceRouteCredentialKey(deviceId, bridgeIp, userId, mappingId, page)",
+        "if (!key || !page) return;",
+        "page._hueDeviceRouteCredentials"
     ]) {
         if (!functionBody.includes(marker)) {
             throw new Error(`${file} ${functionName} must refuse unscoped route credential caching`);
@@ -1415,7 +1443,7 @@ for (const contract of [
     },
     {
         functionName: "registerMappingBridge",
-        buttonMarker: "document.getElementById('mappingLinkBridgeBtn')",
+        buttonMarker: "getMappingPageElement(page, 'mappingLinkBridgeBtn')",
         inFlightMarker: "HueConfigurationPage._hueMappingRegistrationRequest",
         preflightMarker: "HueConfigurationPage._hueMappingRegistrationPreflight"
     }
