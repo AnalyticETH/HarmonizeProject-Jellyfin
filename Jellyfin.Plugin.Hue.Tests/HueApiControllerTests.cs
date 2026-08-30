@@ -205,7 +205,7 @@ public sealed class HueApiControllerTests : IDisposable
                 AppKey = "app-key"
             }));
         var oversizedJson = validJson[..^1] +
-            $",\"ignoredPadding\":\"{new string('x', (int)HueApiController.MaxBulkSelectionRequestBodyBytes)}\"}";
+            $",\"ignoredPadding\":\"{new string('x', (int)HueApiController.MaxBulkSelectionRequestBodyBytes)}\"}}";
         var oversized = Encoding.UTF8.GetBytes(oversizedJson);
         using var parsed = JsonDocument.Parse(oversizedJson);
         Assert.True(parsed.RootElement.TryGetProperty("ignoredPadding", out _));
@@ -251,7 +251,7 @@ public sealed class HueApiControllerTests : IDisposable
                 ScheduleIds = new List<string> { "schedule" }
             }));
         var oversizedJson = validJson[..^1] +
-            $",\"ignoredPadding\":\"{new string('x', (int)HueApiController.MaxBulkSelectionRequestBodyBytes)}\"}";
+            $",\"ignoredPadding\":\"{new string('x', (int)HueApiController.MaxBulkSelectionRequestBodyBytes)}\"}}";
         var oversized = Encoding.UTF8.GetBytes(oversizedJson);
         using var parsed = JsonDocument.Parse(oversizedJson);
         Assert.True(parsed.RootElement.TryGetProperty("ignoredPadding", out _));
