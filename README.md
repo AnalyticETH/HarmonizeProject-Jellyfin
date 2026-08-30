@@ -496,7 +496,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.416 (Current)
+### Version 1.5.417 (Current)
+
+- **Global configuration ownership**: bridge address, stored App Key/Client Key presence, and selected entertainment area snapshots are now retained per configuration page, so sibling retained pages cannot overwrite another page's credentials or selection.
+
+- **Regression coverage**: two-page configuration-load and bridge-discovery races verify snapshot ownership, with static guards preventing the retired singleton reads from returning.
 
 - **Mapping editor ownership**: retained administrator pages now keep mapping editor state on their owning page, preventing duplicate-page edits, credentials, and saves from crossing page boundaries.
 

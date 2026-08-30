@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.417] - 2026-08-30
+
+### Retained configuration snapshot isolation
+- **Global configuration ownership**: bridge address, stored App Key/Client Key presence, and selected entertainment area snapshots are now retained per configuration page, so sibling retained pages cannot overwrite another page's credentials or selection.
+- **Regression coverage**: two-page configuration-load and bridge-discovery races verify snapshot ownership, with static guards preventing the retired singleton reads from returning.
+
 ## [1.5.416] - 2026-08-30
 
 ### Retained configuration-page isolation
