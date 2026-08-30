@@ -8,6 +8,8 @@ const expectedWorkflows = new Set([
   "pull-request-validation.yml",
   "security-scan.yml",
 ]);
+const trustedBuildRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]';
+const trustedReleaseRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]';
 const allowedActionRepositories = new Set([
   "actions/checkout",
   "actions/setup-dotnet",
@@ -225,6 +227,24 @@ for (const name of workflowFiles) {
     const runsOnValues = getRunsOnValues(job);
     if (runsOnValues.some(value => value.includes("${{"))) {
       throw new Error(`${name} job ${job.name} uses a dynamic runner expression; review it explicitly`);
+    }
+
+    // Bind every concrete trusted job to the non-publishing runner. Only the
+    // isolated release-publication job may use the release runner label. This
+    // prevents a future scanner/package change from silently acquiring the
+    // release runner's host identity while still satisfying the generic
+    // self-hosted/default-branch checks below.
+    if (name === "dotnet-ci.yml" && !isReusableWorkflowJob(job)) {
+      const expectedRunner = job.name === "create-github-release"
+        ? trustedReleaseRunner
+        : trustedBuildRunner;
+      if (runsOnValues.length !== 1 || runsOnValues[0] !== expectedRunner) {
+        throw new Error(`${name} job ${job.name} must use runner ${expectedRunner}`);
+      }
+    }
+    if (name === "security-scan.yml" &&
+        (runsOnValues.length !== 1 || runsOnValues[0] !== trustedBuildRunner)) {
+      throw new Error(`${name} job ${job.name} must use runner ${trustedBuildRunner}`);
     }
 
     const selfHosted = runsOnValues.some(value => /\bself-hosted\b/.test(value));

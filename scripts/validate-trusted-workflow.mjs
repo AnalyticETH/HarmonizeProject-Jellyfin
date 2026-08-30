@@ -3,6 +3,8 @@ import fs from "node:fs";
 const ciPath = ".github/workflows/dotnet-ci.yml";
 const securityPath = ".github/workflows/security-scan.yml";
 const MAX_TIMEOUT_MINUTES = 30;
+const trustedBuildRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]';
+const trustedReleaseRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]';
 const ci = fs.readFileSync(ciPath, "utf8");
 const security = fs.readFileSync(securityPath, "utf8");
 const allowedActionRepositories = new Set([
@@ -107,6 +109,27 @@ function getWritePermissionNames(permissionLines) {
 
 function isReusableWorkflowJob(block) {
   return block.lines.some(line => /^ {4}uses:\s*\.\//.test(withoutComment(line)));
+}
+
+function getRunsOnValues(block) {
+  const values = [];
+  for (let index = 0; index < block.lines.length; index += 1) {
+    const line = withoutComment(block.lines[index]);
+    const match = line.match(/^\s*runs-on:\s*(.*)$/);
+    if (!match) continue;
+
+    const indent = match[0].match(/^\s*/)[0].length;
+    let value = match[1].trim();
+    for (let continuation = index + 1; continuation < block.lines.length && !value; continuation += 1) {
+      const nextLine = withoutComment(block.lines[continuation]);
+      if (!nextLine.trim()) continue;
+      const nextIndent = nextLine.match(/^\s*/)[0].length;
+      if (nextIndent <= indent) break;
+      value += ` ${nextLine.trim()}`;
+    }
+    values.push(value);
+  }
+  return values;
 }
 
 function validateJobTimeout(block, workflowName) {
@@ -236,6 +259,24 @@ if (securityGuardCount !== 2) {
 
 const ciJobs = getJobBlocks(ci, ciPath);
 const securityJobs = getJobBlocks(security, securityPath);
+
+for (const job of ciJobs) {
+  if (isReusableWorkflowJob(job)) continue;
+  const expectedRunner = job.name === "create-github-release"
+    ? trustedReleaseRunner
+    : trustedBuildRunner;
+  const runsOnValues = getRunsOnValues(job);
+  if (runsOnValues.length !== 1 || runsOnValues[0] !== expectedRunner) {
+    throw new Error(`${ciPath} job ${job.name} must use runner ${expectedRunner}`);
+  }
+}
+for (const job of securityJobs) {
+  const runsOnValues = getRunsOnValues(job);
+  if (runsOnValues.length !== 1 || runsOnValues[0] !== trustedBuildRunner) {
+    throw new Error(`${securityPath} job ${job.name} must use runner ${trustedBuildRunner}`);
+  }
+}
+
 for (const [workflowName, jobs] of [[ciPath, ciJobs], [securityPath, securityJobs]]) {
   for (const job of jobs) {
     // GitHub's reusable-workflow caller syntax does not accept timeout-minutes;

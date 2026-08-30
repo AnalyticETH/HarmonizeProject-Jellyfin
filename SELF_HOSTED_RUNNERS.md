@@ -8,6 +8,7 @@ separate build state from release authority.
 | --- | --- | --- | --- |
 | Build, tests, formatting, package audit, Gitleaks, Semgrep, packaging, Linux release-helper validation | `harmonizeproject-jellyfin` | `harmonize-runner` | `/var/lib/harmonize-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache |
 | GitHub Release publication only | `harmonizeproject-jellyfin-release` | `harmonize-release-runner` | `/var/lib/harmonize-release-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache |
+| Dependabot update jobs | `dependabot` (with GitHub's default `self-hosted`, `Linux`, and `X64` labels) | `harmonize-dependabot-runner` | `/var/lib/harmonize-dependabot-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache/rootless-Docker state |
 
 Both identities are locked system users with `nologin`, no sudo, Docker, LXD, or
 supplementary groups, and no access to the interactive user's home or GitHub CLI
@@ -15,6 +16,21 @@ credentials. Their root-owned runner installations are read-only inside systemd;
 credentials are `0440` and work/home/cache directories are `0700`. The services use
 `ProtectSystem=strict`, `ProtectHome`, private devices and temporary directories,
 namespace and SUID/SGID restrictions, an empty capability set, and bounded resources.
+
+The Dependabot identity is intentionally separate because Dependabot update jobs execute
+untrusted package-manager and build code. Its runner installation is also root-owned and
+read-only, while its Docker daemon runs rootless under the same locked service account at
+`unix:///run/user/980/docker.sock`. The rootless user manager is kept alive with
+`loginctl enable-linger harmonize-dependabot-runner`; the daemon is bounded to 8 GiB of
+memory, 8 GiB of swap, 2,048 tasks, and 400% CPU. The runner service is bounded by the same
+8 GiB memory/swap ceiling, 2,048 tasks, and 400% CPU, and exposes only the dedicated socket
+through a read-only `/run/user/980` bind. It is never used by trusted build or release jobs.
+
+After provisioning the runner, enable **Dependabot on self-hosted runners** in the
+repository's GitHub Settings → Advanced Security page. GitHub will keep Dependabot jobs on
+the `dependabot` label; do not enable that setting until an online runner with that label is
+available, or jobs will remain queued indefinitely. The setting is owner-controlled and is
+not represented in `.github/dependabot.yml`.
 
 Persistent runners accept only repository-controlled trusted `main` pushes, the main-only
 operator recovery dispatch, and scheduled default-branch security scans. The trusted main
@@ -124,9 +140,16 @@ labels, and live workflow execution:
 ```bash
 systemctl is-enabled actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin.service
 systemctl is-enabled actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-release.service
+systemctl is-enabled actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-dependabot.service
 systemd-analyze security actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin.service
 systemd-analyze security actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-release.service
+systemd-analyze security actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-dependabot.service
 gh api repos/AnalyticETH/HarmonizeProject-Jellyfin/actions/runners
+sudo -u harmonize-dependabot-runner env \
+  HOME=/var/lib/harmonize-dependabot-runner/home \
+  XDG_RUNTIME_DIR=/run/user/980 \
+  DOCKER_HOST=unix:///run/user/980/docker.sock \
+  docker info
 ```
 
 The authoritative setup and security references are GitHub's

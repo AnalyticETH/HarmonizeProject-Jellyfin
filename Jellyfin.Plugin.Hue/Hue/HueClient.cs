@@ -1355,23 +1355,20 @@ namespace Jellyfin.Plugin.Hue.Hue
                         double y = 0;
                         var hasColor = false;
                         if (light.TryGetProperty("color", out var color) &&
+                            color.ValueKind == JsonValueKind.Object &&
                             color.TryGetProperty("xy", out var xy) &&
-                            xy.TryGetProperty("x", out var xValue) &&
-                            xy.TryGetProperty("y", out var yValue) &&
-                            xValue.ValueKind == JsonValueKind.Number &&
-                            yValue.ValueKind == JsonValueKind.Number)
+                            TryReadXyPoint(xy, out var xyPoint) &&
+                            xyPoint is { } validXyPoint)
                         {
-                            x = xValue.GetDouble();
-                            y = yValue.GetDouble();
+                            x = validXyPoint.X;
+                            y = validXyPoint.Y;
                             hasColor = true;
                         }
 
                         int? mirek = null;
                         if (light.TryGetProperty("color_temperature", out var colorTemperature) &&
                             colorTemperature.ValueKind == JsonValueKind.Object &&
-                            colorTemperature.TryGetProperty("mirek", out var mirekValue) &&
-                            mirekValue.ValueKind == JsonValueKind.Number &&
-                            mirekValue.TryGetInt32(out var mirekNumber))
+                            TryReadMirek(colorTemperature, out var mirekNumber))
                         {
                             var mirekIsValid = !colorTemperature.TryGetProperty("mirek_valid", out var validValue) ||
                                                 (validValue.ValueKind == JsonValueKind.True && validValue.GetBoolean());
@@ -1496,17 +1493,20 @@ namespace Jellyfin.Plugin.Hue.Hue
             var payload = new Dictionary<string, object?>
             {
                 ["on"] = new Dictionary<string, object?> { ["on"] = state.IsOn },
-                ["dimming"] = new Dictionary<string, object?> { ["brightness"] = state.Brightness }
+                ["dimming"] = new Dictionary<string, object?>
+                {
+                    ["brightness"] = Math.Clamp(state.Brightness, 0, 100)
+                }
             };
 
-            if (state.Mirek.HasValue)
+            if (state.Mirek is >= 153 and <= 500)
             {
                 payload["color_temperature"] = new Dictionary<string, object?>
                 {
                     ["mirek"] = state.Mirek.Value
                 };
             }
-            else if (state.HasColor)
+            else if (state.HasColor && IsValidXy(state.X, state.Y))
             {
                 payload["color"] = new Dictionary<string, object?>
                 {

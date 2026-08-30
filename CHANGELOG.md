@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.407] - 2026-08-30
+
+### Trusted workflow and bridge-state hardening
+- **Workflow inventory hardening**: enforce the reviewed workflow set, immutable selected actions, safe triggers, fixed pull-request runners, and per-job main guards for persistent self-hosted jobs, including the scheduled security scan.
+  Concrete trusted build and security jobs are now pinned to the non-publishing runner; only release publication may use the isolated release runner.
+- **Job-aware workflow permissions and timeouts**: trusted workflow validation now isolates contents: write to release publication and requires every concrete job to use a positive timeout of at most 30 minutes.
+- **Regression coverage**: scheduler arbitration/fairness, administrator bulk deletion, and executable negative workflow-contract fixtures cover the new boundaries.
+  Bridge state capture and restoration now reject invalid XY/Mirek values, clamp brightness, and omit malformed optional color payloads.
+
 ## [1.5.406] - 2026-08-30
 
 ### Playback and discovery isolation

@@ -428,6 +428,12 @@ Every trusted build also retains its Cobertura coverage artifact. Codecov public
 `CODECOV_TOKEN` is not configured, CI records an explicit skip in the run summary; when it is configured,
 an authenticated upload is required to succeed.
 
+Dependabot update jobs use a third, dedicated `harmonize-dependabot-runner` identity with
+rootless Docker, the `dependabot` label, isolated state, and bounded resources. Enable GitHub's
+**Dependabot on self-hosted runners** repository setting only after that runner is online; the
+setting is owner-controlled and is documented with the host contract in
+[SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md).
+
 ### Troubleshooting
 
 * **Registration fails:** press the physical Link button immediately before clicking
@@ -490,7 +496,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.406 (Current)
+### Version 1.5.407 (Current)
+
+- **Trusted runner binding**: workflow validators now require every concrete build and security job to use the non-publishing `harmonizeproject-jellyfin` runner; only GitHub Release publication may use the isolated release runner, with executable negative fixtures for accidental reassignment.
+
+- **Hue state sanitization**: captured XY coordinates and color-temperature Mirek values are range-checked, and restore payloads clamp brightness while omitting invalid color data instead of sending unsafe state to a bridge.
+
+- **Dedicated Dependabot runner**: document the third rootless-Docker `dependabot` runner, its isolation/resource limits, and the owner-controlled GitHub setting required before Dependabot jobs leave `ubuntu-latest`.
+
+### Version 1.5.406
 
 - **Playback retry isolation**: each playback worker clones the injected Hue transport before applying its per-session retry policy, so API and diagnostic calls cannot inherit another session's mutable retry setting.
 

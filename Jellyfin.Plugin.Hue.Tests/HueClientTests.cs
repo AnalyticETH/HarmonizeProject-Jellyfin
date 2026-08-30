@@ -878,6 +878,64 @@ public class HueClientTests : IDisposable
         Assert.Equal(75, state.Brightness);
     }
 
+    [Theory]
+    [InlineData("-0.01", "0.5")]
+    [InlineData("0.5", "1.01")]
+    [InlineData("1e999", "0.5")]
+    public async Task GetLightStates_InvalidColorCoordinatesAreNotMarkedRestorable(
+        string x,
+        string y)
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-invalid-color""}}] }
+            ]
+        }");
+        SetupHttpResponse(HttpStatusCode.OK, $@"{{
+            ""data"": [{
+                ""on"": {{""on"": true}},
+                ""dimming"": {{""brightness"": 75}},
+                ""color"": {{""xy"": {{""x"": {x}, ""y"": {y}}}}}
+            }}]
+        }}");
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetLightStates("192.168.1.100", "test-app-key", doc.RootElement);
+
+        var state = Assert.Single(result);
+        Assert.False(state.HasColor);
+        Assert.Equal(0, state.X);
+        Assert.Equal(0, state.Y);
+    }
+
+    [Theory]
+    [InlineData(152)]
+    [InlineData(501)]
+    public async Task GetLightStates_OutOfRangeMirekIsNotMarkedRestorable(int mirek)
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-invalid-mirek""}}] }
+            ]
+        }");
+        SetupHttpResponse(HttpStatusCode.OK, $@"{{
+            ""data"": [{
+                ""on"": {{""on"": true}},
+                ""dimming"": {{""brightness"": 75}},
+                ""color_temperature"": {{""mirek"": {mirek}, ""mirek_valid"": true}}
+            }}]
+        }}");
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetLightStates("192.168.1.100", "test-app-key", doc.RootElement);
+
+        var state = Assert.Single(result);
+        Assert.Null(state.Mirek);
+        Assert.False(state.HasColor);
+    }
+
     [Fact]
     public async Task GetLightStatesWithResult_MismatchedResourceIdRejectsState()
     {
@@ -1443,6 +1501,45 @@ public class HueClientTests : IDisposable
         var root = payload.RootElement;
         Assert.Equal(325, root.GetProperty("color_temperature").GetProperty("mirek").GetInt32());
         Assert.False(root.TryGetProperty("color", out _));
+    }
+
+    [Fact]
+    public async Task RestoreLightStates_InvalidCoreStateValuesAreSanitized()
+    {
+        Task<string>? capturedBodyTask = null;
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+                capturedBodyTask = request.Content!.ReadAsStringAsync())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.RestoreLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            new List<HueClient.LightState>
+            {
+                new("light-invalid-core", true, 150, -0.1, 1.1, 152, true)
+            });
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(capturedBodyTask);
+        using var payload = JsonDocument.Parse(await capturedBodyTask!);
+        var root = payload.RootElement;
+        Assert.Equal(100, root.GetProperty("dimming").GetProperty("brightness").GetInt32());
+        Assert.False(root.TryGetProperty("color", out _));
+        Assert.False(root.TryGetProperty("color_temperature", out _));
     }
 
     [Fact]

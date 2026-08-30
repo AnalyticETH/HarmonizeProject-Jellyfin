@@ -173,4 +173,32 @@ runNegativeFixture(
   /must not grant write permissions/,
 );
 
+runNegativeFixture(
+  "dotnet-ci.yml",
+  fixtureRoot => mutateWorkflow(
+    fixtureRoot,
+    "dotnet-ci.yml",
+    workflow => workflow.replace(
+      'runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]',
+      'runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]',
+    ),
+  ),
+  ["inventory", "trusted"],
+  /must use runner/,
+);
+
+runNegativeFixture(
+  "security-scan.yml",
+  fixtureRoot => mutateWorkflow(
+    fixtureRoot,
+    "security-scan.yml",
+    workflow => workflow.replace(
+      'runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]',
+      'runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]',
+    ),
+  ),
+  ["inventory", "trusted"],
+  /must use runner/,
+);
+
 console.log("Workflow security contract negative tests passed");
