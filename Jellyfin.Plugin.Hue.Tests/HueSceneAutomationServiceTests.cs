@@ -1574,6 +1574,69 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_SelectedTargetsPreserveOptionalDefaultTarget()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "selected-default-app-secret",
+            HueClientKey = "selected-default-client-secret",
+            EntertainmentAreaId = "default-area",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Selected scene", Red = 10, Green = 20, Blue = 30, DurationSeconds = 1 }
+            },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Kitchen",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "selected-mapping-app-secret",
+                    HueClientKey = "selected-mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area"
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "selected-default-cue",
+                    Name = "Selected default cue",
+                    PresetName = "Selected scene",
+                    TargetUserIds = new List<string> { "user-1" },
+                    IncludeDefaultTarget = true,
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        await service.RunDueSchedulesAsync(
+            new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        Assert.Equal(new[] { "192.168.1.100", "192.168.1.101" },
+            streamTester.Invocations.Select(invocation => invocation.BridgeIp));
+        var history = Assert.Single(service.GetHistory());
+        Assert.True(history.IncludeDefaultTarget);
+        Assert.Equal(new[] { "user-1" }, history.TargetUserIds);
+    }
+
+    [Fact]
     public async Task RunDueSchedules_BlocksConfigurationMutationDuringPreflight()
     {
         var configuration = new PluginConfiguration

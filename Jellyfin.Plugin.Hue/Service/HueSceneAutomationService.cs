@@ -8583,6 +8583,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                     UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
                     DeviceId = route.DeviceId?.Trim() ?? string.Empty
                 }).ToList() ?? new List<HueSceneScheduleTargetRoute>(),
+            IncludeDefaultTarget = source.IncludeDefaultTarget,
             TargetAllEnabledMappings = source.TargetAllEnabledMappings,
             TimeOfDay = source.TimeOfDay,
             TimeMode = source.TimeMode,
