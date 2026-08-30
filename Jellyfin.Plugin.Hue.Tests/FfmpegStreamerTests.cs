@@ -356,7 +356,11 @@ public sealed class FfmpegStreamerTests
             var stopTask = Task.Run(streamer.Stop);
             Assert.Same(stopTask, await Task.WhenAny(stopTask, Task.Delay(TimeSpan.FromSeconds(5))));
             await stopTask;
-            Assert.True(stderrTask!.IsCompleted);
+            // Stop() has a bounded cleanup deadline. A shell pipeline may keep an
+            // inherited stderr descriptor alive briefly after the process tree is
+            // killed, so allow the retained reader to settle within the test's
+            // existing five-second deadline instead of racing its completion.
+            Assert.True(await WaitForConditionAsync(() => stderrTask!.IsCompleted));
         }
         finally
         {
