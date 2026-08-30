@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.422] - 2026-08-30
+
+### Validation parity and complete embedded JavaScript scanning
+- **Target FPS validation parity**: the global administrator Target FPS field now enforces the server’s supported 1–60 range before submission.
+- **Embedded JavaScript scan coverage**: the extracted administrator page is allowed its measured 1,096,321-byte size under a scoped 2 MB Semgrep target limit, and CI fails closed unless Semgrep reports that exact extracted file as scanned.
+- **Regression coverage**: configuration-page and workflow-contract validators enforce the UI bounds and embedded-target coverage gate.
+
 ## [1.5.421] - 2026-08-30
 
 ### Global loader ownership and accessible report tables

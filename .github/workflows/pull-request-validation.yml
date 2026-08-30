@@ -367,7 +367,7 @@ jobs:
           test "${#config_page_rule_excludes[@]}" -eq 35
           set +e
           "$SEMGREP_BIN" scan \
-            --config "$SEMGREP_WORK_DIR/semgrep-javascript.yml" --metrics off --timeout 120 \
+            --config "$SEMGREP_WORK_DIR/semgrep-javascript.yml" --metrics off --timeout 120 --max-target-bytes=2MB \
             --include='*.js' \
             "${config_page_rule_excludes[@]}" \
             --json --output "$SEMGREP_WORK_DIR/semgrep-config-page.json" "$SEMGREP_WORK_DIR/config-page-inline.js"
@@ -377,16 +377,23 @@ jobs:
           COUNT=$(jq '.results | length' "$SEMGREP_WORK_DIR/semgrep-config-page.json")
           ERRORS=$(jq '.errors | length' "$SEMGREP_WORK_DIR/semgrep-config-page.json")
           TIMEOUTS=$(jq '(.time.fixpoint_timeouts // []) | length' "$SEMGREP_WORK_DIR/semgrep-config-page.json")
+          TARGET_SCANNED=$(jq --arg target "$SEMGREP_WORK_DIR/config-page-inline.js" \
+            'any((.paths.scanned // [])[]; . == $target)' "$SEMGREP_WORK_DIR/semgrep-config-page.json")
           {
             echo "### Static analysis (semgrep: embedded administrator JavaScript)"
             echo "Findings: **$COUNT** (blocking)"
             echo "Scanner errors: **$ERRORS** (blocking)"
             echo "Analysis timeouts: **$TIMEOUTS** (blocking)"
+            echo "Extracted target scanned: **$TARGET_SCANNED** (blocking)"
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "Semgrep embedded administrator JavaScript findings: $COUNT; scanner errors: $ERRORS; analysis timeouts: $TIMEOUTS"
+          echo "Semgrep embedded administrator JavaScript findings: $COUNT; scanner errors: $ERRORS; analysis timeouts: $TIMEOUTS; extracted target scanned: $TARGET_SCANNED"
           if [ "$scan_status" -ne 0 ]; then
             echo "Semgrep embedded administrator JavaScript scan failed." >&2
             exit "$scan_status"
+          fi
+          if [ "$TARGET_SCANNED" != "true" ]; then
+            echo "Semgrep embedded administrator JavaScript scan did not scan the extracted target; refusing a false-clean result." >&2
+            exit 1
           fi
           if [ "$COUNT" -gt 0 ] || [ "$ERRORS" -gt 0 ] || [ "$TIMEOUTS" -gt 0 ]; then
             echo "Semgrep embedded administrator JavaScript scan found security findings, scanner errors, or analysis timeouts." >&2

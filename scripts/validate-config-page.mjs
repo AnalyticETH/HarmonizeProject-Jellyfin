@@ -65,6 +65,7 @@ const requiredMarkup = [
     'id="audioColorPalette"',
     'id="audioSpatialMode"',
     'id="audioChannelMode"',
+    'id="targetFps" name="targetFps" type="number" min="1" max="60" is="emby-input"',
     'id="mappingPlaybackMediaFilterOverride"',
     'id="mappingAudioSensitivityPercentOverride"',
     'id="mappingAudioLowFrequencyHzOverride"',

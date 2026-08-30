@@ -169,9 +169,15 @@ const pythonScanMarkers = [
     "--json --output \"$SEMGREP_WORK_DIR/semgrep-python.json\" scripts"
 ];
 const embeddedJavaScriptScanMarkers = [
-    "--config \"$SEMGREP_WORK_DIR/semgrep-javascript.yml\" --metrics off --timeout 120",
+    "--config \"$SEMGREP_WORK_DIR/semgrep-javascript.yml\" --metrics off --timeout 120 --max-target-bytes=2MB",
     "--include='*.js'",
     "--json --output \"$SEMGREP_WORK_DIR/semgrep-config-page.json\" \"$SEMGREP_WORK_DIR/config-page-inline.js\""
+];
+const embeddedJavaScriptTargetGateMarkers = [
+    "TARGET_SCANNED=$(jq --arg target \"$SEMGREP_WORK_DIR/config-page-inline.js\"",
+    "any((.paths.scanned // [])[]; . == $target)",
+    "if [ \"$TARGET_SCANNED\" != \"true\" ]; then",
+    "did not scan the extracted target; refusing a false-clean result."
 ];
 
 function countOccurrences(value, marker) {
@@ -244,6 +250,11 @@ for (const workflowPath of semgrepWorkflows) {
     ]) {
         if (!workflow.includes(marker)) {
             throw new Error(`${workflowPath}: Semgrep target split is missing marker: ${marker}`);
+        }
+    }
+    for (const marker of embeddedJavaScriptTargetGateMarkers) {
+        if (!workflow.includes(marker)) {
+            throw new Error(`${workflowPath}: embedded JavaScript scan is missing target-coverage gate marker: ${marker}`);
         }
     }
 }
