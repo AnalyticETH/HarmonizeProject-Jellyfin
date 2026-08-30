@@ -420,6 +420,11 @@ const requiredScript = [
     "abortPageLifecycleRequest: function",
     "invalidatePageLifecycle: function",
     "getPageLifecycleRequest: function",
+    "bridgeDiscovery",
+    "mappingBridgeDiscovery",
+    "page._hueBridgeDiscoveryLoading",
+    "page._hueMappingBridgeDiscoveryLoading",
+    "HueConfigurationPage.discoverMappingBridge(this.closest('.page'))",
     "getBridgeCertificatePins: function",
     "renderBridgeCertificatePins: function",
     "forgetBridgeCertificatePin: function",
@@ -1774,6 +1779,30 @@ for (const [selector, keys] of [
     for (const key of keys) {
         if (!handlerBody.includes(`cancelPageLifecycleRequest(page, '${key}')`)) {
             throw new Error(`${file} ${selector} filter handler must cancel ${key}`);
+        }
+    }
+}
+
+for (const [functionName, requestKey, loadingProperty, targetInputId] of [
+    ["discoverBridge", "bridgeDiscovery", "_hueBridgeDiscoveryLoading", "hueBridgeIp"],
+    ["discoverMappingBridge", "mappingBridgeDiscovery", "_hueMappingBridgeDiscoveryLoading", "mappingBridgeIp"]
+]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "ensurePageLifecycle",
+        "isPageLifecycleCurrent",
+        `cancelPageLifecycleRequest(page, '${requestKey}')`,
+        `getPageLifecycleRequest(`,
+        `'${requestKey}'`,
+        "isPageLifecycleTargetRequestCurrent",
+        `page.${loadingProperty}`,
+        `delete page._huePageRequests.${requestKey}`,
+        `page.querySelector('#${targetInputId}')`
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} is missing lifecycle guard: ${marker}`);
         }
     }
 }

@@ -156,6 +156,25 @@ for (const [name, script] of [["build-release.sh", releaseShell], ["build-releas
   }
 }
 
+const assertProvenanceGuardPrecedesCleanup = (name, script, guardMarker, cleanupMarker) => {
+  const guardIndex = script.indexOf(guardMarker);
+  const cleanupIndex = script.indexOf(cleanupMarker);
+  if (guardIndex < 0 || cleanupIndex < 0 || guardIndex > cleanupIndex) {
+    throw new Error(`${name} must reject dirty checkouts before deleting previous build artifacts`);
+  }
+};
+
+assertProvenanceGuardPrecedesCleanup(
+  "build-release.sh",
+  releaseShell,
+  'git -c safe.directory="$PWD" status --porcelain=v1 --untracked-files=all',
+  "rm -rf ./Jellyfin.Plugin.Hue/bin/Release");
+assertProvenanceGuardPrecedesCleanup(
+  "build-release.ps1",
+  releasePowerShell,
+  'git -c "safe.directory=$((Get-Location).Path)" status --porcelain=v1 --untracked-files=all',
+  'Remove-Item -Recurse -Force "./Jellyfin.Plugin.Hue/bin/Release"');
+
 const requiredPackagerMarkers = [
   "EXPECTED_FILES = (",
   'FIXED_TIMESTAMP = (1980, 1, 1, 0, 0, 0)',

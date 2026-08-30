@@ -2062,6 +2062,86 @@ async function testMappingDeviceDiscoveryLifecycleGuards() {
     assert.equal(cancelApi._huePlaybackDevices.length, 0, "an aborted selection-clear request cannot repopulate playback-device metadata");
 }
 
+async function testBridgeDiscoveryLifecycleGuards() {
+    for (const testCase of [
+        {
+            method: "discoverBridge",
+            input: "#hueBridgeIp",
+            button: "#discoverBtn",
+            status: "#bridgeStatus",
+            loading: "_hueBridgeDiscoveryLoading",
+            key: "bridgeDiscovery",
+            currentAddress: "192.168.1.20",
+            staleAddress: "192.168.1.21"
+        },
+        {
+            method: "discoverMappingBridge",
+            input: "#mappingBridgeIp",
+            button: "#mappingDiscoverBtn",
+            status: "#mappingBridgeStatus",
+            loading: "_hueMappingBridgeDiscoveryLoading",
+            key: "mappingBridgeDiscovery",
+            currentAddress: "192.168.1.30",
+            staleAddress: "192.168.1.31"
+        }
+    ]) {
+        const harness = makeHarness();
+        const { page, api, requests, dashboard } = harness;
+        const input = page.querySelector(testCase.input);
+        const button = page.querySelector(testCase.button);
+        const status = page.querySelector(testCase.status);
+        let loadingShows = 0;
+        let loadingHides = 0;
+        dashboard.showLoadingMsg = () => { loadingShows += 1; };
+        dashboard.hideLoadingMsg = () => { loadingHides += 1; };
+
+        const staleOperation = api[testCase.method](page);
+        assert.ok(staleOperation && typeof staleOperation.then === "function", `${testCase.method} returns a promise`);
+        assert.equal(requests.length, 1, `${testCase.method} starts one tracked request`);
+        assert.equal(requests[0].options.type, "GET", `${testCase.method} uses GET`);
+        assert.equal(requests[0].options.url, "HueSync/DiscoverBridges", `${testCase.method} targets bridge discovery`);
+        assert.equal(button.disabled, true, `${testCase.method} disables its page-local button while pending`);
+        assert.equal(page[testCase.loading], true, `${testCase.method} records its loading state`);
+        assert.equal(loadingShows, 1, `${testCase.method} shows the loading indicator once`);
+        status.textContent = "unchanged after pagehide";
+
+        api.invalidatePageLifecycle(page);
+        assert.equal(requests[0].promise.aborted, true, `pagehide aborts ${testCase.method}`);
+        assert.equal(button.disabled, false, `pagehide restores the ${testCase.method} button`);
+        assert.equal(page[testCase.loading], false, `pagehide clears ${testCase.method} loading state`);
+        assert.equal(loadingHides, 1, `pagehide hides the ${testCase.method} loading indicator`);
+        requests[0].resolve({ IpAddresses: [testCase.staleAddress] });
+        await staleOperation;
+        assert.equal(input.value, "", `invalidated ${testCase.method} cannot overwrite the hidden page input`);
+        assert.equal(status.textContent, "unchanged after pagehide", `invalidated ${testCase.method} cannot overwrite hidden-page status`);
+
+        api.beginPageLifecycle(page);
+        const currentOperation = api[testCase.method](page);
+        assert.equal(requests.length, 2, `${testCase.method} can be retried after pagehide`);
+        requests[1].resolve({ IpAddresses: [testCase.currentAddress] });
+        await currentOperation;
+        assert.equal(input.value, testCase.currentAddress, `current ${testCase.method} applies the discovered address`);
+        assert.equal(button.disabled, false, `current ${testCase.method} re-enables its button`);
+        assert.equal(page[testCase.loading], false, `current ${testCase.method} clears loading state`);
+        assert.equal(loadingHides, 2, `current ${testCase.method} hides its loading indicator`);
+        assert.equal(page._huePageRequests[testCase.key], undefined, `current ${testCase.method} removes settled request state`);
+
+        input.value = "192.168.1.40";
+        const changedTargetOperation = api[testCase.method](page);
+        assert.equal(requests.length, 3, `${testCase.method} starts a fresh target-mutation request`);
+        input.value = "192.168.1.41";
+        status.textContent = "unchanged after address edit";
+        requests[2].resolve({ IpAddresses: [testCase.staleAddress] });
+        await changedTargetOperation;
+        assert.equal(input.value, "192.168.1.41", `stale ${testCase.method} cannot overwrite an edited address`);
+        assert.equal(status.textContent, "unchanged after address edit", `stale ${testCase.method} cannot overwrite edited-page status`);
+        assert.equal(button.disabled, false, `stale ${testCase.method} re-enables its button`);
+        assert.equal(page[testCase.loading], false, `stale ${testCase.method} clears loading state`);
+        assert.equal(loadingHides, 3, `stale ${testCase.method} hides its loading indicator`);
+        assert.equal(page._huePageRequests[testCase.key], undefined, `stale ${testCase.method} removes request state`);
+    }
+}
+
 async function testConfigurationImportSubmitLifecycleGuards() {
     const harness = makeHarness();
     const { page, api, requests, dashboard } = harness;
@@ -5621,6 +5701,7 @@ await testCredentialLifecyclePreflightPagehideGuard();
 await testRegistrationLifecycleGuards();
 await testMappingDeviceRouteChannelIsolation();
 await testMappingDeviceDiscoveryLifecycleGuards();
+await testBridgeDiscoveryLifecycleGuards();
 await testConfigurationImportSubmitLifecycleGuards();
 await testConfigurationSaveSuppressesStaleConfigurationLoad();
 await testConfigurationSaveInvalidationSuppressesCallbacks();
@@ -5659,4 +5740,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

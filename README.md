@@ -496,7 +496,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.410 (Current)
+### Version 1.5.411 (Current)
+
+- **Discovery lifecycle ownership**: global and per-mapping bridge discovery requests are page-scoped, abort on pagehide, and ignore stale target edits before applying candidates or status.
+
+- **Release-helper safety**: Linux and PowerShell release helpers verify clean Git state before deleting previous artifacts, preserving existing outputs when a dirty checkout is rejected.
 
 - **Administrator import file guard**: configuration restore rejects local files larger than 8 MiB before FileReader parsing and validates top-level collection shapes before rendering migration credential fields.
 

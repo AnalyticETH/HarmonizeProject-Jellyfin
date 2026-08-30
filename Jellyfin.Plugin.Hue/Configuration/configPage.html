@@ -2998,6 +2998,19 @@
                     if (!record) return;
                     delete requests[key];
                     HueConfigurationPage.abortPageLifecycleRequest(record);
+                    if (key === 'bridgeDiscovery' || key === 'mappingBridgeDiscovery') {
+                        var bridgeDiscoveryLoadingProperty = key === 'bridgeDiscovery'
+                            ? '_hueBridgeDiscoveryLoading'
+                            : '_hueMappingBridgeDiscoveryLoading';
+                        var bridgeDiscoveryButtonSelector = key === 'bridgeDiscovery'
+                            ? '#discoverBtn'
+                            : '#mappingDiscoverBtn';
+                        var hadBridgeDiscovery = page[bridgeDiscoveryLoadingProperty] === true;
+                        page[bridgeDiscoveryLoadingProperty] = false;
+                        var bridgeDiscoveryButton = page.querySelector && page.querySelector(bridgeDiscoveryButtonSelector);
+                        if (bridgeDiscoveryButton) bridgeDiscoveryButton.disabled = false;
+                        if (hadBridgeDiscovery) Dashboard.hideLoadingMsg();
+                    }
                     if (key === 'mappingPlaybackDevices') {
                         var hadMappingPlaybackDeviceDiscovery = page._hueMappingPlaybackDevicesLoading === true;
                         page._hueMappingPlaybackDevicesLoading = false;
@@ -13454,15 +13467,44 @@
                     return selectEl.value || "";
                 },
                 discoverBridge: function (page) {
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!page || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                        return Promise.resolve();
+                    }
                     var ipInput = page.querySelector('#hueBridgeIp');
                     var discoverBtn = page.querySelector('#discoverBtn');
+                    var discoveryTarget = {
+                        bridgeIp: ipInput ? String(ipInput.value || '').trim() : ''
+                    };
+
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'bridgeDiscovery');
 
                     discoverBtn.disabled = true;
+                    page._hueBridgeDiscoveryLoading = true;
                     HueConfigurationPage.refreshStatus(page, "Searching for a Hue Bridge...", "info");
                     Dashboard.showLoadingMsg();
 
-                    return ApiClient.getJSON(ApiClient.getUrl("HueSync/DiscoverBridges"))
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'bridgeDiscovery',
+                        ApiClient.getUrl("HueSync/DiscoverBridges"),
+                        null,
+                        discoveryTarget);
+                    var isCurrent = function () {
+                        var currentInput = page.querySelector('#hueBridgeIp');
+                        return HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                            page,
+                            pageGeneration,
+                            request,
+                            {
+                                bridgeIp: currentInput ? String(currentInput.value || '').trim() : ''
+                            });
+                    };
+
+                    return request
                         .then(function (response) {
+                            if (!isCurrent()) return;
                             var addresses = HueConfigurationPage.getBridgeDiscoveryAddresses(response);
                             var ipAddress = addresses[0];
                             if (!ipAddress) {
@@ -13486,10 +13528,17 @@
                             }
                         })
                         .catch(function (err) {
+                            if (!isCurrent()) return;
                             console.error("Bridge discovery error:", err);
                             HueConfigurationPage.refreshStatus(page, "No bridge found. Verify the server can reach the local network.", "error");
                         })
                         .finally(function () {
+                            var requestRecord = request && request._huePageRequestRecord;
+                            var tracked = page && page._huePageRequests &&
+                                page._huePageRequests.bridgeDiscovery === requestRecord;
+                            if (!tracked) return;
+                            delete page._huePageRequests.bridgeDiscovery;
+                            page._hueBridgeDiscoveryLoading = false;
                             discoverBtn.disabled = false;
                             Dashboard.hideLoadingMsg();
                         });
@@ -14698,24 +14747,53 @@
                     HueConfigurationPage.updatePreviewTargetMetadataControls(page);
                 },
 
-                discoverMappingBridge: function () {
-                    var ipInput = document.getElementById('mappingBridgeIp');
-                    var discoverBtn = document.getElementById('mappingDiscoverBtn');
-                    var statusEl = document.getElementById('mappingBridgeStatus');
+                discoverMappingBridge: function (page) {
+                    page = page || document.querySelector('.pluginConfigurationPage');
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!page || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                        return Promise.resolve();
+                    }
+                    var ipInput = page.querySelector('#mappingBridgeIp');
+                    var discoverBtn = page.querySelector('#mappingDiscoverBtn');
+                    var statusEl = page.querySelector('#mappingBridgeStatus');
 
                     if (!ipInput || !discoverBtn) {
-                        return;
+                        return Promise.resolve();
                     }
 
+                    var discoveryTarget = {
+                        bridgeIp: String(ipInput.value || '').trim()
+                    };
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'mappingBridgeDiscovery');
                     discoverBtn.disabled = true;
+                    page._hueMappingBridgeDiscoveryLoading = true;
                     if (statusEl) {
                         statusEl.textContent = "Searching for a Hue Bridge...";
                         statusEl.style.background = "#3f51b5";
                     }
                     Dashboard.showLoadingMsg();
 
-                    ApiClient.getJSON(ApiClient.getUrl("HueSync/DiscoverBridges"))
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'mappingBridgeDiscovery',
+                        ApiClient.getUrl("HueSync/DiscoverBridges"),
+                        null,
+                        discoveryTarget);
+                    var isCurrent = function () {
+                        var currentInput = page.querySelector('#mappingBridgeIp');
+                        return HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                            page,
+                            pageGeneration,
+                            request,
+                            {
+                                bridgeIp: currentInput ? String(currentInput.value || '').trim() : ''
+                            });
+                    };
+
+                    return request
                         .then(function (response) {
+                            if (!isCurrent()) return;
                             var addresses = HueConfigurationPage.getBridgeDiscoveryAddresses(response);
                             var ipAddress = addresses[0];
                             if (!ipAddress) {
@@ -14724,7 +14802,7 @@
 
                             HueConfigurationPage.populateBridgeCandidates(
                                 ipInput,
-                                document.getElementById('mappingBridgeCandidates'),
+                                page.querySelector('#mappingBridgeCandidates'),
                                 addresses);
                             if (statusEl) {
                                 statusEl.textContent = addresses.length === 1
@@ -14734,6 +14812,7 @@
                             }
                         })
                         .catch(function (err) {
+                            if (!isCurrent()) return;
                             console.error("Mapping bridge discovery error:", err);
                             if (statusEl) {
                                 statusEl.textContent = "No bridge found. Verify the server can reach the local network.";
@@ -14741,6 +14820,12 @@
                             }
                         })
                         .finally(function () {
+                            var requestRecord = request && request._huePageRequestRecord;
+                            var tracked = page && page._huePageRequests &&
+                                page._huePageRequests.mappingBridgeDiscovery === requestRecord;
+                            if (!tracked) return;
+                            delete page._huePageRequests.mappingBridgeDiscovery;
+                            page._hueMappingBridgeDiscoveryLoading = false;
                             discoverBtn.disabled = false;
                             Dashboard.hideLoadingMsg();
                         });
@@ -16684,7 +16769,7 @@
 
             // User mapping button event listeners
             document.querySelector('#mappingDiscoverBtn').addEventListener('click', function () {
-                HueConfigurationPage.discoverMappingBridge();
+                HueConfigurationPage.discoverMappingBridge(this.closest('.page'));
             });
 
             document.querySelector('#mappingDiscoverDevicesBtn').addEventListener('click', function () {
