@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.415] - 2026-08-30
+
+### Release verification stability
+- **Bounded FFmpeg cleanup test**: the stderr-reader regression now waits within the existing five-second deadline for inherited pipe descriptors to settle after bounded `Stop()` cleanup, removing scheduler-timing flakes without weakening the cleanup contract.
+- **Regression coverage**: the full 1,391-test suite and repeated stderr-reader stress runs cover the bounded cleanup lifecycle.
+
 ## [1.5.414] - 2026-08-30
 
 ### Scheduler and retained-page lifecycle hardening

@@ -496,7 +496,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.414 (Current)
+### Version 1.5.415 (Current)
+
+- **Bounded FFmpeg cleanup test**: the stderr-reader regression now waits within the existing five-second deadline for inherited pipe descriptors to settle after bounded `Stop()` cleanup, removing scheduler-timing flakes without weakening the cleanup contract.
+
+- **Regression coverage**: the full 1,391-test suite and repeated stderr-reader stress runs cover the bounded cleanup lifecycle.
 
 - **Page-scoped retained configuration listeners**: all inline administrator controls now bind through the active plugin configuration page, so hidden retained pages cannot steal duplicate-ID handlers or leave current controls unbound.
 
