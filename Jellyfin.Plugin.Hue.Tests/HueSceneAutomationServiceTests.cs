@@ -150,6 +150,40 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void SolarCalculator_BoundaryDatesFailClosedInsteadOfThrowing()
+    {
+        var minimumDateException = Record.Exception(() =>
+        {
+            Assert.True(HueSolarCalculator.TryGetSolarNoonLocal(
+                DateTime.MinValue,
+                TimeZoneInfo.Utc,
+                0,
+                0,
+                offsetMinutes: 0,
+                out _,
+                out _));
+        });
+        Assert.Null(minimumDateException);
+
+        var maximumDateResult = false;
+        var maximumDateException = Record.Exception(() =>
+        {
+            maximumDateResult = HueSolarCalculator.TryGetEventLocal(
+                DateTime.MaxValue,
+                TimeZoneInfo.Utc,
+                0,
+                -60,
+                sunrise: false,
+                offsetMinutes: 720,
+                out _,
+                out _);
+        });
+
+        Assert.Null(maximumDateException);
+        Assert.False(maximumDateResult);
+    }
+
+    [Fact]
     public void SolarSchedule_UsesEventTimeForDueAndUpcomingOccurrence()
     {
         var schedule = new HueSceneSchedule

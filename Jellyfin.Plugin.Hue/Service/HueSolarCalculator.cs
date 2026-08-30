@@ -46,8 +46,15 @@ internal static class HueSolarCalculator
         if (!double.IsFinite(solarNoonMinutesUtc))
             return false;
 
-        eventUtc = date.AddMinutes(solarNoonMinutesUtc);
-        return true;
+        try
+        {
+            eventUtc = date.AddMinutes(solarNoonMinutesUtc);
+            return true;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
     }
 
     internal static bool TryGetEventUtc(
@@ -166,8 +173,15 @@ internal static class HueSolarCalculator
 
         var localMeanTime = hourAngle + rightAscension - (0.06571 * approximateTime) - 6.622;
         var universalTime = NormalizeHours(localMeanTime - longitudeHour);
-        eventUtc = date.AddHours(universalTime);
-        return true;
+        try
+        {
+            eventUtc = date.AddHours(universalTime);
+            return true;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
     }
 
     internal static bool TryGetEventLocal(
@@ -223,8 +237,11 @@ internal static class HueSolarCalculator
         // recurrence anchor before applying the user's optional offset.
         for (var dayOffset = -1; dayOffset <= 1; dayOffset++)
         {
+            if (!TryAddDays(utcNoon.Date, dayOffset, out var calculationDate))
+                continue;
+
             if (!TryGetSolarNoonUtc(
-                    utcNoon.Date.AddDays(dayOffset),
+                    calculationDate,
                     latitude,
                     longitude,
                     out var calculatedUtc))
@@ -239,12 +256,21 @@ internal static class HueSolarCalculator
             if (baseEventLocal.Date != localDate.Date)
                 continue;
 
-            var candidateUtc = DateTime.SpecifyKind(
-                baseEventUtc.AddMinutes(offsetMinutes),
-                DateTimeKind.Utc);
-            var candidateLocal = DateTime.SpecifyKind(
-                TimeZoneInfo.ConvertTimeFromUtc(candidateUtc, timeZone),
-                DateTimeKind.Unspecified);
+            if (!TryAddMinutes(baseEventUtc, offsetMinutes, out var candidateUtc))
+                continue;
+
+            DateTime candidateLocal;
+            try
+            {
+                candidateLocal = DateTime.SpecifyKind(
+                    TimeZoneInfo.ConvertTimeFromUtc(candidateUtc, timeZone),
+                    DateTimeKind.Unspecified);
+            }
+            catch (ArgumentException)
+            {
+                continue;
+            }
+
             eventUtc = candidateUtc;
             eventLocal = new DateTime(
                 candidateLocal.Year,
@@ -364,8 +390,11 @@ internal static class HueSolarCalculator
         // midnight because the schedule date belongs to the unshifted solar event.
         for (var dayOffset = -1; dayOffset <= 1; dayOffset++)
         {
+            if (!TryAddDays(utcNoon.Date, dayOffset, out var calculationDate))
+                continue;
+
             if (!TryGetEventUtc(
-                    utcNoon.Date.AddDays(dayOffset),
+                    calculationDate,
                     latitude,
                     longitude,
                     sunrise,
@@ -380,12 +409,21 @@ internal static class HueSolarCalculator
             if (baseEventLocal.Date != localDate.Date)
                 continue;
 
-            var candidateUtc = DateTime.SpecifyKind(
-                baseEventUtc.AddMinutes(offsetMinutes),
-                DateTimeKind.Utc);
-            var candidateLocal = DateTime.SpecifyKind(
-                TimeZoneInfo.ConvertTimeFromUtc(candidateUtc, timeZone),
-                DateTimeKind.Unspecified);
+            if (!TryAddMinutes(baseEventUtc, offsetMinutes, out var candidateUtc))
+                continue;
+
+            DateTime candidateLocal;
+            try
+            {
+                candidateLocal = DateTime.SpecifyKind(
+                    TimeZoneInfo.ConvertTimeFromUtc(candidateUtc, timeZone),
+                    DateTimeKind.Unspecified);
+            }
+            catch (ArgumentException)
+            {
+                continue;
+            }
+
             eventUtc = candidateUtc;
             eventLocal = new DateTime(
                 candidateLocal.Year,
@@ -402,6 +440,34 @@ internal static class HueSolarCalculator
     }
 
     private static double SinDegrees(double degrees) => Math.Sin(ToRadians(degrees));
+
+    private static bool TryAddDays(DateTime value, int days, out DateTime result)
+    {
+        try
+        {
+            result = value.AddDays(days);
+            return true;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            result = default;
+            return false;
+        }
+    }
+
+    private static bool TryAddMinutes(DateTime value, int minutes, out DateTime result)
+    {
+        try
+        {
+            result = value.AddMinutes(minutes);
+            return true;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            result = default;
+            return false;
+        }
+    }
 
     private static double ToRadians(double degrees) => degrees * Math.PI / 180.0;
 
