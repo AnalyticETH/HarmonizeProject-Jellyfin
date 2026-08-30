@@ -1809,9 +1809,27 @@
                 // arbitrarily large administrator-selected file before the server can
                 // reject it, allowing a malformed local file to monopolize the page.
                 maxConfigurationImportFileBytes: 8 * 1024 * 1024,
-                globalBridgeIp: "",
-                globalHasAppKey: false,
-                globalHasClientKey: false,
+                getGlobalCredentialState: function (page) {
+                    page = page || (typeof document !== 'undefined' && document && typeof document.querySelector === 'function'
+                        ? document.querySelector('.pluginConfigurationPage')
+                        : null);
+                    if (!page) {
+                        return {
+                            bridgeIp: '',
+                            hasAppKey: false,
+                            hasClientKey: false
+                        };
+                    }
+                    if (!page._hueGlobalCredentialState || typeof page._hueGlobalCredentialState !== 'object' ||
+                        Array.isArray(page._hueGlobalCredentialState)) {
+                        page._hueGlobalCredentialState = {
+                            bridgeIp: '',
+                            hasAppKey: false,
+                            hasClientKey: false
+                        };
+                    }
+                    return page._hueGlobalCredentialState;
+                },
                 isSameBridgeTarget: function (left, right) {
                     if (!left || !right) return false;
                     return left.trim().replace(/\.+$/, '').toLowerCase() === right.trim().replace(/\.+$/, '').toLowerCase();
@@ -2022,14 +2040,17 @@
                     if (addresses.length > 0) input.value = addresses[0];
                 },
                 canUseStoredGlobalCredentials: function (page, bridgeIp, requireClientKey) {
-                    page = page || document.querySelector('.pluginConfigurationPage');
+                    page = page || (typeof document !== 'undefined' && document && typeof document.querySelector === 'function'
+                        ? document.querySelector('.pluginConfigurationPage')
+                        : null);
+                    var globalCredentialState = HueConfigurationPage.getGlobalCredentialState(page);
                     var target = (bridgeIp || '').trim();
-                    if (!page || !target || !HueConfigurationPage.globalHasAppKey ||
-                        !HueConfigurationPage.isSameBridgeTarget(target, HueConfigurationPage.globalBridgeIp)) {
+                    if (!page || !target || globalCredentialState.hasAppKey !== true ||
+                        !HueConfigurationPage.isSameBridgeTarget(target, globalCredentialState.bridgeIp)) {
                         return false;
                     }
 
-                    return !requireClientKey || HueConfigurationPage.globalHasClientKey;
+                    return !requireClientKey || globalCredentialState.hasClientKey === true;
                 },
                 canUseStoredMappingCredentials: function (target, requireClientKey, page) {
                     var mappingState = HueConfigurationPage.getMappingEditingState(page);
@@ -3984,22 +4005,23 @@
                             }
                             return value == null ? fallback : value;
                         };
-                        HueConfigurationPage.globalBridgeIp = String(getConfigValue('HueBridgeIp', '') || '').trim();
-                        HueConfigurationPage.globalHasAppKey = !!getConfigValue('HasAppKey', false);
-                        HueConfigurationPage.globalHasClientKey = !!getConfigValue('HasClientKey', false);
+                        var globalCredentialState = HueConfigurationPage.getGlobalCredentialState(page);
+                        globalCredentialState.bridgeIp = String(getConfigValue('HueBridgeIp', '') || '').trim();
+                        globalCredentialState.hasAppKey = !!getConfigValue('HasAppKey', false);
+                        globalCredentialState.hasClientKey = !!getConfigValue('HasClientKey', false);
                         page._hueBridgeCertificatePins = HueConfigurationPage.getBridgeCertificatePins(config);
                         HueConfigurationPage.renderBridgeCertificatePins(page);
-                        page.querySelector('#hueBridgeIp').value = HueConfigurationPage.globalBridgeIp;
+                        page.querySelector('#hueBridgeIp').value = globalCredentialState.bridgeIp;
                         page.querySelector('#hueAppKey').value = '';
                         page.querySelector('#hueClientKey').value = '';
                         page.querySelector('#clearStoredCredentials').checked = false;
-                        page.querySelector('#hueAppKey').placeholder = HueConfigurationPage.globalHasAppKey
+                        page.querySelector('#hueAppKey').placeholder = globalCredentialState.hasAppKey
                             ? 'Stored securely; leave blank to keep'
                             : 'Enter Hue App Key';
-                        page.querySelector('#hueClientKey').placeholder = HueConfigurationPage.globalHasClientKey
+                        page.querySelector('#hueClientKey').placeholder = globalCredentialState.hasClientKey
                             ? 'Stored securely; leave blank to keep'
                             : 'Enter Hue Client Key';
-                        HueConfigurationPage.selectedAreaId = getConfigValue('EntertainmentAreaId', '');
+                        page._hueSelectedAreaId = getConfigValue('EntertainmentAreaId', '');
                         page.querySelector('#channelIds').value = getConfigValue('ChannelIds', '');
                         page.querySelector('#playbackMediaFilter').value = getConfigValue('PlaybackMediaFilter', 'AllVideo');
                         page.querySelector('#audioSensitivityPercent').value = getConfigValue('AudioSensitivityPercent', 100);
@@ -4057,7 +4079,7 @@
                         page.querySelector('#sceneAutomationPlaybackPolicy').value = getConfigValue('SceneAutomationPlaybackPolicy', 'Skip');
                         page.querySelector('#sceneAutomationPlaybackScope').value = getConfigValue('SceneAutomationPlaybackScope', 'AnyTarget');
                         page.querySelector('#sceneAutomationDeferMinutes').value = getConfigValue('SceneAutomationDeferMinutes', 15);
-                        HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
+                        HueConfigurationPage.loadEntertainmentAreas(page, page._hueSelectedAreaId);
                         HueConfigurationPage.loadColorPresets(page);
                         HueConfigurationPage.loadScenePlaylists(page);
                         HueConfigurationPage.loadSceneSchedules(page);
@@ -4177,6 +4199,7 @@
                         SceneAutomationPlaybackScope: page.querySelector('#sceneAutomationPlaybackScope').value,
                         SceneAutomationDeferMinutes: parseNumberOrDefault('#sceneAutomationDeferMinutes', 15)
                     };
+                    page._hueSelectedAreaId = config.EntertainmentAreaId;
 
                     var request = HueConfigurationPage.getPageLifecycleRequest(
                         page,
@@ -4195,9 +4218,10 @@
                     return request.then(function (response) {
                         if (!isCurrent()) return;
                         response = response || {};
-                        HueConfigurationPage.globalBridgeIp = String(response.hueBridgeIp || response.HueBridgeIp || page.querySelector('#hueBridgeIp').value || '').trim();
-                        HueConfigurationPage.globalHasAppKey = response.hasAppKey !== undefined ? !!response.hasAppKey : !!response.HasAppKey;
-                        HueConfigurationPage.globalHasClientKey = response.hasClientKey !== undefined ? !!response.hasClientKey : !!response.HasClientKey;
+                        var globalCredentialState = HueConfigurationPage.getGlobalCredentialState(page);
+                        globalCredentialState.bridgeIp = String(response.hueBridgeIp || response.HueBridgeIp || page.querySelector('#hueBridgeIp').value || '').trim();
+                        globalCredentialState.hasAppKey = response.hasAppKey !== undefined ? !!response.hasAppKey : !!response.HasAppKey;
+                        globalCredentialState.hasClientKey = response.hasClientKey !== undefined ? !!response.hasClientKey : !!response.HasClientKey;
                         if (clearCredentialsCheckbox) clearCredentialsCheckbox.checked = false;
                         HueConfigurationPage.refreshStatus(page, "Configuration saved.", "success");
                     }).catch(function (err) {
@@ -13537,6 +13561,11 @@
 
                     return selectEl.value || "";
                 },
+                getPageSelectedAreaId: function (page) {
+                    if (!page) return '';
+                    var selectedId = HueConfigurationPage.getSelectedAreaId(page);
+                    return selectedId || String(page._hueSelectedAreaId || '');
+                },
                 discoverBridge: function (page) {
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     if (!page || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
@@ -13595,7 +13624,7 @@
                             // so discovery completes the whole setup flow in one click.
                             if (page.querySelector('#hueAppKey').value.trim() ||
                                 HueConfigurationPage.canUseStoredGlobalCredentials(page, ipAddress, false)) {
-                                HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
+                                HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.getPageSelectedAreaId(page));
                             }
                         })
                         .catch(function (err) {
@@ -13680,7 +13709,7 @@
                                 page.querySelector('#hueClientKey').value = clientKey;
                                 Dashboard.alert("Registration Successful! Keys saved to form.");
                                 HueConfigurationPage.refreshStatus(page, "Bridge linked. Entertainment areas ready to refresh.", "success");
-                                HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
+                                HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.getPageSelectedAreaId(page));
                             } else {
                                 Dashboard.alert("Registration returned without both required credentials. Press the bridge link button and try again.");
                             }
@@ -16395,8 +16424,8 @@
 
             document.querySelector('#refreshAreasBtn').addEventListener('click', function () {
                 var page = this.closest('.page');
-                HueConfigurationPage.selectedAreaId = HueConfigurationPage.getSelectedAreaId(page);
-                HueConfigurationPage.loadEntertainmentAreas(page, HueConfigurationPage.selectedAreaId);
+                page._hueSelectedAreaId = HueConfigurationPage.getSelectedAreaId(page);
+                HueConfigurationPage.loadEntertainmentAreas(page, page._hueSelectedAreaId);
             });
 
             document.querySelector('#testConnectionBtn').addEventListener('click', function () {

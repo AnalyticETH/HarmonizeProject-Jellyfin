@@ -335,6 +335,10 @@ for (const [role, ids] of Object.entries(requiredLiveRegions)) {
 
 const requiredScript = [
     "function escapeAttribute(str)",
+    "getGlobalCredentialState: function",
+    "page._hueGlobalCredentialState",
+    "getPageSelectedAreaId: function",
+    "page._hueSelectedAreaId",
     "normalizeJellyfinUserId: function",
     "areSameJellyfinUserId: function",
     "getTargetMappingDuplicateKey: function",
@@ -846,7 +850,11 @@ for (const forbidden of [
     "HueConfigurationPage.mappingEditingUserId",
     "HueConfigurationPage.mappingEditingMappingId",
     "HueConfigurationPage.mappingEditingHasAppKey",
-    "HueConfigurationPage.mappingEditingHasClientKey"
+    "HueConfigurationPage.mappingEditingHasClientKey",
+    "HueConfigurationPage.selectedAreaId",
+    "HueConfigurationPage.globalBridgeIp",
+    "HueConfigurationPage.globalHasAppKey",
+    "HueConfigurationPage.globalHasClientKey"
 ]) {
     if (scriptMatch[1].includes(forbidden)) {
         throw new Error(`${file} contains an unscoped mapping-page lookup: ${forbidden}`);

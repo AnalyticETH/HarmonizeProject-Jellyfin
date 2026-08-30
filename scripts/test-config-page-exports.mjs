@@ -2365,8 +2365,66 @@ async function testConfigurationSaveSuppressesStaleConfigurationLoad() {
         "Configuration saved.",
         "current configuration save reports success"
     );
-    assert.equal(api.globalBridgeIp, "edited-bridge", "current configuration save updates the global target");
+    assert.equal(api.getGlobalCredentialState(page).bridgeIp, "edited-bridge", "current configuration save updates the page's global target");
     assert.equal(page.querySelector('#saveConfigurationBtn').disabled, false, "configuration save re-enables its button");
+}
+
+async function testSelectedAreaSnapshotPageIsolation() {
+    const harness = makeHarness();
+    const { page, makePage, api, requests } = harness;
+    const siblingPage = makePage();
+    const areaLoads = [];
+    api.loadEntertainmentAreas = (currentPage, selectedId) => {
+        areaLoads.push({ page: currentPage, selectedId });
+    };
+    page._hueSelectedAreaId = "area-active";
+    page.querySelector("#entertainmentAreaSelect").value = "area-active";
+    page.querySelector("#hueBridgeIp").value = "192.168.1.70";
+    page.querySelector("#hueAppKey").value = "active-app-key";
+    siblingPage._hueSelectedAreaId = "area-sibling";
+    siblingPage.querySelector("#entertainmentAreaSelect").value = "area-sibling";
+    // Model the legacy singleton being overwritten by a retained sibling.
+    api.selectedAreaId = "area-sibling";
+
+    const operation = api.discoverBridge(page);
+    assert.equal(requests.length, 1, "active page bridge discovery starts one request");
+    requests[0].resolve({ IpAddresses: ["192.168.1.70"] });
+    await operation;
+
+    assert.equal(areaLoads.length, 1, "bridge discovery refreshes areas once");
+    assert.equal(areaLoads[0].page, page, "bridge discovery refreshes the owning page");
+    assert.equal(areaLoads[0].selectedId, "area-active", "bridge discovery preserves the owning page area selection");
+}
+
+async function testGlobalCredentialSnapshotPageIsolation() {
+    const harness = makeHarness();
+    const { page, makePage, api, requests } = harness;
+    const siblingPage = makePage();
+    api.loadEntertainmentAreas = () => {};
+    api.loadColorPresets = () => {};
+    api.loadScenePlaylists = () => {};
+    api.loadSceneSchedules = () => {};
+
+    const activeLoad = api.loadConfiguration(page);
+    const siblingLoad = api.loadConfiguration(siblingPage);
+    assert.equal(requests.length, 2, "each retained page starts its own configuration load");
+    requests[0].resolve({ HueBridgeIp: "bridge-active", HasAppKey: true, HasClientKey: true });
+    await activeLoad;
+    requests[1].resolve({ HueBridgeIp: "bridge-sibling", HasAppKey: false, HasClientKey: false });
+    await siblingLoad;
+
+    assert.equal(page.querySelector("#hueBridgeIp").value, "bridge-active", "active page keeps its own global bridge form value");
+    assert.equal(siblingPage.querySelector("#hueBridgeIp").value, "bridge-sibling", "sibling page keeps its own global bridge form value");
+    assert.equal(
+        api.canUseStoredGlobalCredentials(page, "bridge-active", true),
+        true,
+        "active page keeps its own stored credential-presence snapshot"
+    );
+    assert.equal(
+        api.canUseStoredGlobalCredentials(siblingPage, "bridge-sibling", false),
+        false,
+        "sibling page uses its own credential-presence snapshot"
+    );
 }
 
 async function testConfigurationSaveInvalidationSuppressesCallbacks() {
@@ -5858,6 +5916,8 @@ await testMappingDeviceDiscoveryLifecycleGuards();
 await testBridgeDiscoveryLifecycleGuards();
 await testConfigurationImportSubmitLifecycleGuards();
 await testConfigurationSaveSuppressesStaleConfigurationLoad();
+await testSelectedAreaSnapshotPageIsolation();
+await testGlobalCredentialSnapshotPageIsolation();
 await testConfigurationSaveInvalidationSuppressesCallbacks();
 await testConfigurationSaveDuplicateSubmitIsBounded();
 await testColorPresetSaveLifecycleGuards();
