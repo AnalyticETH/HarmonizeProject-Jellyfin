@@ -496,7 +496,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.407 (Current)
+### Version 1.5.408 (Current)
+
+- **Three-runner version monitoring**: the host's daily `actions/runner` version check now covers the isolated build, release, and rootless-Docker Dependabot installations, and the runbook documents all three update/reverification paths.
+
+### Version 1.5.407
 
 - **Trusted runner binding**: workflow validators now require every concrete build and security job to use the non-publishing `harmonizeproject-jellyfin` runner; only GitHub Release publication may use the isolated release runner, with executable negative fixtures for accidental reassignment.
 

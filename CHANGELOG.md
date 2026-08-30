@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.408] - 2026-08-30
+
+### Runner version monitoring
+- **Three-runner version monitoring**: the host's daily `actions/runner` version check now covers the isolated build, release, and rootless-Docker Dependabot installations, and the runbook documents all three update/reverification paths.
+
 ## [1.5.407] - 2026-08-30
 
 ### Trusted workflow and bridge-state hardening
