@@ -32,6 +32,30 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public void Constructor_IsolatesPlaybackRetryPolicyFromInjectedClient()
+    {
+        using var httpClient = new HttpClient(new BlockingHueHandler());
+        var injectedClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
+        {
+            RetryAttempts = 7
+        };
+
+        var service = new HueSyncService(
+            Mock.Of<ISessionManager>(),
+            Mock.Of<ILogger<HueSyncService>>(),
+            Mock.Of<ILoggerFactory>(),
+            injectedClient,
+            Mock.Of<IMediaEncoder>());
+
+        var serviceClient = Assert.IsType<HueClient>(GetPrivateField(service, "_hueClient"));
+        Assert.NotSame(injectedClient, serviceClient);
+
+        serviceClient.RetryAttempts = 1;
+
+        Assert.Equal(7, injectedClient.RetryAttempts);
+    }
+
+    [Fact]
     public async Task HasActivePlaybackSessions_IgnoresTerminalSnapshots()
     {
         using var httpClient = new HttpClient(new BlockingHueHandler());

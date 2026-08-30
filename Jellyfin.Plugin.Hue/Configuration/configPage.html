@@ -2757,6 +2757,28 @@
                     if (!hasStoredCredential('HasAppKey', 'hasAppKey')) return false;
                     return !requireClientKey || hasStoredCredential('HasClientKey', 'hasClientKey');
                 },
+                isMappingPlaybackDevicesOwner: function (page) {
+                    var owner = HueConfigurationPage._huePlaybackDevicesOwner;
+                    return !owner || owner === page;
+                },
+                claimMappingPlaybackDevices: function (page) {
+                    var owner = HueConfigurationPage._huePlaybackDevicesOwner;
+                    // The compatibility cache is shared by the legacy mapping
+                    // helpers, so a second live configuration page must not steal
+                    // it from the page currently using it. A hidden owner is safe
+                    // to replace because its lifecycle has already been invalidated.
+                    if (owner && owner !== page && owner._huePageActive !== false) return false;
+                    HueConfigurationPage._huePlaybackDevicesOwner = page || null;
+                    HueConfigurationPage._huePlaybackDevices = [];
+                    return true;
+                },
+                clearMappingPlaybackDevices: function (page) {
+                    var owner = HueConfigurationPage._huePlaybackDevicesOwner;
+                    if (owner && owner !== page) return false;
+                    HueConfigurationPage._huePlaybackDevices = [];
+                    if (owner === page) HueConfigurationPage._huePlaybackDevicesOwner = null;
+                    return true;
+                },
                 refreshMappingDeviceRoutes: function (selectedDeviceId, preserveEditor) {
                     var select = document.getElementById('mappingDeviceRouteSelect');
                     if (!select) return;
@@ -2805,17 +2827,30 @@
                     page = page || document.querySelector('.pluginConfigurationPage');
                     if (!page) return;
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
                     HueConfigurationPage.cancelPageLifecycleRequest(page, 'mappingPlaybackDevices');
-                    var button = document.getElementById('mappingDiscoverDevicesBtn');
-                    var status = document.getElementById('mappingDeviceDiscoveryStatus');
-                    var userSelect = document.getElementById('mappingUserSelect');
+                    // Keep every control lookup scoped to the page whose request is
+                    // being tracked. Jellyfin can retain more than one configuration
+                    // page while navigating, so document-level lookups can disable or
+                    // update a different cached page than the one that owns this request.
+                    var button = page.querySelector('#mappingDiscoverDevicesBtn');
+                    var status = page.querySelector('#mappingDeviceDiscoveryStatus');
+                    var userSelect = page.querySelector('#mappingUserSelect');
                     var userId = userSelect ? String(userSelect.value || '').trim() : '';
                     if (!userId) {
                         Dashboard.alert("Choose a user mapping before discovering playback devices.");
                         return;
                     }
+                    if (!HueConfigurationPage.claimMappingPlaybackDevices(page)) {
+                        if (status) {
+                            status.textContent = "Another active Hue configuration page is using playback-device discovery. Close it or wait for it to finish, then try again.";
+                            status.style.color = "#f0ad4e";
+                        }
+                        return;
+                    }
                     if (button) button.disabled = true;
                     if (status) status.textContent = "Reading recent Jellyfin playback sessions...";
+                    page._hueMappingPlaybackDevicesLoading = true;
                     Dashboard.showLoadingMsg();
                     var discoveryUrl = ApiClient.getUrl("HueSync/PlaybackDevices");
                     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
@@ -2839,7 +2874,7 @@
                                 page,
                                 pageGeneration,
                                 request,
-                                currentTarget)) return;
+                                currentTarget) || !HueConfigurationPage.isMappingPlaybackDevicesOwner(page)) return;
                             var devices = Array.isArray(response) ? response : [];
                             devices = devices.filter(function (device) {
                                 var candidate = device && (device.userId !== undefined ? device.userId : device.UserId);
@@ -2871,11 +2906,19 @@
                             var currentTarget = {
                                 userId: currentUserSelect ? String(currentUserSelect.value || '').trim() : ''
                             };
+                            // A target change makes the response stale, but the
+                            // request can still own the page lifecycle slot. Clear
+                            // this operation's UI in that case; only pagehide or a
+                            // superseding request should leave cleanup to its owner.
+                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                             if (!HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
                                 page,
                                 pageGeneration,
                                 request,
-                                currentTarget)) return;
+                                currentTarget)) {
+                                HueConfigurationPage.clearMappingPlaybackDevices(page);
+                            }
+                            page._hueMappingPlaybackDevicesLoading = false;
                             if (button) button.disabled = false;
                             Dashboard.hideLoadingMsg();
                         });
@@ -2950,6 +2993,14 @@
                     if (!record) return;
                     delete requests[key];
                     HueConfigurationPage.abortPageLifecycleRequest(record);
+                    if (key === 'mappingPlaybackDevices') {
+                        var hadMappingPlaybackDeviceDiscovery = page._hueMappingPlaybackDevicesLoading === true;
+                        page._hueMappingPlaybackDevicesLoading = false;
+                        HueConfigurationPage.clearMappingPlaybackDevices(page);
+                        var mappingPlaybackDevicesButton = page.querySelector && page.querySelector('#mappingDiscoverDevicesBtn');
+                        if (mappingPlaybackDevicesButton) mappingPlaybackDevicesButton.disabled = false;
+                        if (hadMappingPlaybackDeviceDiscovery) Dashboard.hideLoadingMsg();
+                    }
                     var directScenePlaylistMutation = page._hueScenePlaylistMutation;
                     if (directScenePlaylistMutation && directScenePlaylistMutation.key === key) {
                         if (key === 'scenePlaylistSave') page._hueScenePlaylistSaving = false;
@@ -3166,6 +3217,9 @@
                         page._huePreviewRequest ||
                         page._hueCaptureRequest ||
                         page._huePreviewCancellationRequest);
+                    var hadMappingPlaybackDeviceDiscovery = page._hueMappingPlaybackDevicesLoading === true;
+                    var hadMappingPlaybackDeviceRequest = !!(
+                        page._huePageRequests && page._huePageRequests.mappingPlaybackDevices);
                     if (page._hueCertificatePreflights) {
                         Object.keys(page._hueCertificatePreflights).forEach(function (key) {
                             page._hueCertificatePreflights[key].canceled = true;
@@ -3362,6 +3416,16 @@
                         HueConfigurationPage.cancelPageLifecycleRequest(page, key);
                     });
                     page._huePageRequests = {};
+                    // A hidden page must not retain private playback-device rows or
+                    // leave the discovery affordance/spinner wedged when its request
+                    // settles after pagehide.
+                    page._hueMappingPlaybackDevicesLoading = false;
+                    HueConfigurationPage.clearMappingPlaybackDevices(page);
+                    if (hadMappingPlaybackDeviceDiscovery && !hadMappingPlaybackDeviceRequest) {
+                        var mappingPlaybackDevicesButton = page.querySelector && page.querySelector('#mappingDiscoverDevicesBtn');
+                        if (mappingPlaybackDevicesButton) mappingPlaybackDevicesButton.disabled = false;
+                        Dashboard.hideLoadingMsg();
+                    }
                     page._huePreviewRequest = null;
                     page._hueCaptureRequest = null;
                     page._huePreviewCancellationRequest = null;
@@ -15646,7 +15710,7 @@
                     }
                     if (bridgeIpEl) bridgeIpEl.value = "";
                     if (deviceTargetsEl) deviceTargetsEl.value = "";
-                    HueConfigurationPage._huePlaybackDevices = [];
+                    HueConfigurationPage.clearMappingPlaybackDevices(page);
                     HueConfigurationPage._hueDeviceRouteCredentials = {};
                     HueConfigurationPage.clearMappingDeviceRouteEditor();
                     if (appKeyEl) {
@@ -15872,7 +15936,7 @@
                             }), null, 2);
                         }
                         HueConfigurationPage._hueDeviceRouteCredentials = {};
-                        HueConfigurationPage._huePlaybackDevices = [];
+                        HueConfigurationPage.clearMappingPlaybackDevices(page);
                         HueConfigurationPage.refreshMappingDeviceRoutes();
                         page.querySelector('#mappingAppKey').value = "";
                         page.querySelector('#mappingAppKey').placeholder = hasAppKey ? "Stored securely; leave blank to keep" : "Enter Hue App Key";

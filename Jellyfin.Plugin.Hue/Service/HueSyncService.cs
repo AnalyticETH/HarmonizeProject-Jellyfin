@@ -290,7 +290,11 @@ namespace Jellyfin.Plugin.Hue.Service
             _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
-            _hueClient = hueClient ?? throw new ArgumentNullException(nameof(hueClient));
+            // RetryAttempts is playback-scoped and is changed when a session starts.
+            // Keep the service's mutable policy off the DI-owned client, which is also
+            // used by API and diagnostic requests and must not inherit one user's policy.
+            _hueClient = (hueClient ?? throw new ArgumentNullException(nameof(hueClient)))
+                .CreatePlaybackClient();
             _mediaEncoder = mediaEncoder ?? throw new ArgumentNullException(nameof(mediaEncoder));
             _bridgeLifecycleGate = bridgeLifecycleGate ?? throw new ArgumentNullException(nameof(bridgeLifecycleGate));
             _managesPlaybackEvents = managesPlaybackEvents;

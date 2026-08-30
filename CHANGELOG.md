@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.406] - 2026-08-30
+
+### Playback and discovery isolation
+- **Playback-device discovery resilience**: invalid user filters fail with 400, session enumeration failures return a sanitized 503, null session lists remain empty, and credential-free device routes stay deterministically sorted and bounded to 256 results.
+- **Concurrent playback transport**: the shared HTTP timeout is configured once by the typed client factory, so creating a concurrent playback client never mutates a client after request startup.
+- **Regression coverage**: transport and configuration-page tests cover shared-client concurrency and route/outer channel isolation.
+
 ## [1.5.405] - 2026-08-30
 
 ### Dependency inspection lifecycle extension

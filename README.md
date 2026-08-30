@@ -490,7 +490,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.405 (Current)
+### Version 1.5.406 (Current)
+
+- **Playback retry isolation**: each playback worker clones the injected Hue transport before applying its per-session retry policy, so API and diagnostic calls cannot inherit another session's mutable retry setting.
+
+- **Playback-device discovery lifecycle**: discovery is scoped to its owning configuration page, rejects competing live-page ownership, aborts on cancellation/pagehide, clears only its own cache, and ignores stale user-target responses while restoring controls and loading state.
+
+- **Regression coverage**: constructor isolation, retained-page ownership, selection-clear cancellation, pagehide abort, stale completion, retry, and current-success contracts cover the new boundaries.
+
+### Version 1.5.405
 
 - **Dependency inspection lifecycle**: saved-scene and color-preset dependency checks now share generation, selection, and request ownership; duplicate submissions are suppressed, page teardown aborts in-flight work, and stale responses cannot overwrite a reused administrator page.
 - **Control recovery and regression coverage**: the inspect control recovers after success, failure, selection changes, and pagehide cancellation, with executable current-success, stale-selection, duplicate, and teardown contracts.

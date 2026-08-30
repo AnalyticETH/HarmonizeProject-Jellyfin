@@ -1928,6 +1928,108 @@ async function testMappingDeviceRouteChannelIsolation() {
     assert.equal(page.querySelector("#mappingDeviceRouteChannels").value, "4, 9", "outer loading preserves the route profile");
 }
 
+async function testMappingDeviceDiscoveryLifecycleGuards() {
+    const harness = makeHarness();
+    const { page, api, requests, dashboard } = harness;
+    const userId = "12345678-1234-4234-8234-1234567890ab";
+    const userSelect = page.querySelector("#mappingUserSelect");
+    const button = page.querySelector("#mappingDiscoverDevicesBtn");
+    const status = page.querySelector("#mappingDeviceDiscoveryStatus");
+    userSelect.value = userId;
+    api.refreshMappingDeviceRoutes = () => {};
+    let loadingShows = 0;
+    let loadingHides = 0;
+    dashboard.showLoadingMsg = () => { loadingShows += 1; };
+    dashboard.hideLoadingMsg = () => { loadingHides += 1; };
+
+    const staleOperation = api.discoverMappingDevices(page);
+    assert.equal(requests.length, 1, "device discovery starts one tracked request");
+    assert.equal(requests[0].options.url, "HueSync/PlaybackDevices?userId=" + userId, "device discovery scopes the request to the selected Jellyfin user");
+    assert.equal(button.disabled, true, "device discovery disables its page-local button while pending");
+    assert.equal(page._hueMappingPlaybackDevicesLoading, true, "device discovery records its loading state");
+    assert.equal(loadingShows, 1, "device discovery shows the loading indicator once");
+    status.textContent = "unchanged after pagehide";
+    api._huePlaybackDevices = [{ UserId: userId, DeviceId: "private-device" }];
+
+    api.invalidatePageLifecycle(page);
+    assert.equal(requests[0].promise.aborted, true, "pagehide aborts an in-flight device discovery request");
+    assert.equal(button.disabled, false, "pagehide restores the page-local device discovery button");
+    assert.equal(page._hueMappingPlaybackDevicesLoading, false, "pagehide clears device discovery loading state");
+    assert.equal(api._huePlaybackDevices.length, 0, "pagehide clears cached playback-device metadata");
+    assert.equal(loadingHides, 1, "pagehide hides the loading indicator owned by device discovery");
+
+    requests[0].resolve([{ UserId: userId, DeviceId: "stale-device" }]);
+    await staleOperation;
+    assert.equal(status.textContent, "unchanged after pagehide", "stale device discovery cannot overwrite the hidden page");
+    assert.equal(api._huePlaybackDevices.length, 0, "stale device discovery cannot repopulate cached playback-device metadata");
+
+    api.beginPageLifecycle(page);
+    const currentOperation = api.discoverMappingDevices(page);
+    assert.equal(requests.length, 2, "device discovery can be retried after pagehide");
+    requests[1].resolve([{ UserId: userId, DeviceId: "current-device" }]);
+    await currentOperation;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(button.disabled, false, "current device discovery re-enables its page-local button");
+    assert.equal(page._hueMappingPlaybackDevicesLoading, false, "current device discovery clears its loading state");
+    assert.equal(api._huePlaybackDevices.length, 1, "current device discovery retains the current-user row");
+    assert.equal(api._huePlaybackDevices[0].DeviceId, "current-device", "current device discovery retains the current device identity");
+    assert.equal(loadingHides, 2, "current device discovery hides the loading indicator after completion");
+
+    const changedTargetOperation = api.discoverMappingDevices(page);
+    assert.equal(requests.length, 3, "a target-change scenario starts a fresh device discovery request");
+    const changedUserId = "87654321-4321-4234-9234-ba0987654321";
+    userSelect.value = changedUserId;
+    status.textContent = "unchanged after user change";
+    api._huePlaybackDevices = [];
+    requests[2].resolve([{ UserId: userId, DeviceId: "stale-user-device" }]);
+    await changedTargetOperation;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(button.disabled, false, "a stale user-target response re-enables the page-local discovery button");
+    assert.equal(page._hueMappingPlaybackDevicesLoading, false, "a stale user-target response clears discovery loading state");
+    assert.equal(api._huePlaybackDevices.length, 0, "a stale user-target response cannot repopulate playback-device metadata");
+    assert.equal(status.textContent, "unchanged after user change", "a stale user-target response cannot overwrite status");
+    assert.equal(loadingHides, 3, "a stale user-target response releases its loading indicator");
+
+    const retainedOwner = { _huePageActive: true };
+    api._huePlaybackDevicesOwner = retainedOwner;
+    api._huePlaybackDevices = [{ UserId: changedUserId, DeviceId: "active-page-device" }];
+    const blockedOperation = api.discoverMappingDevices(page);
+    assert.equal(blockedOperation, undefined, "a discovery blocked by another live page does not create an operation");
+    assert.equal(requests.length, 3, "a discovery blocked by another live page sends no request");
+    assert.equal(api._huePlaybackDevices.length, 1, "a discovery blocked by another live page preserves the active page cache");
+    assert.equal(api._huePlaybackDevices[0].DeviceId, "active-page-device", "a discovery blocked by another live page preserves its device identity");
+    assert.equal(button.disabled, false, "a discovery blocked by another live page leaves the button enabled");
+    assert.equal(page._hueMappingPlaybackDevicesLoading, false, "a discovery blocked by another live page does not enter loading state");
+
+    api.invalidatePageLifecycle(page);
+    assert.equal(api._huePlaybackDevices.length, 1, "pagehide of a non-owning page cannot clear the active page cache");
+    assert.equal(api._huePlaybackDevices[0].DeviceId, "active-page-device", "pagehide of a non-owning page preserves the active page device identity");
+
+    const cancelHarness = makeHarness();
+    const cancelPage = cancelHarness.page;
+    const cancelApi = cancelHarness.api;
+    const cancelUserSelect = cancelPage.querySelector("#mappingUserSelect");
+    const cancelButton = cancelPage.querySelector("#mappingDiscoverDevicesBtn");
+    cancelUserSelect.value = userId;
+    cancelApi.refreshMappingDeviceRoutes = () => {};
+    let cancelLoadingHides = 0;
+    cancelHarness.dashboard.hideLoadingMsg = () => { cancelLoadingHides += 1; };
+    cancelApi._huePlaybackDevices = [{ UserId: userId, DeviceId: "private-device" }];
+    cancelApi.discoverMappingDevices(cancelPage);
+    assert.equal(cancelHarness.requests.length, 1, "selection-clear cancellation starts one device discovery request");
+    cancelUserSelect.value = "";
+    cancelApi.discoverMappingDevices(cancelPage);
+    assert.equal(cancelHarness.requests[0].promise.aborted, true, "clearing the selected user aborts the active discovery request");
+    assert.equal(cancelPage._huePageRequests.mappingPlaybackDevices, undefined, "selection-clear cancellation removes the discovery request record");
+    assert.equal(cancelPage._hueMappingPlaybackDevicesLoading, false, "selection-clear cancellation clears discovery loading state");
+    assert.equal(cancelButton.disabled, false, "selection-clear cancellation restores the discovery button");
+    assert.equal(cancelApi._huePlaybackDevices.length, 0, "selection-clear cancellation clears cached playback-device metadata");
+    assert.equal(cancelLoadingHides, 1, "selection-clear cancellation hides the discovery loading indicator once");
+    cancelHarness.requests[0].resolve([{ UserId: userId, DeviceId: "stale-device" }]);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(cancelApi._huePlaybackDevices.length, 0, "an aborted selection-clear request cannot repopulate playback-device metadata");
+}
+
 async function testConfigurationImportSubmitLifecycleGuards() {
     const harness = makeHarness();
     const { page, api, requests, dashboard } = harness;
@@ -5486,6 +5588,7 @@ await testCredentialPreflightTargetMutationGuard();
 await testCredentialLifecyclePreflightPagehideGuard();
 await testRegistrationLifecycleGuards();
 await testMappingDeviceRouteChannelIsolation();
+await testMappingDeviceDiscoveryLifecycleGuards();
 await testConfigurationImportSubmitLifecycleGuards();
 await testConfigurationSaveSuppressesStaleConfigurationLoad();
 await testConfigurationSaveInvalidationSuppressesCallbacks();
@@ -5524,4 +5627,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
