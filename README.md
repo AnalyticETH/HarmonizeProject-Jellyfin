@@ -496,7 +496,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.413 (Current)
+### Version 1.5.414 (Current)
+
+- **Page-scoped retained configuration listeners**: all inline administrator controls now bind through the active plugin configuration page, so hidden retained pages cannot steal duplicate-ID handlers or leave current controls unbound.
+
+- **Scheduled target snapshot parity**: scheduled cue snapshots now preserve the optional default target when selected user mappings are also targeted, ensuring execution and history represent and invoke every configured target.
+
+- **Regression coverage**: configuration-page validation and scheduler tests cover retained-page listener scoping and selected-plus-default cue execution.
 
 - **Page-scoped mapping route editors**: retained configuration pages now keep route selectors, editor fields, credentials, area/channel loads, previews, and mapping saves isolated to their owning page.
 

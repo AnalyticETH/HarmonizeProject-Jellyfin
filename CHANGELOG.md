@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.414] - 2026-08-30
+
+### Scheduler and retained-page lifecycle hardening
+- **Page-scoped retained configuration listeners**: all inline administrator controls now bind through the active plugin configuration page, so hidden retained pages cannot steal duplicate-ID handlers or leave current controls unbound.
+- **Scheduled target snapshot parity**: scheduled cue snapshots now preserve the optional default target when selected user mappings are also targeted, ensuring execution and history represent and invoke every configured target.
+- **Regression coverage**: configuration-page validation and scheduler tests cover retained-page listener scoping and selected-plus-default cue execution.
+
 ## [1.5.413] - 2026-08-30
 
 ### Mapping and schedule boundary hardening
