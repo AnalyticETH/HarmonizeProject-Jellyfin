@@ -892,7 +892,7 @@ public class HueClientTests : IDisposable
             ]
         }");
         SetupHttpResponse(HttpStatusCode.OK, $@"{{
-            ""data"": [{
+            ""data"": [{{
                 ""on"": {{""on"": true}},
                 ""dimming"": {{""brightness"": 75}},
                 ""color"": {{""xy"": {{""x"": {x}, ""y"": {y}}}}}
@@ -920,7 +920,7 @@ public class HueClientTests : IDisposable
             ]
         }");
         SetupHttpResponse(HttpStatusCode.OK, $@"{{
-            ""data"": [{
+            ""data"": [{{
                 ""on"": {{""on"": true}},
                 ""dimming"": {{""brightness"": 75}},
                 ""color_temperature"": {{""mirek"": {mirek}, ""mirek_valid"": true}}
