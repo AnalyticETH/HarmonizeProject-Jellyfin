@@ -1064,6 +1064,38 @@ for (const [functionName, markers] of [
 }
 
 {
+    const start = scriptMatch[1].indexOf("ensureBridgeCertificate: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "targetGuard",
+        "typeof targetGuard !== 'function' || targetGuard()",
+        "stalePageError",
+        "if (!canWritePage())"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ensureBridgeCertificate must reject stale target approvals: ${marker}`);
+        }
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("verifyBridgeCertificate: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var isCurrentTarget = function ()",
+        "HueConfigurationPage.isSameBridgeTarget(currentInput.value, bridgeIp)",
+        "huePageLifecycleStale",
+        "HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} verifyBridgeCertificate must suppress stale target and lifecycle alerts: ${marker}`);
+        }
+    }
+}
+
+{
     const start = scriptMatch[1].indexOf("inspectUserMappingDependencies: function");
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";

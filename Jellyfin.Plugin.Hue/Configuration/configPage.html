@@ -2238,13 +2238,19 @@
                             });
                     });
                 },
-                ensureBridgeCertificate: function (page, bridgeIp, statusElement, lifecycleGeneration) {
+                ensureBridgeCertificate: function (page, bridgeIp, statusElement, lifecycleGeneration, targetGuard) {
                     var target = String(bridgeIp || '').trim();
                     if (!target) return Promise.reject(new Error('A bridge address is required.'));
                     var status = statusElement || (page && page.querySelector ? page.querySelector('#bridgeStatus') : null);
                     var canWritePage = function () {
-                        return !page || typeof lifecycleGeneration !== 'number' ||
-                            HueConfigurationPage.isPageLifecycleCurrent(page, lifecycleGeneration);
+                        return (!page || typeof lifecycleGeneration !== 'number' ||
+                            HueConfigurationPage.isPageLifecycleCurrent(page, lifecycleGeneration)) &&
+                            (typeof targetGuard !== 'function' || targetGuard());
+                    };
+                    var stalePageError = function () {
+                        var staleError = new Error('Bridge certificate verification was canceled because the bridge target is no longer current.');
+                        staleError.huePageLifecycleStale = true;
+                        return staleError;
                     };
                     return ApiClient.getJSON(ApiClient.getUrl('HueSync/BridgeCertificate') + '?ipAddress=' + encodeURIComponent(target))
                         .then(function (response) {
@@ -2258,6 +2264,10 @@
                                 return true;
                             }
                             return new Promise(function (resolve, reject) {
+                                if (!canWritePage()) {
+                                    reject(stalePageError());
+                                    return;
+                                }
                                 var message = 'Verify this bridge certificate fingerprint out of band before trusting it:\n\n' + fingerprint + '\n\nTrust this fingerprint for ' + target + '?';
                                 Dashboard.confirm(message, 'Trust Hue Bridge Certificate', function (confirmed) {
                                     if (!confirmed) {
@@ -2269,9 +2279,7 @@
                                     // approval of that stale prompt mutate the
                                     // server's trust store after pagehide.
                                     if (!canWritePage()) {
-                                        var staleError = new Error('Bridge certificate trust was canceled because the configuration page is no longer active.');
-                                        staleError.huePageLifecycleStale = true;
-                                        reject(staleError);
+                                        reject(stalePageError());
                                         return;
                                     }
                                     var trustRequest = HueConfigurationPage.getPageLifecycleRequest(
@@ -2321,7 +2329,7 @@
                         preflights[preflightRecord.key] = preflightRecord;
                         page._hueCertificatePreflights = preflights;
                     }
-                    var request = HueConfigurationPage.ensureBridgeCertificate(page, bridgeIp, statusElement, pageGeneration)
+                    var request = HueConfigurationPage.ensureBridgeCertificate(page, bridgeIp, statusElement, pageGeneration, preflightGuard)
                         .then(function () {
                             // A certificate prompt or probe can outlive a hidden
                             // configuration page. Do not let its eventual approval
@@ -2389,8 +2397,14 @@
                     var bridgeInput = page && page.querySelector ? page.querySelector('#hueBridgeIp') : null;
                     var status = page && page.querySelector ? page.querySelector('#bridgeStatus') : null;
                     var bridgeIp = bridgeInput ? bridgeInput.value.trim() : '';
-                    HueConfigurationPage.ensureBridgeCertificate(page, bridgeIp, status, pageGeneration)
+                    var isCurrentTarget = function () {
+                        var currentInput = page && page.querySelector ? page.querySelector('#hueBridgeIp') : null;
+                        return !!currentInput && HueConfigurationPage.isSameBridgeTarget(currentInput.value, bridgeIp);
+                    };
+                    HueConfigurationPage.ensureBridgeCertificate(page, bridgeIp, status, pageGeneration, isCurrentTarget)
                         .catch(function (err) {
+                            if (err && err.huePageLifecycleStale) return;
+                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
                             console.error('Bridge certificate verification error:', err);
                             Dashboard.alert(err && err.message ? err.message : 'Bridge certificate verification failed.');
                         });
@@ -13668,7 +13682,7 @@
 
                     var preflight = { generation: pageGeneration, canceled: false };
                     page._hueRegistrationPreflight = preflight;
-                    HueConfigurationPage.ensureBridgeCertificate(page, ip, null, pageGeneration).then(function () {
+                    HueConfigurationPage.ensureBridgeCertificate(page, ip, null, pageGeneration, isCurrentRegistrationTarget).then(function () {
                         if (preflight.canceled || !isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
                             page._hueRegistrationPreflight !== preflight) return false;
                         return new Promise(function (resolve) {
@@ -15260,7 +15274,7 @@
 
                     var preflight = { page: page, generation: pageGeneration, canceled: false };
                     HueConfigurationPage._hueMappingRegistrationPreflight = preflight;
-                    HueConfigurationPage.ensureBridgeCertificate(page, ip, statusEl, pageGeneration).then(function () {
+                    HueConfigurationPage.ensureBridgeCertificate(page, ip, statusEl, pageGeneration, isCurrentRegistrationTarget).then(function () {
                         if (preflight.canceled || !isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
                             HueConfigurationPage._hueMappingRegistrationPreflight !== preflight) return false;
                         return new Promise(function (resolve) {

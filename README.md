@@ -496,7 +496,17 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.418 (Current)
+### Version 1.5.419 (Current)
+
+- **Certificate target freshness**: direct trust prompts, credential preflights, and bridge registration re-check the current bridge address before trusting a fingerprint or sending a request; edited or hidden pages cannot mutate the old target or surface stale alerts.
+
+- **Import playback arbitration**: imports that disable one user mapping while changing unrelated settings remain blocked during active Hue playback. Only policy-only disables may proceed and stop the affected sessions.
+
+- **Rollback nullability**: failed mapping and configuration imports explicitly normalize legacy null mapping collections, removing the remaining nullable-assignment warning while preserving atomic rollback.
+
+- **Regression coverage**: trust-prompt lifecycle races and mixed-import playback conflicts have focused regression tests.
+
+### Version 1.5.418
 
 - **Legacy row identity safety**: cleanup, duplicate resolution, delete, and bulk mapping operations no longer backfill legacy mapping IDs while validating a request, and failed mapping saves restore every prior row identity.
 

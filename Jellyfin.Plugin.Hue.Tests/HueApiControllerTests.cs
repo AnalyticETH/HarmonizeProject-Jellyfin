@@ -16630,6 +16630,97 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task ConfigurationImport_DisablingOneMappingWithUnrelatedChangesRejectsActivePlayback()
+    {
+        var disabledUserId = Guid.NewGuid();
+        var activeUserId = Guid.NewGuid();
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "mixed-import-app-key",
+            HueClientKey = "mixed-import-client-key",
+            EntertainmentAreaId = "area-id",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "mixed-import-disabled-mapping",
+                    UserId = disabledUserId.ToString("D"),
+                    UserName = "Disabled user",
+                    SyncEnabled = true
+                },
+                new()
+                {
+                    MappingId = "mixed-import-active-mapping",
+                    UserId = activeUserId.ToString("D"),
+                    UserName = "Active user",
+                    SyncEnabled = true
+                }
+            },
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Mixed import scene" }
+            }
+        });
+        var previousMappings = configuration.UserMappings;
+        var previousPresets = configuration.ColorPresets;
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        using var playback = lifecycleGate.TryEnterPlayback("192.168.1.100|area-id");
+        Assert.NotNull(playback);
+        var service = CreateActiveSyncService(activeUserId, "mixed-import-active-session", lifecycleGate);
+        var controller = CreateController(
+            bridgeLifecycleGate: lifecycleGate,
+            hostedServices: new[] { service });
+        var request = CreateConfigurationImportRequest(configuration);
+        request.ReplaceMappings = false;
+        request.UserMappings = new List<UserBridgeMappingImport>
+        {
+            new()
+            {
+                MappingId = "mixed-import-disabled-mapping",
+                UserId = disabledUserId.ToString("D"),
+                UserName = "Disabled user",
+                SyncEnabled = false
+            }
+        };
+        request.ReplaceColorPresets = false;
+        request.ColorPresets = new List<HueColorPresetRequest>
+        {
+            new()
+            {
+                Name = "Mixed import scene",
+                Red = 1,
+                Green = 2,
+                Blue = 3,
+                BrightnessPercent = 100,
+                DurationSeconds = 5
+            }
+        };
+        var validation = controller.ValidateConfigurationImport(request);
+        var validationResponse = Assert.IsType<OkObjectResult>(validation.Result);
+        var validationResult = Assert.IsType<HueConfigurationImportValidationResult>(validationResponse.Value);
+        Assert.True(validationResult.Valid, string.Join("; ", validationResult.ValidationErrors));
+        Assert.False(validationResult.CanImport);
+        Assert.True(validationResult.ActivePlayback);
+        Assert.Contains("active Hue playback", validationResult.Message, StringComparison.OrdinalIgnoreCase);
+        request.ExpectedConfigurationVersion = validationResult.ConfigurationVersion;
+
+        var action = controller.ImportConfiguration(request);
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.Contains("playback", Assert.IsType<string>(response.Value), StringComparison.OrdinalIgnoreCase);
+        Assert.Same(previousMappings, configuration.UserMappings);
+        Assert.Same(previousPresets, configuration.ColorPresets);
+        Assert.True(configuration.UserMappings.Single(mapping => mapping.UserId == disabledUserId.ToString("D")).SyncEnabled);
+        Assert.Equal(255, configuration.ColorPresets.Single().Red);
+        Assert.True(service.IsSyncing);
+
+        await service.StopCurrentSyncAsync();
+    }
+
+    [Fact]
     public async Task ConfigurationImport_WhenPlaybackIsActiveAndPolicyIsUnchangedStillConflicts()
     {
         var configuration = InstallConfiguration(new PluginConfiguration

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.419] - 2026-08-30
+
+### Certificate target freshness and import playback safety
+- **Bridge certificate target binding**: direct trust prompts, credential preflights, and bridge registration now re-check the current bridge address before trusting a fingerprint or continuing a request, so edited or hidden pages cannot mutate the old target.
+- **Stale-alert suppression**: certificate verification errors from target-edited or page-hidden configuration pages are ignored without stale alerts or status writes.
+- **Import playback arbitration**: configuration imports that disable one user mapping while changing unrelated settings now remain blocked during any active Hue playback; only policy-only disables may proceed and then stop the affected sessions.
+- **Rollback nullability**: failed mapping and configuration imports normalize legacy null mapping collections explicitly, clearing the remaining nullable-assignment warning without weakening atomic rollback.
+- **Regression coverage**: configuration-page trust-prompt races and mixed-import playback conflicts are covered by focused tests.
+
 ## [1.5.418] - 2026-08-30
 
 ### Atomic user-mapping mutations and page-owned dependency inspection

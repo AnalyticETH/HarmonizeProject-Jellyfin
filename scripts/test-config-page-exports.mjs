@@ -1806,6 +1806,43 @@ async function testBridgeCertificateTrustPromptPagehideGuard() {
     assert.equal(requests.length, 1, "approval of a stale trust prompt sends no trust mutation");
 }
 
+async function testVerifyBridgeCertificateSuppressesStaleTargetAlerts() {
+    const targetHarness = makeHarness();
+    const { page, api, requests, dashboard } = targetHarness;
+    page.querySelector("#hueBridgeIp").value = "192.168.1.50";
+    let targetConfirm;
+    dashboard.confirm = (_message, _title, callback) => { targetConfirm = callback; };
+
+    api.verifyBridgeCertificate(page);
+    assert.equal(requests.length, 1, "direct certificate verification starts one probe request");
+    requests[0].resolve({ fingerprint: "AA:BB", isPinned: false });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(typeof targetConfirm, "function", "direct certificate verification asks for explicit approval");
+
+    page.querySelector("#hueBridgeIp").value = "192.168.1.51";
+    targetConfirm(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests.length, 1, "editing the bridge address cannot trust the captured certificate target");
+    assert.equal(targetHarness.page._hueBridgeCertificatePins, undefined, "a stale direct verification cannot cache the captured certificate pin");
+    assert.deepEqual(dashboard.alerts, [], "a stale direct verification cannot alert after target mutation");
+
+    const pagehideHarness = makeHarness();
+    const { page: pagehidePage, api: pagehideApi, requests: pagehideRequests, dashboard: pagehideDashboard } = pagehideHarness;
+    pagehidePage.querySelector("#hueBridgeIp").value = "192.168.1.60";
+    let pagehideConfirm;
+    pagehideDashboard.confirm = (_message, _title, callback) => { pagehideConfirm = callback; };
+
+    pagehideApi.verifyBridgeCertificate(pagehidePage);
+    pagehideRequests[0].resolve({ fingerprint: "CC:DD", isPinned: false });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(typeof pagehideConfirm, "function", "pagehide regression reaches the trust prompt");
+    pagehideApi.invalidatePageLifecycle(pagehidePage);
+    pagehideConfirm(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(pagehideRequests.length, 1, "pagehide approval cannot trust a stale certificate target");
+    assert.deepEqual(pagehideDashboard.alerts, [], "pagehide approval cannot surface a stale certificate alert");
+}
+
 async function testBridgeCertificateTrustRequestLifecycle() {
     const harness = makeHarness();
     const { page, api, requests, dashboard } = harness;
@@ -5958,6 +5995,7 @@ await testMappingDeviceRouteCredentialScope();
 await testStoredDeviceRouteCredentialFlags();
 await testCredentialPreflightPagehideGuard();
 await testBridgeCertificateTrustPromptPagehideGuard();
+await testVerifyBridgeCertificateSuppressesStaleTargetAlerts();
 await testBridgeCertificateTrustRequestLifecycle();
 await testCredentialPreflightCancelGuard();
 await testCredentialPreflightTargetMutationGuard();
