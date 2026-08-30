@@ -3050,6 +3050,20 @@
                 isPageLifecycleCurrent: function (page, generation) {
                     return !!page && page._huePageActive === true && page._huePageGeneration === generation;
                 },
+                // Dashboard's loading indicator is global, while retained pages can
+                // finish their explicit stop request after a newer page has started
+                // its own stop. Keep the latest runtime-stop operation as the owner.
+                claimRuntimeStopLoading: function (page, request) {
+                    var owner = { page: page, request: request };
+                    HueConfigurationPage._hueRuntimeStopLoadingOwner = owner;
+                    return owner;
+                },
+                releaseRuntimeStopLoading: function (owner) {
+                    if (HueConfigurationPage._hueRuntimeStopLoadingOwner !== owner) return false;
+                    HueConfigurationPage._hueRuntimeStopLoadingOwner = null;
+                    Dashboard.hideLoadingMsg();
+                    return true;
+                },
                 isPageLifecycleRequestCurrent: function (page, generation, request) {
                     if (!HueConfigurationPage.isPageLifecycleCurrent(page, generation)) return false;
                     var requests = page._huePageRequests || {};
@@ -13488,6 +13502,7 @@
                         url: ApiClient.getUrl("HueSync/Stop"),
                         dataType: "json"
                     });
+                    var loadingOwner = HueConfigurationPage.claimRuntimeStopLoading(page, request);
                     page._hueRuntimeStopRequest = request;
                     var isCurrent = function () {
                         return HueConfigurationPage.isPageLifecycleCurrent(page, lifecycleGeneration) &&
@@ -13507,7 +13522,7 @@
                             page._hueRuntimeStopRequest = null;
                             page._hueRuntimeStopInFlight = false;
                         }
-                        Dashboard.hideLoadingMsg();
+                        HueConfigurationPage.releaseRuntimeStopLoading(loadingOwner);
                     });
                 },
                 stopRuntimeSession: function (page, playSessionId) {
@@ -13523,6 +13538,7 @@
                         url: ApiClient.getUrl("HueSync/Stop") + "?playSessionId=" + encodeURIComponent(playSessionId),
                         dataType: "json"
                     });
+                    var loadingOwner = HueConfigurationPage.claimRuntimeStopLoading(page, request);
                     page._hueRuntimeStopRequest = request;
                     var isCurrent = function () {
                         return HueConfigurationPage.isPageLifecycleCurrent(page, lifecycleGeneration) &&
@@ -13542,7 +13558,7 @@
                             page._hueRuntimeStopRequest = null;
                             page._hueRuntimeStopInFlight = false;
                         }
-                        Dashboard.hideLoadingMsg();
+                        HueConfigurationPage.releaseRuntimeStopLoading(loadingOwner);
                     });
                 },
                 startRuntimeStatusPolling: function (page) {

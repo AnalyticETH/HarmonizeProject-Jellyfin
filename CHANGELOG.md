@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.420] - 2026-08-30
+
+### Runtime-stop loader ownership and import opt-out compatibility
+- **Retained-page loader ownership**: late completion from a hidden configuration page can no longer hide the global loading indicator owned by a newer visible runtime-stop operation.
+- **Partial-import opt-outs**: adding a new fully scrubbed `syncEnabled=false` user mapping through a partial configuration import remains a policy-only change that is allowed during active playback; unrelated or enabled mapping changes remain blocked.
+- **Regression coverage**: retained-page loader races and partial-import playback arbitration are covered by focused configuration-page and API tests.
+
 ## [1.5.419] - 2026-08-30
 
 ### Certificate target freshness and import playback safety

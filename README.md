@@ -496,7 +496,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.419 (Current)
+### Version 1.5.420 (Current)
+
+- **Runtime-stop loader ownership**: a retained hidden configuration page can no longer hide the global loader owned by a newer visible stop operation.
+
+- **Partial-import opt-outs**: adding a new fully scrubbed disabled user mapping remains allowed during active playback as a policy-only change, while unrelated or enabled mapping changes stay blocked.
+
+- **Regression coverage**: retained-page loader races and partial-import playback arbitration have focused tests.
+
+### Version 1.5.419
 
 - **Certificate target freshness**: direct trust prompts, credential preflights, and bridge registration re-check the current bridge address before trusting a fingerprint or sending a request; edited or hidden pages cannot mutate the old target or surface stale alerts.
 

@@ -1064,6 +1064,34 @@ for (const [functionName, markers] of [
 }
 
 {
+    const helperStart = scriptMatch[1].indexOf("releaseRuntimeStopLoading: function");
+    const helperEnd = scriptMatch[1].indexOf("\n                },", helperStart);
+    const helperBody = helperStart >= 0 && helperEnd > helperStart ? scriptMatch[1].slice(helperStart, helperEnd) : "";
+    for (const marker of [
+        "if (HueConfigurationPage._hueRuntimeStopLoadingOwner !== owner) return false;",
+        "HueConfigurationPage._hueRuntimeStopLoadingOwner = null;",
+        "Dashboard.hideLoadingMsg();"
+    ]) {
+        if (!helperBody.includes(marker)) {
+            throw new Error(`${file} releaseRuntimeStopLoading must only hide the loader for its current owner: ${marker}`);
+        }
+    }
+    for (const functionName of ["stopRuntimeSync", "stopRuntimeSession"]) {
+        const start = scriptMatch[1].indexOf(`${functionName}: function`);
+        const end = scriptMatch[1].indexOf("\n                },", start);
+        const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+        for (const marker of [
+            "var loadingOwner = HueConfigurationPage.claimRuntimeStopLoading(page, request);",
+            "HueConfigurationPage.releaseRuntimeStopLoading(loadingOwner);"
+        ]) {
+            if (!functionBody.includes(marker)) {
+                throw new Error(`${file} ${functionName} must release only its owned loader: ${marker}`);
+            }
+        }
+    }
+}
+
+{
     const start = scriptMatch[1].indexOf("ensureBridgeCertificate: function");
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";

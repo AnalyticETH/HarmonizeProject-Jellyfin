@@ -226,8 +226,7 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             var existing = (existingMappings ?? Array.Empty<UserBridgeMapping>()).ToList();
             var candidates = candidateMappings.ToList();
-            if (existing.Any(mapping => mapping == null) || candidates.Any(mapping => mapping == null) ||
-                existing.Count != candidates.Count)
+            if (existing.Any(mapping => mapping == null) || candidates.Any(mapping => mapping == null))
             {
                 return false;
             }
@@ -250,6 +249,17 @@ namespace Jellyfin.Plugin.Hue.Api
                         .Where(pair => PluginConfiguration.AreSameJellyfinUserId(pair.mapping.UserId, candidate.UserId))
                         .Select(pair => pair.index)
                         .ToArray();
+                    if (userMatches.Length == 0)
+                    {
+                        // A first mapping with sync disabled is itself a valid
+                        // per-user opt-out. It has no existing row to compare, so
+                        // allow only the fully scrubbed policy-only representation.
+                        if (!IsNewDisabledMappingForPlaybackPolicy(candidate))
+                            return false;
+
+                        continue;
+                    }
+
                     if (userMatches.Length != 1)
                         return false;
 
@@ -281,6 +291,21 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             return unmatched.Count == 0;
+        }
+
+        private static bool IsNewDisabledMappingForPlaybackPolicy(UserBridgeMapping candidate)
+        {
+            if (candidate.SyncEnabled)
+                return false;
+
+            var expected = new UserBridgeMapping
+            {
+                MappingId = candidate.MappingId,
+                UserId = candidate.UserId,
+                UserName = candidate.UserName,
+                SyncEnabled = false
+            };
+            return AreEquivalentMapping(expected, candidate);
         }
 
         /// <summary>

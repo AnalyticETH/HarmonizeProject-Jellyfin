@@ -16630,6 +16630,69 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task ConfigurationImport_AddingDisabledMappingWithNoOtherChangesAllowsActivePlayback()
+    {
+        var disabledUserId = Guid.NewGuid();
+        var activeUserId = Guid.NewGuid();
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "new-disabled-mapping-app-key",
+            HueClientKey = "new-disabled-mapping-client-key",
+            EntertainmentAreaId = "area-id",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    MappingId = "new-disabled-mapping-active-row",
+                    UserId = activeUserId.ToString("D"),
+                    UserName = "Active user",
+                    SyncEnabled = true
+                }
+            }
+        });
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        using var playback = lifecycleGate.TryEnterPlayback("192.168.1.100|area-id");
+        Assert.NotNull(playback);
+        var service = CreateActiveSyncService(activeUserId, "new-disabled-mapping-active-session", lifecycleGate);
+        var controller = CreateController(
+            bridgeLifecycleGate: lifecycleGate,
+            hostedServices: new[] { service });
+        var request = CreateConfigurationImportRequest(configuration);
+        request.ReplaceMappings = false;
+        request.UserMappings = new List<UserBridgeMappingImport>
+        {
+            new()
+            {
+                MappingId = "new-disabled-mapping-opt-out",
+                UserId = disabledUserId.ToString("D"),
+                UserName = "Opted-out user",
+                SyncEnabled = false
+            }
+        };
+
+        var validation = controller.ValidateConfigurationImport(request);
+        var validationResponse = Assert.IsType<OkObjectResult>(validation.Result);
+        var validationResult = Assert.IsType<HueConfigurationImportValidationResult>(validationResponse.Value);
+        Assert.True(validationResult.Valid, string.Join("; ", validationResult.ValidationErrors));
+        Assert.True(validationResult.CanImport);
+        Assert.True(validationResult.ActivePlayback);
+        Assert.DoesNotContain("active Hue playback", validationResult.Message, StringComparison.OrdinalIgnoreCase);
+        request.ExpectedConfigurationVersion = validationResult.ConfigurationVersion;
+
+        var action = controller.ImportConfiguration(request);
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+        Assert.False(configuration.UserMappings.Single(mapping => mapping.UserId == disabledUserId.ToString("D")).SyncEnabled);
+        Assert.True(configuration.UserMappings.Single(mapping => mapping.UserId == activeUserId.ToString("D")).SyncEnabled);
+        Assert.True(service.IsSyncing);
+
+        await service.StopCurrentSyncAsync();
+    }
+
+    [Fact]
     public async Task ConfigurationImport_DisablingOneMappingWithUnrelatedChangesRejectsActivePlayback()
     {
         var disabledUserId = Guid.NewGuid();
