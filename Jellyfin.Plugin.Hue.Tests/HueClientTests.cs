@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -213,6 +214,55 @@ public class HueClientTests : IDisposable
             new[] { "192.168.1.100", "192.168.1.101", "192.168.1.102" },
             result);
         localDiscovery.Verify(discovery => discovery.DiscoverAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DiscoverBridgeIps_StopsAfterAggregateCandidateLimit()
+    {
+        var cloudAddresses = Enumerable.Range(0, HueBridgeMdnsDiscovery.MaxCandidates / 2)
+            .Select(index => $"10.10.{index / 254}.{index % 254 + 1}")
+            .ToArray();
+        var localAddresses = Enumerable.Range(0, HueBridgeMdnsDiscovery.MaxCandidates)
+            .Select(index => $"10.11.{index / 254}.{index % 254 + 1}")
+            .ToArray();
+        var cloudJson = JsonSerializer.Serialize(
+            cloudAddresses.Select(address => new { internalipaddress = address }));
+        SetupHttpResponse(HttpStatusCode.OK, cloudJson);
+        var localDiscovery = new Mock<IHueBridgeLocalDiscovery>();
+        localDiscovery
+            .Setup(discovery => discovery.DiscoverAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(localAddresses);
+        var client = new HueClient(_httpClient, _loggerMock.Object, localDiscovery.Object);
+
+        var result = await client.DiscoverBridgeIps();
+
+        var expected = cloudAddresses
+            .Concat(localAddresses)
+            .Take(HueBridgeMdnsDiscovery.MaxCandidates)
+            .ToArray();
+        Assert.Equal(expected, result);
+        Assert.Equal(HueBridgeMdnsDiscovery.MaxCandidates, result.Count);
+        Assert.DoesNotContain(localAddresses[HueBridgeMdnsDiscovery.MaxCandidates / 2], result);
+    }
+
+    [Fact]
+    public async Task DiscoverBridgeIps_WhenCloudReachesAggregateLimitSkipsLocalDiscovery()
+    {
+        var cloudAddresses = Enumerable.Range(0, HueBridgeMdnsDiscovery.MaxCandidates)
+            .Select(index => $"10.12.{index / 254}.{index % 254 + 1}")
+            .ToArray();
+        var cloudJson = JsonSerializer.Serialize(
+            cloudAddresses.Select(address => new { internalipaddress = address }));
+        SetupHttpResponse(HttpStatusCode.OK, cloudJson);
+        var localDiscovery = new Mock<IHueBridgeLocalDiscovery>();
+        var client = new HueClient(_httpClient, _loggerMock.Object, localDiscovery.Object);
+
+        var result = await client.DiscoverBridgeIps();
+
+        Assert.Equal(cloudAddresses, result);
+        localDiscovery.Verify(
+            discovery => discovery.DiscoverAsync(It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]

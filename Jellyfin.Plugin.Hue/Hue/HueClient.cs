@@ -353,9 +353,9 @@ namespace Jellyfin.Plugin.Hue.Hue
         }
 
         /// <summary>
-        /// Discovers every private Hue Bridge visible to the server. Cloud discovery is
-        /// combined with local mDNS results so multi-room installations can choose a
-        /// bridge for each per-user mapping instead of losing every result after the first.
+        /// Discovers up to 256 private Hue Bridges visible to the server. Cloud discovery
+        /// is combined with local mDNS results so multi-room installations can choose a
+        /// bridge for each per-user mapping without allowing unbounded candidate growth.
         /// </summary>
         /// <param name="cancellationToken">Cancels the discovery request.</param>
         /// <returns>Distinct private bridge addresses in discovery order.</returns>
@@ -364,8 +364,13 @@ namespace Jellyfin.Plugin.Hue.Hue
             var addresses = new List<string>();
             var seenAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            // Cloud and local discovery are both external inputs. Keep the combined
+            // candidate collection bounded at the same 256-address limit as mDNS.
             void AddAddress(string? addressText)
             {
+                if (addresses.Count >= HueBridgeMdnsDiscovery.MaxCandidates)
+                    return;
+
                 if (!IPAddress.TryParse(addressText, out var address) ||
                     !Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(address.ToString()))
                 {
@@ -401,6 +406,8 @@ namespace Jellyfin.Plugin.Hue.Hue
                         }
 
                         AddAddress(addressProperty.GetString());
+                        if (addresses.Count >= HueBridgeMdnsDiscovery.MaxCandidates)
+                            break;
                     }
                 }
             }
@@ -413,13 +420,17 @@ namespace Jellyfin.Plugin.Hue.Hue
                 _logger.LogWarning(ex, "Cloud Hue bridge discovery failed; trying local mDNS");
             }
 
-            if (_localDiscovery != null)
+            if (_localDiscovery != null && addresses.Count < HueBridgeMdnsDiscovery.MaxCandidates)
             {
                 try
                 {
                     var localAddresses = await _localDiscovery.DiscoverAsync(cancellationToken).ConfigureAwait(false);
                     foreach (var localAddress in localAddresses)
+                    {
                         AddAddress(localAddress);
+                        if (addresses.Count >= HueBridgeMdnsDiscovery.MaxCandidates)
+                            break;
+                    }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {

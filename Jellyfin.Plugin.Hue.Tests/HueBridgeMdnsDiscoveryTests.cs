@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Service;
@@ -198,6 +200,35 @@ public sealed class HueBridgeMdnsDiscoveryTests
 
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
             new HueBridgeMdnsDiscovery().DiscoverAsync(cancellationSource.Token));
+    }
+
+    [Fact]
+    public async Task ReceiveAddressesAsync_StopsAfterAggregateCandidateLimit()
+    {
+        using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        receiver.Client.ReceiveBufferSize = 1024 * 1024;
+        using var sender = new UdpClient(AddressFamily.InterNetwork);
+        var endpoint = (IPEndPoint)receiver.Client.LocalEndPoint!;
+        using var timeoutSource = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var receiveTask = HueBridgeMdnsDiscovery.ReceiveAddressesAsync(
+            receiver,
+            timeoutSource.Token,
+            CancellationToken.None);
+
+        var sentAddresses = Enumerable.Range(0, HueBridgeMdnsDiscovery.MaxCandidates + 32)
+            .Select(BuildTestAddress)
+            .ToArray();
+        foreach (var address in sentAddresses)
+        {
+            await sender.SendAsync(BuildResponse(address), endpoint);
+            await Task.Delay(TimeSpan.FromMilliseconds(5));
+        }
+
+        var addresses = await receiveTask;
+
+        Assert.Equal(HueBridgeMdnsDiscovery.MaxCandidates, addresses.Count);
+        var sentAddressSet = sentAddresses.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.All(addresses, address => Assert.Contains(address, sentAddressSet));
     }
 
     private static byte[] BuildResponse(
@@ -401,6 +432,9 @@ public sealed class HueBridgeMdnsDiscoveryTests
         AppendName(bytes, name);
         return bytes.ToArray();
     }
+
+    private static string BuildTestAddress(int index)
+        => $"10.0.{index / 254}.{index % 254 + 1}";
 
     private static void AppendName(List<byte> target, string name)
     {

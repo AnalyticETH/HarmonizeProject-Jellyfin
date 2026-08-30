@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.409] - 2026-08-30
+
+### Bounded bridge discovery
+- **Bounded bridge discovery**: local mDNS and cloud discovery now share a 256-candidate ceiling across datagrams, address families, and merge stages, stopping local discovery once the cloud result is full.
+
 ## [1.5.408] - 2026-08-30
 
 ### Runner version monitoring

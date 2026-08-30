@@ -38,7 +38,10 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
     private const ushort DnsClassValueMask = 0x7fff;
     private const int DnsHeaderLength = 12;
     private const int MdnsPort = 5353;
-    private const int MaxRecords = 256;
+    // Keep the total number of discovered bridge candidates bounded across
+    // datagrams and address families, not only within one DNS message.
+    internal const int MaxCandidates = 256;
+    private const int MaxRecords = MaxCandidates;
     private static readonly IPAddress MdnsAddress = IPAddress.Parse("224.0.0.251");
     private static readonly IPAddress MdnsIpv6Address = IPAddress.Parse("ff02::fb");
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(1.5);
@@ -72,6 +75,9 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
             return results
                 .SelectMany(addresses => addresses)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                // IPv4 and IPv6 each receive independently; keep their combined
+                // result bounded by the same aggregate candidate limit.
+                .Take(MaxCandidates)
                 .ToArray();
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -198,11 +204,13 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
         }
     }
 
-    private static async Task<IReadOnlyList<string>> ReceiveAddressesAsync(
+    internal static async Task<IReadOnlyList<string>> ReceiveAddressesAsync(
         UdpClient client,
         CancellationToken timeoutCancellationToken,
         CancellationToken callerCancellationToken)
     {
+        // A responder can send many datagrams during the timeout window. The
+        // per-message record limit is not enough; cap the aggregate candidates too.
         var addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         while (!timeoutCancellationToken.IsCancellationRequested)
         {
@@ -211,7 +219,11 @@ public sealed class HueBridgeMdnsDiscovery : IHueBridgeLocalDiscovery
                 var response = await client.ReceiveAsync().WaitAsync(timeoutCancellationToken).ConfigureAwait(false);
                 var linkLocalScopeId = GetLinkLocalScopeId(response.RemoteEndPoint);
                 foreach (var address in ParseResponse(response.Buffer, linkLocalScopeId))
+                {
                     addresses.Add(address);
+                    if (addresses.Count >= MaxCandidates)
+                        return addresses.ToArray();
+                }
             }
             catch (OperationCanceledException) when (!callerCancellationToken.IsCancellationRequested)
             {

@@ -55,7 +55,7 @@ The configuration page starts with a keyboard-friendly **Configuration sections*
 | Setting | Description |
 | :--- | :--- |
 | **Hue Bridge Address** | The private/local IP address of your bridge (or a .local mDNS host name). |
-| **Discover Bridge** | Return every private bridge found by the Hue discovery service and bounded local mDNS (`_hue._tcp.local`); the address field offers all candidates so multi-room mappings can choose the correct bridge. |
+| **Discover Bridge** | Return up to 256 private bridges found by the Hue discovery service and bounded local mDNS (`_hue._tcp.local`); the address field offers every candidate within that safety ceiling so multi-room mappings can choose the correct bridge. |
 | **Verify/Trust Certificate** | Probe the selected local bridge without credentials, compare the SHA-256 fingerprint with the physical bridge identity, and explicitly pin it before Link Bridge, tests, playback, or scheduled scenes can send an App Key. Changed or unpinned certificates fail closed. |
 | **Link Bridge** | Press the physical button on your Bridge, then click this button to auto-generate keys. |
 | **Test Connection** | Verify bridge credentials and, when selected, that the entertainment area has controllable channels. If a Client Key is present, also run a short DTLS stream probe that captures a complete light-state snapshot before activation and restores it afterward. While a probe is running, the page exposes **Cancel Active Diagnostic**; disconnecting, canceling, or leaving the page stops the diagnostic lifecycle safely. |
@@ -496,7 +496,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.408 (Current)
+### Version 1.5.409 (Current)
+
+- **Bounded bridge discovery**: local mDNS and cloud discovery now share a 256-candidate ceiling across datagrams, address families, and merge stages, stopping local discovery once the cloud result is full.
+
+### Version 1.5.408
 
 - **Three-runner version monitoring**: the host's daily `actions/runner` version check now covers the isolated build, release, and rootless-Docker Dependabot installations, and the runbook documents all three update/reverification paths.
 
