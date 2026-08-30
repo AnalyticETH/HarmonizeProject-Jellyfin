@@ -253,7 +253,7 @@ for (const marker of [
 }
 
 for (const marker of [
-    "var matchingUserMappings = config.UserMappings",
+    "var matchingUserMappings = currentMappings",
     "multiple mapping rows",
     "selected user-mapping row no longer exists",
     "string.Equals(existing.MappingId?.Trim(), existingMapping.MappingId.Trim()",

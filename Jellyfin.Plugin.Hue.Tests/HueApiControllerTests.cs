@@ -1008,6 +1008,140 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void CleanupStaleUserMappingsRejectsStaleReportWithoutGeneratingLegacyRowId()
+    {
+        var mapping = new UserBridgeMapping
+        {
+            UserId = "not-a-guid",
+            UserName = "Original"
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { mapping }
+        });
+        var previousMappings = configuration.UserMappings;
+        var controller = CreateController(userManager: new Mock<IUserManager>().Object);
+        var reportResponse = Assert.IsType<OkObjectResult>(controller.GetUserMappingReconciliation().Result);
+        var report = Assert.IsType<HueUserMappingReconciliationResult>(reportResponse.Value);
+        mapping.UserName = "Changed after report";
+
+        var action = controller.CleanupStaleUserMappings(new HueUserMappingCleanupRequest
+        {
+            MappingIds = new List<string> { "stale-row" },
+            ExpectedReportVersion = report.ReportVersion
+        });
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        var result = Assert.IsType<HueUserMappingCleanupResult>(response.Value);
+        Assert.Equal(0, result.DeletedCount);
+        Assert.Same(previousMappings, configuration.UserMappings);
+        Assert.Same(mapping, Assert.Single(configuration.UserMappings));
+        Assert.Empty(mapping.MappingId);
+    }
+
+    [Fact]
+    public void DeleteUserMappingRejectsUnknownRowWithoutGeneratingLegacyRowId()
+    {
+        const string userId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        var mapping = new UserBridgeMapping
+        {
+            UserId = userId,
+            UserName = "Viewer"
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { mapping }
+        });
+
+        var action = CreateController().DeleteUserMapping(userId, "missing-row");
+
+        Assert.IsType<NotFoundObjectResult>(action);
+        Assert.Same(mapping, Assert.Single(configuration.UserMappings));
+        Assert.Empty(mapping.MappingId);
+    }
+
+    [Fact]
+    public void DeleteUserMappingsBulkRejectsUnknownRowWithoutGeneratingLegacyRowId()
+    {
+        var mapping = new UserBridgeMapping
+        {
+            UserId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            UserName = "Viewer"
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { mapping }
+        });
+
+        var action = CreateController().DeleteUserMappingsBulk(new HueUserMappingBulkDeleteRequest
+        {
+            MappingIds = new List<string> { "missing-row" }
+        });
+
+        Assert.IsType<NotFoundObjectResult>(action.Result);
+        Assert.Same(mapping, Assert.Single(configuration.UserMappings));
+        Assert.Empty(mapping.MappingId);
+    }
+
+    [Fact]
+    public void SetUserMappingsEnabledBulkRejectsUnknownRowWithoutGeneratingLegacyRowId()
+    {
+        var mapping = new UserBridgeMapping
+        {
+            UserId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+            UserName = "Viewer",
+            SyncEnabled = false
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { mapping }
+        });
+
+        var action = CreateController().SetUserMappingsEnabledBulk(new HueUserMappingBulkEnabledRequest
+        {
+            MappingIds = new List<string> { "missing-row" },
+            SyncEnabled = true
+        });
+
+        Assert.IsType<NotFoundObjectResult>(action.Result);
+        Assert.Same(mapping, Assert.Single(configuration.UserMappings));
+        Assert.Empty(mapping.MappingId);
+    }
+
+    [Fact]
+    public void SaveUserMappingPersistenceFailureRestoresLegacyRowIdentity()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("mapping persistence failed"));
+        var existingMapping = new UserBridgeMapping
+        {
+            UserId = "cccccccc-cccc-cccc-cccc-cccccccccccc",
+            UserName = "Existing Viewer",
+            SyncEnabled = false
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { existingMapping }
+        }, serializer.Object);
+        var previousMappings = configuration.UserMappings;
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = "dddddddd-dddd-dddd-dddd-dddddddddddd",
+            UserName = "New Viewer",
+            SyncEnabled = false
+        });
+
+        var response = Assert.IsType<ObjectResult>(action);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.Same(previousMappings, configuration.UserMappings);
+        Assert.Same(existingMapping, Assert.Single(configuration.UserMappings));
+        Assert.Empty(existingMapping.MappingId);
+    }
+
+    [Fact]
     public void CleanupStaleUserMappingsBlocksReferencedRowsAtomically()
     {
         var missingUserId = Guid.Parse("77777777-7777-7777-7777-777777777777");

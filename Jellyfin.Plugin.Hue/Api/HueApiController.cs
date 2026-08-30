@@ -9997,8 +9997,11 @@ namespace Jellyfin.Plugin.Hue.Api
             if (plugin == null || config == null)
                 return NotFound("Plugin configuration not available.");
 
+            // Do not backfill legacy row IDs while validating a cleanup request. The
+            // explicit reconciliation endpoint owns identity migration; a stale,
+            // unsupported, or otherwise rejected cleanup must leave the live rows
+            // byte-for-byte unchanged.
             config.UserMappings ??= new List<UserBridgeMapping>();
-            PluginConfiguration.EnsureUserMappingIds(config.UserMappings);
             var report = BuildUserMappingReconciliationResult();
             if (!report.UserDirectoryAvailable)
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, report);
@@ -10171,8 +10174,10 @@ namespace Jellyfin.Plugin.Hue.Api
             if (plugin == null || config == null)
                 return NotFound("Plugin configuration not available.");
 
+            // Duplicate resolution is an optimistic validation operation. Leave
+            // legacy blank/duplicate row IDs untouched until the complete candidate
+            // has passed validation and is ready to be persisted.
             config.UserMappings ??= new List<UserBridgeMapping>();
-            PluginConfiguration.EnsureUserMappingIds(config.UserMappings);
             var report = BuildUserMappingReconciliationResult();
             if (!report.UserDirectoryAvailable)
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, report);
@@ -10777,9 +10782,12 @@ namespace Jellyfin.Plugin.Hue.Api
                 return Conflict($"This user mapping is used by {scheduledCueCount} scheduled cue(s) and {scenePlaylistCount} saved playlist(s). Delete or update those targets before disabling the mapping.");
             }
 
-            config.UserMappings ??= new List<UserBridgeMapping>();
-            PluginConfiguration.EnsureUserMappingIds(config.UserMappings);
-            var matchingUserMappings = config.UserMappings
+            // Keep the original collection reference so a rejected save can restore
+            // it exactly. Legacy row IDs are generated only on the isolated candidate
+            // after all request validation has passed.
+            var previousMappings = config.UserMappings;
+            var currentMappings = previousMappings ?? new List<UserBridgeMapping>();
+            var matchingUserMappings = currentMappings
                 .Where(existing => existing != null &&
                     PluginConfiguration.AreSameJellyfinUserId(existing.UserId, mapping.UserId))
                 .Cast<UserBridgeMapping>()
@@ -10787,7 +10795,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var requestedMappingId = mapping.MappingId?.Trim() ?? string.Empty;
             var exactMappingMatches = string.IsNullOrWhiteSpace(requestedMappingId)
                 ? Array.Empty<UserBridgeMapping>()
-                : config.UserMappings
+                : currentMappings
                     .Where(existing => existing != null &&
                         string.Equals(existing.MappingId?.Trim(), requestedMappingId, StringComparison.OrdinalIgnoreCase))
                     .Cast<UserBridgeMapping>()
@@ -10912,8 +10920,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 mapping.EntertainmentAreaName = string.Empty;
             }
 
-            var previousMappings = config.UserMappings.ToList();
-            var candidateMappings = previousMappings
+            var candidateMappings = currentMappings
                 .Where(existing => existing != null)
                 .ToList();
             if (existingMapping != null && !string.IsNullOrWhiteSpace(existingMapping.MappingId))
@@ -10936,6 +10943,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 });
             }
 
+            var previousMappingIds = candidateMappings
+                .Select(existing => (Mapping: existing, MappingId: existing.MappingId))
+                .ToArray();
             PluginConfiguration.EnsureUserMappingIds(candidateMappings);
             config.UserMappings = candidateMappings;
 
@@ -10946,6 +10956,8 @@ namespace Jellyfin.Plugin.Hue.Api
             catch (Exception ex)
             {
                 config.UserMappings = previousMappings;
+                foreach (var previous in previousMappingIds)
+                    previous.Mapping.MappingId = previous.MappingId;
                 _logger?.LogError(ex, "Could not persist Hue user mapping {0}", mapping.UserId);
                 return StatusCode(StatusCodes.Status500InternalServerError, "The user mapping could not be saved.");
             }
@@ -10980,8 +10992,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 return NotFound("Plugin configuration not available.");
             }
 
+            // Identity backfill is deliberately explicit via reconciliation. A
+            // rejected delete must not rewrite unrelated legacy rows first.
             config.UserMappings ??= new List<UserBridgeMapping>();
-            PluginConfiguration.EnsureUserMappingIds(config.UserMappings);
             var requestedMappingId = mappingId?.Trim() ?? string.Empty;
             UserBridgeMapping? mapping;
             if (!string.IsNullOrWhiteSpace(requestedMappingId))
@@ -11040,12 +11053,9 @@ namespace Jellyfin.Plugin.Hue.Api
 
             var previousMappings = config.UserMappings.ToList();
             var candidateMappings = previousMappings
-                .Where(mapping => mapping != null)
+                .Where(candidate => candidate == null || !ReferenceEquals(candidate, mapping))
                 .ToList();
-            var selectedMappingId = mapping.MappingId.Trim();
-            var removed = candidateMappings.RemoveAll(candidate =>
-                candidate != null &&
-                string.Equals(candidate.MappingId?.Trim(), selectedMappingId, StringComparison.OrdinalIgnoreCase));
+            var removed = previousMappings.Any(candidate => ReferenceEquals(candidate, mapping)) ? 1 : 0;
             if (removed == 0)
             {
                 return NotFound("Mapping row not found for the specified mapping ID.");
@@ -11118,8 +11128,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("Selected mapping IDs must be unique.");
             }
 
+            // Bulk selection must resolve against the persisted rows as-is. The
+            // reconciliation endpoint, not a failed bulk mutation, owns legacy ID
+            // generation.
             config.UserMappings ??= new List<UserBridgeMapping>();
-            PluginConfiguration.EnsureUserMappingIds(config.UserMappings);
 
             UserBridgeMapping[] selectedMappings;
             if (requestedMappingIds.Length > 0)
@@ -11218,13 +11230,12 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             var previousMappings = config.UserMappings;
-            var selectedMappingIdSet = new HashSet<string>(selectedMappings.Select(mapping => mapping.MappingId.Trim()), StringComparer.OrdinalIgnoreCase);
             var candidateMappings = previousMappings
-                .Where(mapping => mapping == null || !selectedMappingIdSet.Contains(mapping.MappingId?.Trim() ?? string.Empty))
+                .Where(mapping => mapping == null || !selectedMappings.Any(selected => ReferenceEquals(selected, mapping)))
                 .ToList();
             var deletedCount = previousMappings.Count - candidateMappings.Count;
             var deletedResults = previousMappings
-                .Where(mapping => mapping != null && selectedMappingIdSet.Contains(mapping.MappingId?.Trim() ?? string.Empty))
+                .Where(mapping => mapping != null && selectedMappings.Any(selected => ReferenceEquals(selected, mapping)))
                 .Select(UserBridgeMappingSummary.From)
                 .ToArray();
             config.UserMappings = candidateMappings;
@@ -11304,8 +11315,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("Selected mapping IDs must be unique.");
             }
 
+            // Enabling/disabling is allowed to operate on a legacy row selected by
+            // user ID, but it must not opportunistically rewrite row identities when
+            // a later validation or persistence step rejects the operation.
             config.UserMappings ??= new List<UserBridgeMapping>();
-            PluginConfiguration.EnsureUserMappingIds(config.UserMappings);
 
             UserBridgeMapping[] mappings;
             if (requestedMappingIds.Length > 0)

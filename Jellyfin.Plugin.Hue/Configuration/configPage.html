@@ -3110,6 +3110,11 @@
                         if (mappingPlaybackDevicesButton) mappingPlaybackDevicesButton.disabled = false;
                         if (hadMappingPlaybackDeviceDiscovery) Dashboard.hideLoadingMsg();
                     }
+                    if (key === 'userMappingDependencies') {
+                        var hadUserMappingDependencyInspection = !!page._hueUserMappingDependenciesRequest;
+                        page._hueUserMappingDependenciesRequest = null;
+                        if (hadUserMappingDependencyInspection) Dashboard.hideLoadingMsg();
+                    }
                     var directScenePlaylistMutation = page._hueScenePlaylistMutation;
                     if (directScenePlaylistMutation && directScenePlaylistMutation.key === key) {
                         if (key === 'scenePlaylistSave') page._hueScenePlaylistSaving = false;
@@ -3574,6 +3579,7 @@
                     page._hueConfigurationExporting = false;
                     page._hueConfigurationSaving = false;
                     page._hueUserMappingSaving = false;
+                    page._hueUserMappingDependenciesRequest = null;
                     page._hueUserMappingDeleting = false;
                     if (page._hueUserMappingDeleteButton) page._hueUserMappingDeleteButton.disabled = false;
                     page._hueUserMappingDeleteButton = null;
@@ -16274,16 +16280,35 @@
                 },
 
                 inspectUserMappingDependencies: function (page, userId, mappingId) {
+                    page = HueConfigurationPage.getMappingConfigurationPage(page);
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!page || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                        return Promise.resolve();
+                    }
                     if (!userId) {
                         Dashboard.alert("Choose a user mapping first.");
-                        return;
+                        return Promise.resolve();
+                    }
+                    if (page._hueUserMappingDependenciesRequest) {
+                        return Promise.resolve();
                     }
 
-                    Dashboard.showLoadingMsg();
                     var dependencyUrl = "HueSync/UserMappings/" + encodeURIComponent(userId) + "/Dependencies";
                     if (mappingId) dependencyUrl += "?mappingId=" + encodeURIComponent(mappingId);
-                    ApiClient.getJSON(ApiClient.getUrl(dependencyUrl))
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'userMappingDependencies',
+                        ApiClient.getUrl(dependencyUrl));
+                    page._hueUserMappingDependenciesRequest = request;
+                    Dashboard.showLoadingMsg();
+                    var isCurrent = function () {
+                        return page._hueUserMappingDependenciesRequest === request &&
+                            HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    return request
                         .then(function (response) {
+                            if (!isCurrent()) return;
                             var userName = response && (response.userName || response.UserName) || userId;
                             var canDelete = response && (response.canDelete !== undefined ? response.canDelete : response.CanDelete);
                             var canDisable = response && (response.canDisable !== undefined ? response.canDisable : response.CanDisable);
@@ -16314,11 +16339,20 @@
                             Dashboard.alert(details.join("\n"));
                         })
                         .catch(function (err) {
+                            if (!isCurrent()) return;
                             console.error("Failed to inspect user mapping dependencies:", err);
                             Dashboard.alert("Unable to inspect mapping references: " + (err.message || err));
                         })
                         .finally(function () {
-                            Dashboard.hideLoadingMsg();
+                            var current = isCurrent();
+                            var requestRecord = request && request._huePageRequestRecord;
+                            var tracked = page && page._huePageRequests &&
+                                page._huePageRequests.userMappingDependencies === requestRecord;
+                            if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingDependencies');
+                            if (page._hueUserMappingDependenciesRequest === request) {
+                                page._hueUserMappingDependenciesRequest = null;
+                            }
+                            if (current && !tracked) Dashboard.hideLoadingMsg();
                         });
                 },
 

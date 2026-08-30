@@ -985,6 +985,59 @@ async function testUserMappingSaveLifecycleGuards() {
     assert.equal(currentPage.querySelector("#addMappingBtn").disabled, false, "current save restores the button");
 }
 
+async function testUserMappingDependencyLifecycleGuards() {
+    const staleHarness = makeHarness();
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    let staleLoadingHides = 0;
+    staleHarness.dashboard.hideLoadingMsg = () => { staleLoadingHides += 1; };
+
+    const staleOperation = staleApi.inspectUserMappingDependencies(stalePage, "user-one", "mapping-one");
+    assert.ok(staleOperation && typeof staleOperation.then === "function", "user-mapping dependency inspection returns a promise");
+    assert.equal(staleHarness.requests.length, 1, "user-mapping dependency inspection starts one tracked request");
+    assert.equal(
+        staleHarness.requests[0].options.url,
+        "HueSync/UserMappings/user-one/Dependencies?mappingId=mapping-one",
+        "user-mapping dependency inspection targets the selected mapping"
+    );
+    assert.ok(stalePage._huePageRequests.userMappingDependencies, "user-mapping dependency inspection is tracked by page lifecycle");
+
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts user-mapping dependency inspection");
+    assert.equal(stalePage._hueUserMappingDependenciesRequest, null, "pagehide clears user-mapping dependency request state");
+    assert.equal(stalePage._huePageRequests.userMappingDependencies, undefined, "pagehide removes user-mapping dependency request state");
+    assert.equal(staleLoadingHides, 1, "pagehide balances the dependency inspection loading indicator");
+    staleHarness.requests[0].resolve({
+        UserName: "Stale User",
+        CanDelete: true,
+        CanDisable: true
+    });
+    await staleOperation;
+    assert.deepEqual(staleHarness.dashboard.alerts, [], "invalidated user-mapping dependency inspection cannot alert after pagehide");
+
+    const currentHarness = makeHarness();
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    let currentLoadingHides = 0;
+    currentHarness.dashboard.hideLoadingMsg = () => { currentLoadingHides += 1; };
+    const currentOperation = currentApi.inspectUserMappingDependencies(currentPage, "user-two", "mapping-two");
+    currentHarness.requests[0].resolve({
+        UserName: "User Two",
+        CanDelete: false,
+        CanDisable: true,
+        ScheduledCueCount: 1,
+        ScheduledCues: [{ Name: "Evening Cue", Enabled: true }],
+        ScenePlaylistCount: 0,
+        ScenePlaylists: []
+    });
+    await currentOperation;
+    assert.equal(currentHarness.dashboard.alerts.length, 1, "current user-mapping dependency inspection reports its result");
+    assert.match(currentHarness.dashboard.alerts[0], /Evening Cue/, "current dependency inspection includes returned references");
+    assert.equal(currentPage._hueUserMappingDependenciesRequest, null, "current dependency inspection clears its request pointer");
+    assert.equal(currentPage._huePageRequests.userMappingDependencies, undefined, "current dependency inspection removes its lifecycle record");
+    assert.equal(currentLoadingHides, 1, "current dependency inspection balances the loading indicator");
+}
+
 async function testUserMappingDeleteLifecycleGuards() {
     const confirmationHarness = makeHarness();
     const confirmationPage = confirmationHarness.page;
@@ -5894,6 +5947,7 @@ testMappingDeviceDiscoveryPageOwnershipContract();
 await testEditMappingLifecycleGuards();
 await testRetainedMappingPageStateIsolation();
 await testUserMappingSaveLifecycleGuards();
+await testUserMappingDependencyLifecycleGuards();
 await testUserMappingDeleteLifecycleGuards();
 await testUserMappingCleanupLifecycleGuards();
 await testUserMappingBulkDeleteLifecycleGuards();
@@ -5954,4 +6008,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus page-scoped mapping-device discovery and route-refresh ownership, mapping discovery-cache read ownership, retained mapping-page state isolation, sibling mapping-registration preflight/request ownership, mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus page-scoped mapping-device discovery and route-refresh ownership, mapping discovery-cache read ownership, retained mapping-page state isolation, sibling mapping-registration preflight/request ownership, mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, user-mapping dependency inspection pagehide/current-result lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

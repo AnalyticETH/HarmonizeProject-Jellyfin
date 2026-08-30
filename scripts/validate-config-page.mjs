@@ -1064,6 +1064,25 @@ for (const [functionName, markers] of [
 }
 
 {
+    const start = scriptMatch[1].indexOf("inspectUserMappingDependencies: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "getMappingConfigurationPage(page)",
+        "var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);",
+        "HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)",
+        "'userMappingDependencies'",
+        "page._hueUserMappingDependenciesRequest",
+        "if (!isCurrent()) return;",
+        "if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingDependencies')"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} inspectUserMappingDependencies must be page-lifecycle scoped: ${marker}`);
+        }
+    }
+}
+
+{
     const start = scriptMatch[1].indexOf("getCredentialLifecycleRequest: function");
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";

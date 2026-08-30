@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.418] - 2026-08-30
+
+### Atomic user-mapping mutations and page-owned dependency inspection
+- **Legacy row identity safety**: cleanup, duplicate resolution, delete, and bulk mapping operations no longer backfill legacy mapping IDs while validating a request, and failed mapping saves restore every prior row identity.
+- **Reference-safe deletion**: single and bulk deletes remove the exact selected mapping objects, so blank legacy IDs cannot accidentally select or remove sibling rows.
+- **Dependency-inspection lifecycle**: per-user mapping dependency requests are page-owned, canceled on page teardown, and prevented from raising stale alerts or leaving loading indicators active.
+- **Regression coverage**: backend atomicity tests cover stale/unknown mapping operations and persistence rollback, while configuration-page contracts cover dependency inspection cancellation, stale completion suppression, current-page success, and control recovery.
+
 ## [1.5.417] - 2026-08-30
 
 ### Retained configuration snapshot isolation
