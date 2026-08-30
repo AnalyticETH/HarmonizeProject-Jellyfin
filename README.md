@@ -199,7 +199,7 @@ telemetry are excluded from the token so normal history updates do not invalidat
 
 `POST /HueSync/Preview` and `POST /HueSync/ColorPresets` accept `effect: "Temperature"`, `effect: "Aurora"`, `effect: "Fire"`, `effect: "Ocean"`, `effect: "Lightning"`, `effect: "Starlight"`, and `effect: "Matrix"`. They also accept `transitionCurve: "Linear"`, `"SmoothStep"`, `"EaseIn"`, `"EaseOut"`, or `"EaseInOut"`; blank/omitted legacy values remain Linear. The server validates and canonicalizes each effect and curve, and the stream tester applies the bounded easing to fade-in and fade-out transitions without changing the credential-free target-selection contract. Current-light capture can read one target or a selected/all-target set and seed the editor with a weighted aggregate sample.
 
-Direct `POST /HueSync/ScenePlaylists` and `POST /HueSync/SceneSchedules` bodies are capped at 1 MiB before playlist or schedule normalization, keeping the bounded step, target, and excluded-date collections from being traversed for oversized administrator requests.
+Direct `POST /HueSync/ScenePlaylists` and `POST /HueSync/SceneSchedules` bodies are capped at 1 MiB before playlist or schedule normalization, keeping the bounded step, target, and excluded-date collections from being traversed for oversized administrator requests. Bulk actions, target-selection previews/captures, and other small administrator control bodies are capped at 64 KiB before model binding; persisted collection and target-count limits still apply after that boundary.
 
 | Endpoint | Purpose |
 | :--- | :--- |
@@ -490,7 +490,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.403 (Current)
+### Version 1.5.404 (Current)
+
+- **Pre-binding request-size hardening**: bulk actions, target-selection previews/captures, mapping reconciliation controls, bridge registration, certificate trust, connection tests, saved-scene controls, and schedule state changes reject bodies over 64 KiB before model binding traverses user-supplied collections or text.
+
+- **Regression coverage**: reflection contracts cover every bounded selection/control endpoint, while valid maximum selections and oversized JSON bodies verify the pre-binding boundary.
+
+### Version 1.5.403
 
 - **Playlist dependency inspection lifecycle**: dependency checks are generation-owned, selection-aware, duplicate-suppressed, and canceled on page teardown; stale responses cannot overwrite a reused administrator page and the inspect control always recovers.
 

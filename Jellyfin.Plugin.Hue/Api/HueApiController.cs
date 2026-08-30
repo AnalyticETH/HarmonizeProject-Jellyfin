@@ -74,6 +74,14 @@ namespace Jellyfin.Plugin.Hue.Api
         /// JSON body.
         /// </summary>
         internal const long MaxSceneAutomationRequestBodyBytes = 1 * 1024 * 1024;
+        /// <summary>
+        /// Bounds small bridge, preview, scalar, and selection documents before ASP.NET
+        /// model binding traverses their fields and identifier collections. The bulk
+        /// endpoints cap selections at 50 entries (and target fan-out uses the same
+        /// bound); 64 KiB leaves generous headroom for valid credentials, channel text,
+        /// and identifiers while preventing oversized request-binding allocations.
+        /// </summary>
+        internal const long MaxBulkSelectionRequestBodyBytes = 64 * 1024;
 
         public HueApiController(HueClient hueClient, IEnumerable<Microsoft.Extensions.Hosting.IHostedService> hostedServices)
             : this(hueClient, hostedServices, null, null, null, null, null)
@@ -491,6 +499,7 @@ namespace Jellyfin.Plugin.Hue.Api
         }
 
         [HttpPost("Register")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -584,6 +593,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// when the supplied fingerprint matches that live certificate.
         /// </summary>
         [HttpPost("BridgeCertificate/Trust")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -805,6 +815,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// A userId may select a matching persisted custom mapping when the key is omitted.
         /// </summary>
         [HttpPost("EntertainmentAreas")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -855,6 +866,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// A matching userId allows the stored custom mapping key to remain server-side.
         /// </summary>
         [HttpPost("EntertainmentChannels")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -1469,6 +1481,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// validate and limit that probe to the channels selected for a per-user mapping.
         /// </summary>
         [HttpPost("TestConnection")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -1657,6 +1670,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// for a scene that will later run on the same room.
         /// </summary>
         [HttpPost("Preview/CaptureCurrentColor")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -1710,6 +1724,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// rooms; the aggregate sample is a convenient seed for the scene editor.
         /// </summary>
         [HttpPost("Preview/CaptureCurrentColors")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -1789,6 +1804,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// diagnostic never leaves a manual scene behind.
         /// </summary>
         [HttpPost("Preview")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -2157,6 +2173,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// target list may contain enabled user mappings and optionally the default bridge.
         /// </summary>
         [HttpPost("ColorPresets/{name}/Preview")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -2277,6 +2294,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// later scenes continue, and cancellation stops the remaining sequence safely.
         /// </summary>
         [HttpPost("ColorPresets/BulkPreview")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -2702,6 +2720,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// Saves or updates a reusable preview scene by case-insensitive name.
         /// </summary>
         [HttpPost("ColorPresets")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -2773,6 +2792,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// scene configuration is validated before it replaces the current configuration.
         /// </summary>
         [HttpPost("ColorPresets/{name}/Rename")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -2973,6 +2993,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// or persistence is attempted, and the original scenes remain unchanged.
         /// </summary>
         [HttpPost("ColorPresets/BulkDuplicate")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -3156,6 +3177,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// or persistence failure leaves the complete scene collection unchanged.
         /// </summary>
         [HttpPost("ColorPresets/BulkDelete")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -3506,6 +3528,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// playlist and cue configuration is validated before persistence.
         /// </summary>
         [HttpPost("ScenePlaylists/{name}/Rename")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -3615,6 +3638,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// playlist; all target credentials and channel profiles stay server-side.
         /// </summary>
         [HttpPost("ScenePlaylists/{name}/Preview")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -3771,6 +3795,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// playlists continue, and cancellation stops the remaining sequence safely.
         /// </summary>
         [HttpPost("ScenePlaylists/BulkPreview")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -4123,6 +4148,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// originals remain unchanged.
         /// </summary>
         [HttpPost("ScenePlaylists/BulkDuplicate")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -4299,6 +4325,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// leaves the complete playlist collection unchanged.
         /// </summary>
         [HttpPost("ScenePlaylists/BulkDelete")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -5607,6 +5634,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// the complete original schedule collection unchanged.
         /// </summary>
         [HttpPost("SceneSchedules/BulkDuplicate")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -5785,6 +5813,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// cue while later cues continue; cancellation stops the remaining sequence.
         /// </summary>
         [HttpPost("SceneSchedules/BulkRun")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -5994,6 +6023,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// batch. The bridge cleanup lifecycle remains owned by each running cue.
         /// </summary>
         [HttpPost("SceneSchedules/BulkCancel")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -6182,6 +6212,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// unchanged. Each successful reset also re-enables the cue and clears Skip Next.
         /// </summary>
         [HttpPost("SceneSchedules/BulkResetRunCount")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -6302,6 +6333,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// scene definition. Enabling an exhausted finite cue requires ResetRunCount.
         /// </summary>
         [HttpPost("SceneSchedules/{id}/Enabled")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -6363,6 +6395,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// cannot produce a partial bulk update.
         /// </summary>
         [HttpPost("SceneSchedules/BulkEnabled")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -6494,6 +6527,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// occurrence remains cancelable. Manual Run Now remains available.
         /// </summary>
         [HttpPost("SceneSchedules/BulkSkipNext")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -6649,6 +6683,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// selected cue is active or persistence fails. Retained history remains available.
         /// </summary>
         [HttpPost("SceneSchedules/BulkDelete")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -9925,6 +9960,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// untouched until an explicit retain/remap workflow exists.
         /// </summary>
         [HttpPost("UserMappings/Cleanup")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -10089,6 +10125,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// and the candidate configuration is fully validated before persistence.
         /// </summary>
         [HttpPost("UserMappings/ResolveDuplicates")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -11036,6 +11073,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// leaves the complete mapping collection unchanged.
         /// </summary>
         [HttpPost("UserMappings/BulkDelete")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -11221,6 +11259,7 @@ namespace Jellyfin.Plugin.Hue.Api
         /// failure restores every selected mapping's prior state.
         /// </summary>
         [HttpPost("UserMappings/BulkEnabled")]
+        [RequestSizeLimit(MaxBulkSelectionRequestBodyBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]

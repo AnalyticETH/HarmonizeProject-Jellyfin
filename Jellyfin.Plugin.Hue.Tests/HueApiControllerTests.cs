@@ -104,6 +104,171 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SelectionAndBulkEndpointsDeclareBoundedPreBindingRequestBodyLimit()
+    {
+        var methodNames = new[]
+        {
+            nameof(HueApiController.CaptureCurrentColors),
+            nameof(HueApiController.Preview),
+            nameof(HueApiController.PreviewColorPreset),
+            nameof(HueApiController.PreviewScenePlaylist),
+            nameof(HueApiController.PreviewColorPresetsBulk),
+            nameof(HueApiController.DuplicateColorPresetsBulk),
+            nameof(HueApiController.DeleteColorPresetsBulk),
+            nameof(HueApiController.PreviewScenePlaylistsBulk),
+            nameof(HueApiController.DuplicateScenePlaylistsBulk),
+            nameof(HueApiController.DeleteScenePlaylistsBulk),
+            nameof(HueApiController.DuplicateSceneSchedulesBulk),
+            nameof(HueApiController.RunSceneSchedulesBulk),
+            nameof(HueApiController.CancelSceneSchedulesBulk),
+            nameof(HueApiController.ResetSceneSchedulesRunCountBulk),
+            nameof(HueApiController.SetSceneSchedulesEnabledBulk),
+            nameof(HueApiController.SetSceneSchedulesSkipNextBulk),
+            nameof(HueApiController.DeleteSceneSchedulesBulk),
+            nameof(HueApiController.CleanupStaleUserMappings),
+            nameof(HueApiController.ResolveDuplicateUserMappings),
+            nameof(HueApiController.DeleteUserMappingsBulk),
+            nameof(HueApiController.SetUserMappingsEnabledBulk)
+        };
+
+        foreach (var methodName in methodNames)
+        {
+            var method = typeof(HueApiController).GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(method);
+            var limit = method!.GetCustomAttribute<RequestSizeLimitAttribute>();
+            Assert.NotNull(limit);
+            var metadata = Assert.IsAssignableFrom<IRequestSizeLimitMetadata>(limit);
+            Assert.Equal((long?)HueApiController.MaxBulkSelectionRequestBodyBytes, metadata.MaxRequestBodySize);
+        }
+    }
+
+    [Fact]
+    public void ScalarRequestEndpointsDeclareBoundedPreBindingRequestBodyLimit()
+    {
+        var methodNames = new[]
+        {
+            nameof(HueApiController.RegisterBridge),
+            nameof(HueApiController.TrustBridgeCertificate),
+            nameof(HueApiController.PostEntertainmentAreas),
+            nameof(HueApiController.PostEntertainmentChannels),
+            nameof(HueApiController.TestConnection),
+            nameof(HueApiController.CaptureCurrentColor),
+            nameof(HueApiController.SaveColorPreset),
+            nameof(HueApiController.RenameColorPreset),
+            nameof(HueApiController.RenameScenePlaylist),
+            nameof(HueApiController.SetSceneScheduleEnabled)
+        };
+
+        foreach (var methodName in methodNames)
+        {
+            var method = typeof(HueApiController).GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(method);
+            var limit = method!.GetCustomAttribute<RequestSizeLimitAttribute>();
+            Assert.NotNull(limit);
+            var metadata = Assert.IsAssignableFrom<IRequestSizeLimitMetadata>(limit);
+            Assert.Equal((long?)HueApiController.MaxBulkSelectionRequestBodyBytes, metadata.MaxRequestBodySize);
+        }
+    }
+
+    [Fact]
+    public void LargeValidScalarRequestPayloadFitsRequestBodyLimit()
+    {
+        var channelIds = string.Join(',', Enumerable.Repeat("65535", 682)) + new string(' ', 5);
+        var request = new HueConnectionTestRequest
+        {
+            UserId = CreateDeterministicUserId(1),
+            DeviceId = new string('d', 256),
+            IpAddress = "192.168.1.100",
+            AppKey = new string('a', 64),
+            ClientKey = new string('c', 64),
+            EntertainmentAreaId = new string('e', 256),
+            ChannelIds = channelIds
+        };
+        var serialized = JsonSerializer.SerializeToUtf8Bytes(request);
+
+        Assert.InRange(
+            serialized.Length,
+            1,
+            (int)HueApiController.MaxBulkSelectionRequestBodyBytes);
+        var roundTripped = JsonSerializer.Deserialize<HueConnectionTestRequest>(serialized);
+        Assert.NotNull(roundTripped);
+        Assert.Equal(PluginConfiguration.MaxChannelIdsInputLength, roundTripped!.ChannelIds!.Length);
+    }
+
+    [Fact]
+    public void OversizedScalarRequestPayloadExceedsPreBindingRequestBodyLimit()
+    {
+        var validJson = Encoding.UTF8.GetString(
+            JsonSerializer.SerializeToUtf8Bytes(new HueConnectionTestRequest
+            {
+                IpAddress = "192.168.1.100",
+                AppKey = "app-key"
+            }));
+        var oversizedJson = validJson[..^1] +
+            $",\"ignoredPadding\":\"{new string('x', (int)HueApiController.MaxBulkSelectionRequestBodyBytes)}\"}";
+        var oversized = Encoding.UTF8.GetBytes(oversizedJson);
+        using var parsed = JsonDocument.Parse(oversizedJson);
+        Assert.True(parsed.RootElement.TryGetProperty("ignoredPadding", out _));
+
+        Assert.True(
+            oversized.Length > HueApiController.MaxBulkSelectionRequestBodyBytes,
+            $"Expected oversized scalar payload to exceed {HueApiController.MaxBulkSelectionRequestBodyBytes} bytes, got {oversized.Length}.");
+
+        var method = typeof(HueApiController).GetMethod(
+            nameof(HueApiController.TestConnection),
+            BindingFlags.Instance | BindingFlags.Public);
+        var limit = method!.GetCustomAttribute<RequestSizeLimitAttribute>();
+        var metadata = Assert.IsAssignableFrom<IRequestSizeLimitMetadata>(limit);
+        Assert.True(oversized.Length > metadata.MaxRequestBodySize);
+    }
+
+    [Fact]
+    public void MaximumBulkSelectionPayloadFitsRequestBodyLimit()
+    {
+        var request = new HueSceneScheduleBulkRunRequest
+        {
+            ScheduleIds = Enumerable.Range(0, PluginConfiguration.MaxSceneSchedules)
+                .Select(index => $"schedule-{index:D2}")
+                .ToList()
+        };
+        var serialized = JsonSerializer.SerializeToUtf8Bytes(request);
+
+        Assert.InRange(
+            serialized.Length,
+            1,
+            (int)HueApiController.MaxBulkSelectionRequestBodyBytes);
+        var roundTripped = JsonSerializer.Deserialize<HueSceneScheduleBulkRunRequest>(serialized);
+        Assert.NotNull(roundTripped);
+        Assert.Equal(PluginConfiguration.MaxSceneSchedules, roundTripped!.ScheduleIds.Count);
+    }
+
+    [Fact]
+    public void OversizedBulkSelectionPayloadExceedsPreBindingRequestBodyLimit()
+    {
+        var validJson = Encoding.UTF8.GetString(
+            JsonSerializer.SerializeToUtf8Bytes(new HueSceneScheduleBulkRunRequest
+            {
+                ScheduleIds = new List<string> { "schedule" }
+            }));
+        var oversizedJson = validJson[..^1] +
+            $",\"ignoredPadding\":\"{new string('x', (int)HueApiController.MaxBulkSelectionRequestBodyBytes)}\"}";
+        var oversized = Encoding.UTF8.GetBytes(oversizedJson);
+        using var parsed = JsonDocument.Parse(oversizedJson);
+        Assert.True(parsed.RootElement.TryGetProperty("ignoredPadding", out _));
+
+        Assert.True(
+            oversized.Length > HueApiController.MaxBulkSelectionRequestBodyBytes,
+            $"Expected oversized bulk selection payload to exceed {HueApiController.MaxBulkSelectionRequestBodyBytes} bytes, got {oversized.Length}.");
+
+        var method = typeof(HueApiController).GetMethod(
+            nameof(HueApiController.RunSceneSchedulesBulk),
+            BindingFlags.Instance | BindingFlags.Public);
+        var limit = method!.GetCustomAttribute<RequestSizeLimitAttribute>();
+        var metadata = Assert.IsAssignableFrom<IRequestSizeLimitMetadata>(limit);
+        Assert.True(oversized.Length > metadata.MaxRequestBodySize);
+    }
+
+    [Fact]
     public void MaximumSupportedConfigurationPayloadFitsRequestBodyLimit()
     {
         var settings = CreateMaximumSupportedConfigurationSettings();

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.404] - 2026-08-29
+
+### Pre-binding request-size hardening
+- **Bounded selection requests**: bulk actions, target-selection previews/captures, and mapping reconciliation controls reject bodies over 64 KiB before ASP.NET model binding traverses identifier collections.
+- **Bounded scalar requests**: bridge registration, certificate trust, connection tests, saved-scene controls, and schedule state changes use the same small-request ceiling for consistent authenticated input handling.
+- **Regression coverage**: reflection contracts cover every collection- and scalar-selection endpoint, while valid maximum selections and oversized JSON bodies verify the pre-binding boundary.
+
 ## [1.5.403] - 2026-08-29
 
 ### Playlist dependency inspection lifecycle
