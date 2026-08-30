@@ -847,6 +847,33 @@ for (const forbidden of [
     }
 }
 
+// The inline control bindings must use the page that contains this script. A
+// global document query would resolve duplicate IDs from the first retained
+// Jellyfin page and leave the newly shown page's controls unbound or wired to
+// the wrong lifecycle owner.
+{
+    const scopeStart = scriptMatch[1].indexOf("(function (document) {");
+    const firstBinding = scriptMatch[1].indexOf("document.querySelector('.huePluginConfigurationForm').addEventListener", scopeStart);
+    const scopeEnd = scriptMatch[1].indexOf("})(typeof document !== 'undefined'", scopeStart);
+    const pageShowBinding = scriptMatch[1].indexOf("document.addEventListener('pageshow'");
+    if (scopeStart < 0 || firstBinding < scopeStart || scopeEnd < firstBinding || pageShowBinding < scopeEnd) {
+        throw new Error(`${file} control listeners must be enclosed by a page-scoped registration block`);
+    }
+    const scopeBody = scriptMatch[1].slice(scopeStart, scopeEnd);
+    for (const marker of [
+        "document.currentScript",
+        "document.currentScript.closest('.pluginConfigurationPage')",
+        "this.closest('.page')"
+    ]) {
+        if (!scriptMatch[1].includes(marker)) {
+            throw new Error(`${file} page-scoped listener registration is missing: ${marker}`);
+        }
+    }
+    if (!scopeBody.includes("document.querySelector('#mappingDiscoverDevicesBtn').addEventListener")) {
+        throw new Error(`${file} mapping controls must remain inside the page-scoped listener registration block`);
+    }
+}
+
 {
     const functionName = "getMappingDeviceRouteCredentialKey";
     const start = scriptMatch[1].indexOf(`\n                ${functionName}: function`);

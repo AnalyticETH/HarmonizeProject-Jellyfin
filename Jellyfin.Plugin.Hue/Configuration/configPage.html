@@ -16319,6 +16319,13 @@
                 }
             };
 
+            // Inline config pages can be retained by Jellyfin while a newer
+            // instance is inserted. Bind controls against the page containing
+            // this script so duplicate IDs in a hidden sibling cannot steal
+            // the listener registration. The document fallback preserves
+            // compatibility with hosts that evaluate this template detached
+            // from its page element.
+            (function (document) {
             document.querySelector('.huePluginConfigurationForm').addEventListener('submit', function (e) {
                 e.preventDefault();
                 HueConfigurationPage.saveConfiguration(this.closest('.page'));
@@ -16941,6 +16948,10 @@
             document.querySelector('#mappingSyncEnabled').addEventListener('change', function () {
                 HueConfigurationPage.toggleMappingSyncFields(this.closest('.page'));
             });
+            })(typeof document !== 'undefined' && document.currentScript &&
+                typeof document.currentScript.closest === 'function'
+                ? (document.currentScript.closest('.pluginConfigurationPage') || document)
+                : document);
 
             document.addEventListener('pageshow', function (e) {
                 if (e.target.classList.contains('pluginConfigurationPage')) {
