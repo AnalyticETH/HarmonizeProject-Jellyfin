@@ -2418,26 +2418,18 @@ namespace Jellyfin.Plugin.Hue.Service
                     : pauseDimsLights
                         ? "dim to cinema level"
                         : "keep-last-colors";
-                _logger.LogInformation(
-                    "Playback paused, stopping light sync; pause behavior is {0}",
-                    pauseDescription);
-                SetRuntimeStatus(
-                    "Paused",
-                    pauseRestoresLights
-                        ? "Playback paused; lights are being restored."
-                        : pauseDimsLights
-                            ? "Playback paused; lights are dimming to the configured cinema level."
-                            : "Playback paused; keeping the last synced colors.");
-                Task pauseCleanup;
-                lock (_syncLock)
+                var pauseMessage = pauseRestoresLights
+                    ? "Playback paused; lights are being restored."
+                    : pauseDimsLights
+                        ? "Playback paused; lights are dimming to the configured cinema level."
+                        : "Playback paused; keeping the last synced colors.";
+                if (!TryBeginPlaybackPause(
+                        e.PlaySessionId,
+                        pauseDescription,
+                        pauseMessage,
+                        out var pauseCleanup))
                 {
-                    if (_isStopping || _pauseCleanupTask != null)
-                        return;
-
-                    _pauseCleanupSessionId = e.PlaySessionId;
-                    _pausedPlaySessionId = e.PlaySessionId;
-                    pauseCleanup = StopSyncForPauseAsync(e.PlaySessionId);
-                    _pauseCleanupTask = pauseCleanup;
+                    return;
                 }
 
                 _ = pauseCleanup.ContinueWith(
@@ -2481,6 +2473,44 @@ namespace Jellyfin.Plugin.Hue.Service
                     _pausedPlaySessionId = null;
                 }
                 ObserveTask(StartSyncForItem(e));
+            }
+        }
+
+        /// <summary>
+        /// Atomically admits one pause event for the active playback session and publishes
+        /// its paused state. The event may have passed the initial session check before a
+        /// newer playback lifecycle was published, so every identity and cleanup guard is
+        /// repeated under <see cref="_syncLock"/> immediately before shared state changes.
+        /// </summary>
+        internal bool TryBeginPlaybackPause(
+            string playSessionId,
+            string pauseDescription,
+            string pauseMessage,
+            out Task pauseCleanup)
+        {
+            lock (_syncLock)
+            {
+                if (_isStopping ||
+                    _playbackCleanupRetryPending ||
+                    _pauseCleanupTask != null ||
+                    _syncCts == null ||
+                    _syncCts.IsCancellationRequested ||
+                    !string.Equals(_currentPlaySessionId, playSessionId, StringComparison.Ordinal) ||
+                    string.Equals(_playbackStopInFlightSessionId, playSessionId, StringComparison.Ordinal))
+                {
+                    pauseCleanup = Task.CompletedTask;
+                    return false;
+                }
+
+                _pauseCleanupSessionId = playSessionId;
+                _pausedPlaySessionId = playSessionId;
+                _logger.LogInformation(
+                    "Playback paused, stopping light sync; pause behavior is {0}",
+                    pauseDescription);
+                SetRuntimeStatus("Paused", pauseMessage);
+                pauseCleanup = StopSyncForPauseAsync(playSessionId);
+                _pauseCleanupTask = pauseCleanup;
+                return true;
             }
         }
 

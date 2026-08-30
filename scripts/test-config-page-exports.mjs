@@ -3044,6 +3044,105 @@ async function testColorPresetRenameLifecycleGuards() {
     assert.equal(duplicatePage._huePageRequests.colorPresetRename, undefined, "duplicate color preset rename removes its settled lifecycle record");
 }
 
+function configureColorPresetDependenciesHarness(harness) {
+    const { page } = harness;
+    const select = page.querySelector("#previewPresetSelect");
+    select.options = [
+        { value: "Scene One", textContent: "Scene One" },
+        { value: "Scene Two", textContent: "Scene Two" }
+    ];
+    select.value = "Scene One";
+    select.selectedIndex = 0;
+    return {
+        select,
+        button: page.querySelector("#inspectPreviewPresetBtn"),
+        status: page.querySelector("#previewPresetStatus")
+    };
+}
+
+async function testColorPresetDependenciesLifecycleGuards() {
+    const staleHarness = makeHarness();
+    const staleState = configureColorPresetDependenciesHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    const staleOperation = staleApi.inspectColorPresetDependencies(stalePage);
+    assert.ok(staleOperation && typeof staleOperation.then === "function", "color preset dependency inspection returns a tracked promise");
+    assert.equal(staleHarness.requests.length, 1, "color preset dependency inspection starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "GET", "color preset dependency inspection uses GET");
+    assert.equal(
+        staleHarness.requests[0].options.url,
+        "HueSync/ColorPresets/Scene%20One/Dependencies",
+        "color preset dependency inspection scopes the request to the selected scene"
+    );
+    assert.ok(stalePage._huePageRequests.colorPresetDependencies, "color preset dependency inspection is tracked by page lifecycle");
+    assert.equal(staleState.button.disabled, true, "color preset dependency inspection disables its button while pending");
+    const duplicateOperation = staleApi.inspectColorPresetDependencies(stalePage);
+    await duplicateOperation;
+    assert.equal(staleHarness.requests.length, 1, "duplicate color preset dependency inspection is suppressed");
+    staleState.select.value = "Scene Two";
+    staleState.status.textContent = "current scene status";
+    staleHarness.requests[0].resolve({
+        name: "Scene One",
+        canDelete: false,
+        playlistCount: 1,
+        scheduledCueCount: 1,
+        playlists: [{ name: "Playlist One", referenceCount: 2 }],
+        scheduledCues: [{ name: "Cue One", enabled: true, referenceType: "DirectScene" }]
+    });
+    await staleOperation;
+    assert.equal(staleState.status.textContent, "current scene status", "selection-changed dependency response cannot overwrite current status");
+    assert.equal(staleHarness.dashboard.alerts.length, 0, "selection-changed dependency response cannot show a stale alert");
+    assert.equal(stalePage._hueColorPresetDependenciesRequest, null, "selection-changed dependency request clears its pointer");
+    assert.equal(stalePage._huePageRequests.colorPresetDependencies, undefined, "selection-changed dependency request removes its lifecycle record");
+    assert.equal(staleState.button.disabled, false, "selection-changed dependency request restores its button");
+
+    const pagehideHarness = makeHarness();
+    const pagehideState = configureColorPresetDependenciesHarness(pagehideHarness);
+    const pagehidePage = pagehideHarness.page;
+    const pagehideApi = pagehideHarness.api;
+    const pagehideOperation = pagehideApi.inspectColorPresetDependencies(pagehidePage);
+    assert.equal(pagehideHarness.requests.length, 1, "pagehide dependency scenario starts one request");
+    pagehideState.status.textContent = "unchanged after pagehide";
+    pagehideApi.invalidatePageLifecycle(pagehidePage);
+    assert.equal(pagehideHarness.requests[0].promise.aborted, true, "pagehide aborts the color preset dependency request");
+    assert.equal(pagehidePage._huePageRequests.colorPresetDependencies, undefined, "pagehide removes color preset dependency request state");
+    assert.equal(pagehidePage._hueColorPresetDependenciesRequest, null, "pagehide clears the color preset dependency request pointer");
+    assert.equal(pagehideState.button.disabled, false, "pagehide restores the color preset dependency inspection button");
+    pagehideHarness.requests[0].resolve({
+        name: "Scene One",
+        canDelete: true,
+        playlistCount: 0,
+        scheduledCueCount: 0,
+        playlists: [],
+        scheduledCues: []
+    });
+    await pagehideOperation;
+    assert.equal(pagehideState.status.textContent, "unchanged after pagehide", "pagehide dependency response cannot overwrite status");
+    assert.equal(pagehideHarness.dashboard.alerts.length, 0, "pagehide dependency response cannot show an alert");
+
+    const currentHarness = makeHarness();
+    const currentState = configureColorPresetDependenciesHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    const currentOperation = currentApi.inspectColorPresetDependencies(currentPage);
+    assert.equal(currentState.button.disabled, true, "current dependency inspection keeps its button disabled while pending");
+    currentHarness.requests[0].resolve({
+        name: "Scene One",
+        canDelete: false,
+        playlistCount: 1,
+        scheduledCueCount: 1,
+        playlists: [{ name: "Playlist One", referenceCount: 2 }],
+        scheduledCues: [{ name: "Cue One", enabled: true, referenceType: "DirectScene" }]
+    });
+    await currentOperation;
+    assert.equal(currentState.status.textContent, "This scene is referenced by 1 playlist(s) and 1 scheduled cue(s).", "current dependency inspection renders its result");
+    assert.equal(currentHarness.dashboard.alerts.length, 1, "current dependency inspection shows one result alert");
+    assert.match(currentHarness.dashboard.alerts[0], /Scene One[\s\S]*Playlist One[\s\S]*Cue One/, "current dependency inspection alert includes the returned references");
+    assert.equal(currentPage._hueColorPresetDependenciesRequest, null, "current dependency inspection clears its request pointer");
+    assert.equal(currentPage._huePageRequests.colorPresetDependencies, undefined, "current dependency inspection removes its lifecycle record");
+    assert.equal(currentState.button.disabled, false, "current dependency inspection restores its button");
+}
+
 function configureScenePlaylistSaveHarness(harness) {
     const { page, api } = harness;
     api.getScenePlaylistTargetSelection = () => ({
@@ -5398,6 +5497,7 @@ await testColorPresetBulkDeleteLifecycleGuards();
 await testColorPresetBulkDuplicateLifecycleGuards();
 await testColorPresetBulkErrorDetailsAndRetry();
 await testColorPresetRenameLifecycleGuards();
+await testColorPresetDependenciesLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
 await testScenePlaylistDeleteLifecycleGuards();
 await testScenePlaylistIndividualMutationLifecycleGuards();

@@ -3000,6 +3000,14 @@
                             if (scenePlaylistDependenciesButton) scenePlaylistDependenciesButton.disabled = false;
                         }
                     }
+                    if (key === 'colorPresetDependencies') {
+                        var colorPresetDependenciesRequest = page._hueColorPresetDependenciesRequest;
+                        if (colorPresetDependenciesRequest && colorPresetDependenciesRequest._huePageRequestRecord === record) {
+                            page._hueColorPresetDependenciesRequest = null;
+                            var colorPresetDependenciesButton = page.querySelector && page.querySelector('#inspectPreviewPresetBtn');
+                            if (colorPresetDependenciesButton) colorPresetDependenciesButton.disabled = false;
+                        }
+                    }
                     var exportStates = {
                         sceneScheduleConflictsExport: { property: '_hueSceneScheduleConflictsExporting', selector: '#exportSceneScheduleConflictsBtn' },
                         sceneScheduleConflictsCsvExport: { property: '_hueSceneScheduleConflictsCsvExporting', selector: '#exportSceneScheduleConflictsCsvBtn' },
@@ -3422,6 +3430,7 @@
                     page._hueScenePlaylistRenameButton = null;
                     page._hueScenePlaylistMutation = null;
                     page._hueScenePlaylistDependenciesRequest = null;
+                    page._hueColorPresetDependenciesRequest = null;
                     page._hueColorPresetDeleting = false;
                     if (page._hueColorPresetDeleteButton) page._hueColorPresetDeleteButton.disabled = false;
                     page._hueColorPresetDeleteButton = null;
@@ -5591,6 +5600,7 @@
                     var selectEl = page.querySelector('#previewPresetSelect');
                     var duplicateTargetsBlocked = HueConfigurationPage.hasEnabledDuplicateTargetMappings(page);
                     var deleteBusy = !!(page._hueColorPresetDeleting || page._hueColorPresetDeleteConfirmation);
+                    var inspectBusy = !!page._hueColorPresetDependenciesRequest;
                     var deleteBtn = page.querySelector('#deletePreviewPresetBtn');
                     var duplicateBtn = page.querySelector('#duplicatePreviewPresetBtn');
                     var renameBtn = page.querySelector('#renamePreviewPresetBtn');
@@ -5606,7 +5616,7 @@
                         renameBtn.disabled = !selectEl || !selectEl.value;
                     }
                     if (inspectBtn) {
-                        inspectBtn.disabled = !selectEl || !selectEl.value;
+                        inspectBtn.disabled = inspectBusy || !selectEl || !selectEl.value;
                     }
                     if (previewAllBtn) {
                         previewAllBtn.disabled = !selectEl || !selectEl.value || duplicateTargetsBlocked;
@@ -6258,12 +6268,16 @@
                     });
                 },
                 inspectColorPresetDependencies: function (page) {
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueColorPresetDependenciesRequest) return Promise.resolve();
                     var selectEl = page.querySelector('#previewPresetSelect');
                     var statusEl = page.querySelector('#previewPresetStatus');
-                    var name = selectEl ? selectEl.value : '';
+                    var name = selectEl ? String(selectEl.value || '') : '';
                     if (!name) {
                         Dashboard.alert("Choose a saved scene first.");
-                        return;
+                        return Promise.resolve();
                     }
 
                     var button = page.querySelector('#inspectPreviewPresetBtn');
@@ -6272,8 +6286,23 @@
                         statusEl.textContent = "Checking saved-scene references...";
                         statusEl.style.color = "";
                     }
-                    ApiClient.getJSON(ApiClient.getUrl("HueSync/ColorPresets/" + encodeURIComponent(name) + "/Dependencies"))
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'colorPresetDependencies',
+                        ApiClient.getUrl("HueSync/ColorPresets/" + encodeURIComponent(name) + "/Dependencies"));
+                    page._hueColorPresetDependenciesRequest = request;
+                    var isCurrent = function () {
+                        return page._hueColorPresetDependenciesRequest === request &&
+                            HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    var isTargetCurrent = function () {
+                        var currentSelect = page.querySelector('#previewPresetSelect');
+                        return isCurrent() && String(currentSelect ? currentSelect.value || '' : '') === name;
+                    };
+                    return request
                         .then(function (response) {
+                            if (!isTargetCurrent()) return;
                             var resultName = response && (response.name || response.Name) || name;
                             var playlists = response && (response.playlists || response.Playlists) || [];
                             var schedules = response && (response.scheduledCues || response.ScheduledCues) || [];
@@ -6312,6 +6341,7 @@
                             }
                         })
                         .catch(function (err) {
+                            if (!isTargetCurrent()) return;
                             console.error("Failed to inspect color preset dependencies:", err);
                             if (statusEl) {
                                 statusEl.textContent = "Unable to inspect saved-scene references. Check the server log.";
@@ -6319,7 +6349,15 @@
                             }
                         })
                         .finally(function () {
-                            HueConfigurationPage.updatePresetButtons(page);
+                            var current = isCurrent();
+                            var requestRecord = request && request._huePageRequestRecord;
+                            var tracked = page && page._huePageRequests &&
+                                page._huePageRequests.colorPresetDependencies === requestRecord;
+                            if (page._hueColorPresetDependenciesRequest === request) {
+                                page._hueColorPresetDependenciesRequest = null;
+                                if (current) HueConfigurationPage.updatePresetButtons(page);
+                            }
+                            if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'colorPresetDependencies');
                         });
                 },
                 saveColorPreset: function (page) {

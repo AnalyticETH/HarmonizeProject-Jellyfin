@@ -1921,6 +1921,34 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task PlaybackPauseAdmission_RejectsStaleSessionWithoutPublishingPausedState()
+    {
+        using var httpClient = new HttpClient(new BlockingHueHandler());
+        var service = CreateService(httpClient);
+        await service.StartAsync(CancellationToken.None);
+
+        SetPrivateField(service, "_syncCts", new CancellationTokenSource());
+        SetPrivateField(service, "_currentPlaySessionId", "session-b");
+        SetPrivateField(service, "_runtimeState", "Syncing");
+        SetPrivateField(service, "_runtimeMessage", "Streaming media colors to Hue.");
+
+        Assert.False(service.TryBeginPlaybackPause(
+            "session-a",
+            "restore",
+            "Playback paused; lights are being restored.",
+            out _));
+
+        Assert.Equal("session-b", GetPrivateField(service, "_currentPlaySessionId"));
+        Assert.Null(GetPrivateField(service, "_pauseCleanupTask"));
+        Assert.Null(GetPrivateField(service, "_pauseCleanupSessionId"));
+        Assert.Null(GetPrivateField(service, "_pausedPlaySessionId"));
+        Assert.Equal("Syncing", service.GetRuntimeStatus().State);
+        Assert.Equal("Streaming media colors to Hue.", service.GetRuntimeStatus().Message);
+
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task PlaybackPause_WithActiveRestoreBehaviorRestoresSavedStateImmediately()
     {
         var handler = new BlockingHueHandler();

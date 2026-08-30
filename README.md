@@ -490,7 +490,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.404 (Current)
+### Version 1.5.405 (Current)
+
+- **Dependency inspection lifecycle**: saved-scene and color-preset dependency checks now share generation, selection, and request ownership; duplicate submissions are suppressed, page teardown aborts in-flight work, and stale responses cannot overwrite a reused administrator page.
+- **Control recovery and regression coverage**: the inspect control recovers after success, failure, selection changes, and pagehide cancellation, with executable current-success, stale-selection, duplicate, and teardown contracts.
+- **Playback pause race hardening**: pause events must still match the active playback session under the lifecycle lock before they can publish paused state or start cleanup, so a stale event from a stopped session cannot alter a newer handoff.
+
+### Version 1.5.404
 
 - **Pre-binding request-size hardening**: bulk actions, target-selection previews/captures, mapping reconciliation controls, bridge registration, certificate trust, connection tests, saved-scene controls, and schedule state changes reject bodies over 64 KiB before model binding traverses user-supplied collections or text.
 

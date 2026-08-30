@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.405] - 2026-08-30
+
+### Dependency inspection lifecycle extension
+- **Playlist dependency inspection lifecycle**: dependency checks are generation-owned, selection-aware, duplicate-suppressed, and canceled on page teardown; stale responses cannot overwrite a reused administrator page and the inspect control always recovers.
+- **Regression coverage**: selection-change, pagehide abort, stale completion, current success, and duplicate-submit contracts cover the dependency-inspection lifecycle.
+- **Pause deactivation recovery**: dim/keep-last pause cleanup retries failed or thrown deactivation without restoring the saved playback snapshot.
+- **Regression coverage**: queued-start, diagnostic arbitration, pause retry/transport failure, and bulk mapping lifecycle contracts cover these boundaries.
+
 ## [1.5.404] - 2026-08-29
 
 ### Pre-binding request-size hardening
