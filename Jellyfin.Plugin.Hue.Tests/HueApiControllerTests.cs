@@ -10689,6 +10689,130 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task SceneSchedulesBulkRun_RejectsConfigurationMutationBeforePreflight()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Bulk cue" } },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-barrier-cue",
+                    Name = "Bulk barrier cue",
+                    PresetName = "Bulk cue",
+                    TimeOfDay = "20:00",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                }
+            }
+        });
+        var gate = new HueBridgeLifecycleGate();
+        using var mutation = gate.TryEnterConfigurationMutation();
+        Assert.NotNull(mutation);
+
+        var action = await CreateController(bridgeLifecycleGate: gate).RunSceneSchedulesBulk(
+            new HueSceneScheduleBulkRunRequest
+            {
+                ScheduleIds = new List<string> { "bulk-barrier-cue" }
+            });
+
+        var response = Assert.IsType<ConflictObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.Contains("Configuration is changing", Assert.IsType<string>(response.Value), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SceneSchedulesBulkRun_HoldsBarrierAcrossCuesAndKeepsLaterCuePreflighted()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "bulk-barrier-app-secret",
+            HueClientKey = "bulk-barrier-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "First", Red = 10, Green = 20, Blue = 30, DurationSeconds = 1 },
+                new() { Name = "Second", Red = 40, Green = 50, Blue = 60, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "bulk-barrier-first",
+                    Name = "First bulk cue",
+                    PresetName = "First",
+                    TimeOfDay = "20:00",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                },
+                new()
+                {
+                    Id = "bulk-barrier-second",
+                    Name = "Second bulk cue",
+                    PresetName = "Second",
+                    TimeOfDay = "20:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    DaysOfWeekMask = 0
+                }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":0}]}]}");
+
+        var gate = new HueBridgeLifecycleGate();
+        var streamTester = new BulkRunBarrierStreamTester(gate, configuration);
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            gate);
+        var controller = CreateController(
+            streamTester,
+            gate,
+            hostedServices: new IHostedService[] { service });
+
+        var bulkTask = controller.RunSceneSchedulesBulk(new HueSceneScheduleBulkRunRequest
+        {
+            ScheduleIds = new List<string> { "bulk-barrier-first", "bulk-barrier-second" }
+        });
+        try
+        {
+            await streamTester.FirstPreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            // The outer lease and the nested per-cue lease are both held here. A real
+            // configuration writer therefore cannot commit between the two preflighted
+            // cues, and the second cue keeps its original saved-scene definition.
+            Assert.True(gate.IsSchedulerEvaluationActive);
+            var schedulerCount = (int)typeof(HueBridgeLifecycleGate)
+                .GetField("_schedulerEvaluationCount", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(gate)!;
+            Assert.True(schedulerCount >= 2);
+
+            Assert.True(streamTester.ConfigurationMutationRejected);
+            Assert.Equal(new[] { 10 }, streamTester.Reds);
+        }
+        finally
+        {
+            streamTester.ReleaseFirstPreview.TrySetResult(true);
+        }
+
+        var action = await bulkTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueSceneScheduleBulkRunResult>(response.Value);
+        Assert.Equal(2, result.SucceededCount);
+        Assert.Equal(new[] { 10, 40 }, streamTester.Reds);
+        Assert.False(gate.IsSchedulerEvaluationActive);
+        Assert.Equal(1, configuration.SceneSchedules[0].RunCount);
+        Assert.Equal(1, configuration.SceneSchedules[1].RunCount);
+    }
+
+    [Fact]
     public void SceneSchedulesBulkCancel_ReturnsCredentialFreeNoActiveSummary()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -17424,6 +17548,89 @@ public sealed class HueApiControllerTests : IDisposable
             {
                 Succeeded = true,
                 Message = "Preview completed."
+            };
+        }
+
+        public bool CancelActiveDiagnostic() => false;
+    }
+
+    private sealed class BulkRunBarrierStreamTester : IHueStreamTester
+    {
+        private readonly HueBridgeLifecycleGate _bridgeLifecycleGate;
+        private readonly PluginConfiguration _configuration;
+        private int _previewCount;
+
+        public BulkRunBarrierStreamTester(
+            HueBridgeLifecycleGate bridgeLifecycleGate,
+            PluginConfiguration configuration)
+        {
+            _bridgeLifecycleGate = bridgeLifecycleGate;
+            _configuration = configuration;
+        }
+
+        public TaskCompletionSource<bool> FirstPreviewStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> ReleaseFirstPreview { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public List<int> Reds { get; } = new();
+
+        public bool ConfigurationMutationRejected { get; private set; }
+
+        public Task<HueStreamProbeResult> TestAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new HueStreamProbeResult
+            {
+                Succeeded = false,
+                Message = "Not used by this test."
+            });
+
+        public async Task<HueStreamProbeResult> PreviewAsync(
+            string bridgeIp,
+            string appKey,
+            string clientKey,
+            string areaId,
+            JsonElement areaConfiguration,
+            IReadOnlySet<int>? channelIds,
+            int red,
+            int green,
+            int blue,
+            int brightnessPercent,
+            int durationSeconds,
+            CancellationToken cancellationToken = default,
+            int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+            int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+            string effect = PluginConfiguration.ColorPresetEffectSolid,
+            int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent)
+        {
+            Reds.Add(red);
+            if (Interlocked.Increment(ref _previewCount) == 1)
+            {
+                FirstPreviewStarted.TrySetResult(true);
+                var mutationLease = _bridgeLifecycleGate.TryEnterConfigurationMutation();
+                ConfigurationMutationRejected = mutationLease == null;
+                if (mutationLease != null)
+                {
+                    _configuration.ColorPresets
+                        .First(preset => string.Equals(preset.Name, "Second", StringComparison.Ordinal))
+                        .Red = 255;
+                    mutationLease.Dispose();
+                }
+
+                await ReleaseFirstPreview.Task.WaitAsync(cancellationToken);
+            }
+
+            return new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "Bulk cue completed."
             };
         }
 

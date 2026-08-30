@@ -490,7 +490,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.401 (Current)
+### Version 1.5.402 (Current)
+
+- **Scheduled-cue and playlist lifecycle ownership**: direct and bulk mutations are generation-owned, duplicate-suppressed, stale-safe, and canceled on teardown; controls remain locked through refresh and cancellation barriers.
+
+- **Bulk-run configuration barrier**: sequential scheduled-cue runs hold scheduler evaluation across preflight and every cue so saved configuration cannot change between cues.
+
+- **Regression coverage**: pending confirmations, pagehide aborts, stale completions, cross-action arbitration, cancellation barriers, reload leases, and bulk-run configuration barriers are covered.
+
+### Version 1.5.401
 
 - **Direct playlist mutation lock**: save, duplicate, rename, and delete now share one page-generation-owned lock, suppress opposite actions, and restore every mutation control safely on cancellation or teardown.
 

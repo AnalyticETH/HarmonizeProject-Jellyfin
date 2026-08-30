@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.402] - 2026-08-29
+
+### Scheduled-cue and playlist mutation integrity
+- **Lifecycle ownership**: direct and bulk scheduled-cue and playlist mutations are generation-owned, duplicate-suppressed, stale-safe, and canceled on teardown.
+- **Run barrier**: bulk scheduled-cue runs hold the scheduler evaluation lease through preflight and sequential execution, preventing configuration changes between cues.
+- **Regression coverage**: pending confirmations, pagehide aborts, stale completions, cross-action arbitration, cancellation barriers, reload leases, and bulk-run configuration barriers are covered.
+
 ## [1.5.401] - 2026-08-29
 
 ### Administrator playlist mutation integrity

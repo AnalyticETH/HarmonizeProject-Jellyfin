@@ -5788,6 +5788,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<HueSceneScheduleBulkRunResult>> RunSceneSchedulesBulk(
             [FromBody] HueSceneScheduleBulkRunRequest? request,
@@ -5795,6 +5796,17 @@ namespace Jellyfin.Plugin.Hue.Api
         {
             if (request == null)
                 return BadRequest("A scheduled-cue selection is required.");
+
+            // Keep the scheduler side of the configuration barrier for the complete
+            // bulk operation. Each individual RunScheduleAsync call acquires a nested
+            // lease, but releasing the outer lease between cues would let a saved cue,
+            // playlist, or target change after preflight and before a later cue starts.
+            using var schedulerEvaluation = _bridgeLifecycleGate.TryEnterSchedulerEvaluation();
+            if (schedulerEvaluation == null)
+            {
+                return Conflict(
+                    "Configuration is changing; retry the bulk scheduled-cue run after the active mutation completes.");
+            }
 
             var plugin = Plugin.Instance;
             var config = plugin?.Configuration;

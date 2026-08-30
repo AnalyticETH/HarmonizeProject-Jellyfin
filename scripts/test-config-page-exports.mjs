@@ -3424,6 +3424,22 @@ async function testScenePlaylistIndividualMutationLifecycleGuards() {
 
 function scenePlaylistMutationControlSelectors() {
     return [
+        "#scenePlaylistSelect",
+        "#saveScenePlaylistBtn",
+        "#duplicateScenePlaylistBtn",
+        "#renameScenePlaylistBtn",
+        "#deleteScenePlaylistBtn",
+        "#scenePlaylistBulkSelect",
+        "#selectAllScenePlaylistsBtn",
+        "#clearSelectedScenePlaylistsBtn",
+        "#duplicateSelectedScenePlaylistsBtn",
+        "#deleteSelectedScenePlaylistsBtn"
+    ];
+}
+
+function scenePlaylistDirectMutationControlSelectors() {
+    return [
+        "#scenePlaylistSelect",
         "#saveScenePlaylistBtn",
         "#duplicateScenePlaylistBtn",
         "#renameScenePlaylistBtn",
@@ -3551,7 +3567,7 @@ async function testScenePlaylistMutationLockGuards() {
         await ownerOperation;
         assert.equal(page._hueScenePlaylistMutation, null, `${testCase.owner} scene playlist mutation releases the direct lock`);
         assert.equal(!!page[testCase.flag], false, `${testCase.owner} scene playlist mutation clears its ownership state`);
-        for (const selector of scenePlaylistMutationControlSelectors()) {
+        for (const selector of scenePlaylistDirectMutationControlSelectors()) {
             assert.equal(page.querySelector(selector).disabled, false, `${testCase.owner} scene playlist mutation restores ${selector}`);
         }
     }
@@ -3608,7 +3624,7 @@ async function testScenePlaylistMutationSelectionGuards() {
         assert.equal(state.clearCalls, 0, `${testCase.method} suppresses stale form clearing after selection changes`);
         assert.equal(!!page[testCase.flag], false, `${testCase.method} clears its busy state after selection changes`);
         assert.equal(page._hueScenePlaylistMutation, null, `${testCase.method} releases its lock after selection changes`);
-        for (const selector of scenePlaylistMutationControlSelectors()) {
+        for (const selector of scenePlaylistDirectMutationControlSelectors()) {
             assert.equal(page.querySelector(selector).disabled, false, `${testCase.method} restores ${selector} after selection changes`);
         }
     }
@@ -3639,13 +3655,7 @@ function configureScenePlaylistBulkHarness(harness) {
 }
 
 function scenePlaylistBulkControlSelectors() {
-    return [
-        "#scenePlaylistBulkSelect",
-        "#selectAllScenePlaylistsBtn",
-        "#clearSelectedScenePlaylistsBtn",
-        "#duplicateSelectedScenePlaylistsBtn",
-        "#deleteSelectedScenePlaylistsBtn"
-    ];
+    return scenePlaylistMutationControlSelectors();
 }
 
 async function testScenePlaylistBulkLifecycleGuards() {
@@ -3678,7 +3688,7 @@ async function testScenePlaylistBulkLifecycleGuards() {
     confirmationApi.invalidatePageLifecycle(confirmationPage);
     confirmationApi.beginPageLifecycle(confirmationPage);
     assert.equal(pendingConfirmation.canceled, true, "pagehide cancels pending bulk scene playlist duplicate confirmation");
-    assert.equal(confirmationPage._hueScenePlaylistBulkMutation, null, "pagehide releases pending bulk scene playlist duplicate lock");
+    assert.equal(confirmationPage._hueScenePlaylistMutation, null, "pagehide releases pending bulk scene playlist duplicate lock");
     for (const selector of scenePlaylistBulkControlSelectors()) {
         assert.equal(confirmationPage.querySelector(selector).disabled, false, `pagehide restores ${selector} after bulk scene playlist duplicate confirmation`);
     }
@@ -3719,7 +3729,7 @@ async function testScenePlaylistBulkLifecycleGuards() {
     assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight bulk scene playlist delete");
     assert.equal(stalePage._huePageRequests.scenePlaylistBulkDelete, undefined, "pagehide removes bulk scene playlist delete request state");
     assert.equal(stalePage._hueScenePlaylistBulkDeleting, false, "pagehide clears bulk scene playlist delete busy state");
-    assert.equal(stalePage._hueScenePlaylistBulkMutation, null, "pagehide releases in-flight bulk scene playlist delete lock");
+    assert.equal(stalePage._hueScenePlaylistMutation, null, "pagehide releases in-flight bulk scene playlist delete lock");
     for (const selector of scenePlaylistBulkControlSelectors()) {
         assert.equal(stalePage.querySelector(selector).disabled, false, `pagehide restores ${selector} after bulk scene playlist delete`);
     }
@@ -3760,7 +3770,7 @@ async function testScenePlaylistBulkLifecycleGuards() {
     await Promise.all([duplicateWhilePending, deleteWhileDuplicatePending]);
     assert.equal(currentConfirmationCalls, 1, "pending bulk scene playlist duplicate suppresses duplicate and delete confirmation");
     assert.equal(currentHarness.requests.length, 1, "pending bulk scene playlist duplicate keeps one request in flight");
-    assert.equal(currentPage._hueScenePlaylistBulkMutation.key, "scenePlaylistBulkDuplicate", "bulk scene playlist duplicate owns the shared mutation lock");
+    assert.equal(currentPage._hueScenePlaylistMutation.key, "scenePlaylistBulkDuplicate", "bulk scene playlist duplicate owns the shared mutation lock");
     for (const selector of scenePlaylistBulkControlSelectors()) {
         assert.equal(currentPage.querySelector(selector).disabled, true, `pending bulk scene playlist duplicate keeps ${selector} disabled`);
     }
@@ -3779,7 +3789,7 @@ async function testScenePlaylistBulkLifecycleGuards() {
     assert.equal(currentState.playlistLoads, 1, "current bulk scene playlist duplicate reloads playlists once");
     assert.equal(currentState.scheduleLoads, 1, "current bulk scene playlist duplicate reloads schedules once");
     assert.equal(currentPage._hueScenePlaylistBulkDuplicating, false, "current bulk scene playlist duplicate clears busy state");
-    assert.equal(currentPage._hueScenePlaylistBulkMutation, null, "current bulk scene playlist duplicate releases shared mutation lock");
+    assert.equal(currentPage._hueScenePlaylistMutation, null, "current bulk scene playlist duplicate releases shared mutation lock");
     assert.equal(currentState.duplicateButton.disabled, true, "current bulk scene playlist duplicate leaves duplicate disabled with no selection");
     assert.equal(currentPage.querySelector("#deleteSelectedScenePlaylistsBtn").disabled, true, "current bulk scene playlist duplicate leaves delete disabled with no selection");
     assert.equal(currentPage._huePageRequests.scenePlaylistBulkDuplicate, undefined, "current bulk scene playlist duplicate removes settled lifecycle state");
@@ -3813,10 +3823,103 @@ async function testScenePlaylistBulkLifecycleGuards() {
     assert.equal(deleteState.playlistLoads, 1, "current bulk scene playlist delete reloads playlists once");
     assert.equal(deleteState.scheduleLoads, 1, "current bulk scene playlist delete reloads schedules once");
     assert.equal(deletePage._hueScenePlaylistBulkDeleting, false, "current bulk scene playlist delete clears busy state");
-    assert.equal(deletePage._hueScenePlaylistBulkMutation, null, "current bulk scene playlist delete releases shared mutation lock");
+    assert.equal(deletePage._hueScenePlaylistMutation, null, "current bulk scene playlist delete releases shared mutation lock");
     assert.equal(deleteState.button.disabled, true, "current bulk scene playlist delete leaves delete disabled with no selection");
     assert.equal(deleteState.duplicateButton.disabled, true, "current bulk scene playlist delete leaves duplicate disabled with no selection");
     assert.equal(deletePage._huePageRequests.scenePlaylistBulkDelete, undefined, "current bulk scene playlist delete removes settled lifecycle state");
+}
+
+async function testScenePlaylistSharedMutationLockArbitration() {
+    const bulkHarness = makeHarness();
+    const bulkState = configureScenePlaylistBulkHarness(bulkHarness);
+    configureScenePlaylistMutationHarness(bulkHarness, "rename");
+    const bulkPage = bulkHarness.page;
+    const bulkApi = bulkHarness.api;
+    bulkApi.loadScenePlaylists = () => {
+        bulkState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    bulkApi.loadSceneSchedules = () => {
+        bulkState.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    let bulkConfirmation;
+    let bulkConfirmationCalls = 0;
+    bulkHarness.dashboard.confirm = (_message, _title, callback) => {
+        bulkConfirmationCalls += 1;
+        bulkConfirmation = callback;
+    };
+
+    const bulkOperation = bulkApi.duplicateScenePlaylistsBulk(bulkPage);
+    assert.equal(bulkPage._hueScenePlaylistMutation.key, "scenePlaylistBulkDuplicate", "bulk playlist mutation owns the unified lock");
+    for (const selector of scenePlaylistMutationControlSelectors()) {
+        assert.equal(bulkPage.querySelector(selector).disabled, true, `bulk playlist mutation disables ${selector} before confirmation`);
+    }
+    const directWhileBulk = bulkApi.renameScenePlaylist(bulkPage);
+    await directWhileBulk;
+    assert.equal(bulkConfirmationCalls, 1, "direct playlist mutation does not open a confirmation while bulk mutation owns the lock");
+    assert.equal(bulkHarness.requests.length, 0, "direct playlist mutation does not submit while bulk confirmation is pending");
+    assert.equal(bulkPage._hueScenePlaylistMutation.key, "scenePlaylistBulkDuplicate", "direct playlist mutation cannot replace bulk lock ownership");
+
+    bulkConfirmation(true);
+    assert.equal(bulkHarness.requests.length, 1, "bulk playlist mutation starts its request after confirmation");
+    bulkState.status.textContent = "unchanged after pagehide";
+    bulkApi.invalidatePageLifecycle(bulkPage);
+    bulkApi.beginPageLifecycle(bulkPage);
+    assert.equal(bulkHarness.requests[0].promise.aborted, true, "pagehide aborts the bulk request under the unified lock");
+    assert.equal(bulkPage._hueScenePlaylistMutation, null, "pagehide releases the unified bulk playlist lock");
+    for (const selector of scenePlaylistMutationControlSelectors()) {
+        assert.equal(bulkPage.querySelector(selector).disabled, false, `pagehide restores ${selector} after bulk mutation teardown`);
+    }
+    bulkHarness.requests[0].resolve({ message: "stale bulk duplicate", playlists: [{ name: "Stale Copy" }] });
+    await bulkOperation;
+    assert.equal(bulkState.status.textContent, "unchanged after pagehide", "stale bulk completion cannot update the reused page");
+    assert.equal(bulkState.playlistLoads, 0, "stale bulk completion cannot reload playlists");
+    assert.equal(bulkState.scheduleLoads, 0, "stale bulk completion cannot reload schedules");
+
+    const directHarness = makeHarness();
+    const directState = configureScenePlaylistMutationHarness(directHarness, "duplicate");
+    configureScenePlaylistBulkHarness(directHarness);
+    const directPage = directHarness.page;
+    const directApi = directHarness.api;
+    directApi.loadScenePlaylists = () => {
+        directState.playlistLoads += 1;
+        return Promise.resolve();
+    };
+    directApi.loadSceneSchedules = () => {
+        directState.scheduleLoads += 1;
+        return Promise.resolve();
+    };
+    let directConfirmationCalls = 0;
+    directHarness.dashboard.confirm = () => {
+        directConfirmationCalls += 1;
+    };
+
+    const directOperation = directApi.duplicateScenePlaylist(directPage);
+    assert.equal(directHarness.requests.length, 1, "direct playlist mutation starts its request");
+    assert.equal(directPage._hueScenePlaylistMutation.key, "scenePlaylistDuplicate", "direct playlist mutation owns the unified lock");
+    const bulkWhileDirect = directApi.deleteScenePlaylistsBulk(directPage);
+    await bulkWhileDirect;
+    assert.equal(directConfirmationCalls, 0, "bulk playlist mutation does not open a confirmation while direct mutation owns the lock");
+    assert.equal(directHarness.requests.length, 1, "bulk playlist mutation does not submit while direct mutation is pending");
+    assert.equal(directPage._hueScenePlaylistMutation.key, "scenePlaylistDuplicate", "bulk playlist mutation cannot replace direct lock ownership");
+    for (const selector of scenePlaylistMutationControlSelectors()) {
+        assert.equal(directPage.querySelector(selector).disabled, true, `direct playlist mutation keeps ${selector} disabled during bulk arbitration`);
+    }
+
+    directState.status.textContent = "unchanged after pagehide";
+    directApi.invalidatePageLifecycle(directPage);
+    directApi.beginPageLifecycle(directPage);
+    assert.equal(directHarness.requests[0].promise.aborted, true, "pagehide aborts the direct request under the unified lock");
+    assert.equal(directPage._hueScenePlaylistMutation, null, "pagehide releases the unified direct playlist lock");
+    for (const selector of scenePlaylistMutationControlSelectors()) {
+        assert.equal(directPage.querySelector(selector).disabled, false, `pagehide restores ${selector} after direct mutation teardown`);
+    }
+    directHarness.requests[0].resolve({ name: "Stale Copy" });
+    await directOperation;
+    assert.equal(directState.status.textContent, "unchanged after pagehide", "stale direct completion cannot update the reused page");
+    assert.equal(directState.playlistLoads, 0, "stale direct completion cannot reload playlists");
+    assert.equal(directState.scheduleLoads, 0, "stale direct completion cannot reload schedules");
 }
 
 function configureSceneScheduleSaveHarness(harness) {
@@ -3909,6 +4012,392 @@ async function testSceneScheduleSaveLifecycleGuards() {
     assert.equal(currentPage._hueSceneScheduleSaving, false, "current scene schedule save clears busy state");
     assert.equal(currentState.button.disabled, false, "current scene schedule save re-enables its button");
     assert.equal(currentState.buttonUpdates, 1, "current scene schedule save refreshes current-page controls");
+}
+
+function configureSceneScheduleBulkMutationHarness(harness) {
+    const { page, api } = harness;
+    const bulkSelect = page.querySelector("#sceneScheduleBulkSelect");
+    bulkSelect.options = [
+        { value: "cue-1", selected: true },
+        { value: "cue-2", selected: true }
+    ];
+    Object.defineProperty(bulkSelect, "selectedOptions", {
+        configurable: true,
+        get() {
+            return this.options.filter(option => option && option.selected);
+        }
+    });
+    page.querySelector("#sceneScheduleSelect").value = "cue-1";
+    const state = {
+        scheduleLoads: 0,
+        buttonUpdates: 0,
+        status: page.querySelector("#sceneScheduleBulkStatus"),
+        bulkSelect,
+        updateSceneScheduleBulkButtons: api.updateSceneScheduleBulkButtons
+    };
+    api.loadSceneSchedules = (_page, selectedId) => {
+        state.scheduleLoads += 1;
+        state.selectedId = selectedId;
+        return Promise.resolve();
+    };
+    api.updateSceneScheduleBulkButtons = () => {
+        state.buttonUpdates += 1;
+    };
+    return state;
+}
+
+function sceneScheduleBulkMutationControlSelectors() {
+    return [
+        "#sceneScheduleBulkSelect",
+        "#selectAllSceneSchedulesBtn",
+        "#clearSelectedSceneSchedulesBtn",
+        "#enableSelectedSceneSchedulesBtn",
+        "#disableSelectedSceneSchedulesBtn",
+        "#skipSelectedSceneSchedulesBtn",
+        "#clearSelectedSceneScheduleSkipsBtn",
+        "#resetSelectedSceneScheduleRunCountsBtn",
+        "#duplicateSelectedSceneSchedulesBtn",
+        "#deleteSelectedSceneSchedulesBtn",
+        "#runSelectedSceneSchedulesBtn",
+        "#cancelSelectedSceneSchedulesBtn"
+    ];
+}
+
+async function testSceneScheduleBulkMutationLifecycleGuards() {
+    const cases = [
+        {
+            method: "setSceneSchedulesEnabledBulk",
+            args: [true],
+            key: "sceneScheduleBulkEnabled",
+            opposite: "deleteSceneSchedulesBulk",
+            route: "HueSync/SceneSchedules/BulkEnabled",
+            response: { message: "Enabled selected scheduled cues." },
+            success: "Enabled selected scheduled cues."
+        },
+        {
+            method: "setSceneSchedulesSkipNextBulk",
+            args: [true],
+            key: "sceneScheduleBulkSkipNext",
+            opposite: "resetSceneSchedulesRunCountsBulk",
+            route: "HueSync/SceneSchedules/BulkSkipNext",
+            response: { message: "Selected cue occurrences marked to skip." },
+            success: "Selected cue occurrences marked to skip."
+        },
+        {
+            method: "resetSceneSchedulesRunCountsBulk",
+            args: [],
+            key: "sceneScheduleBulkReset",
+            opposite: "duplicateSceneSchedulesBulk",
+            route: "HueSync/SceneSchedules/BulkResetRunCount",
+            response: { message: "Selected counters reset." },
+            success: "Selected counters reset.",
+            staleReject: true
+        },
+        {
+            method: "duplicateSceneSchedulesBulk",
+            args: [],
+            key: "sceneScheduleBulkDuplicate",
+            opposite: "deleteSceneSchedulesBulk",
+            route: "HueSync/SceneSchedules/BulkDuplicate",
+            response: {
+                message: "Disabled scheduled-cue copies created.",
+                schedules: [{ id: "cue-copy" }]
+            },
+            success: "Disabled scheduled-cue copies created.",
+            selectedId: "cue-copy"
+        },
+        {
+            method: "deleteSceneSchedulesBulk",
+            args: [],
+            key: "sceneScheduleBulkDelete",
+            opposite: "duplicateSceneSchedulesBulk",
+            route: "HueSync/SceneSchedules/BulkDelete",
+            response: { message: "Selected scheduled cues deleted; retained cue history was preserved." },
+            success: "Selected scheduled cues deleted; retained cue history was preserved.",
+            selectedId: ""
+        }
+    ];
+
+    for (const testCase of cases) {
+        const confirmationHarness = makeHarness();
+        configureSceneScheduleBulkMutationHarness(confirmationHarness);
+        const confirmationPage = confirmationHarness.page;
+        const confirmationApi = confirmationHarness.api;
+        let confirmation;
+        let confirmationCalls = 0;
+        confirmationHarness.dashboard.confirm = (_message, _title, callback) => {
+            confirmationCalls += 1;
+            confirmation = callback;
+        };
+        const confirmationOperation = confirmationApi[testCase.method](confirmationPage, ...testCase.args);
+        assert.ok(confirmationOperation && typeof confirmationOperation.then === "function", `${testCase.method} returns a tracked promise`);
+        assert.equal(confirmationCalls, 1, `${testCase.method} opens one confirmation`);
+        assert.equal(confirmationHarness.requests.length, 0, `${testCase.method} waits for confirmation before mutating schedules`);
+        for (const selector of sceneScheduleBulkMutationControlSelectors()) {
+            assert.equal(confirmationPage.querySelector(selector).disabled, true, `pending ${testCase.method} disables ${selector}`);
+        }
+        const duplicateOperation = confirmationApi[testCase.method](confirmationPage, ...testCase.args);
+        const oppositeOperation = confirmationApi[testCase.opposite](confirmationPage);
+        await Promise.all([duplicateOperation, oppositeOperation]);
+        assert.equal(confirmationCalls, 1, `${testCase.method} suppresses duplicate and opposite confirmations`);
+        assert.equal(confirmationHarness.requests.length, 0, `${testCase.method} suppresses duplicate and opposite requests`);
+        const pendingConfirmation = confirmationPage._hueSceneScheduleBulkConfirmation;
+        confirmationApi.invalidatePageLifecycle(confirmationPage);
+        assert.equal(pendingConfirmation.canceled, true, `pagehide cancels pending ${testCase.method} confirmation`);
+        assert.equal(confirmationPage._hueSceneScheduleBulkMutation, null, `pagehide releases pending ${testCase.method} lock`);
+        for (const selector of sceneScheduleBulkMutationControlSelectors()) {
+            assert.equal(confirmationPage.querySelector(selector).disabled, false, `pagehide restores ${selector} after pending ${testCase.method}`);
+        }
+        confirmation(true);
+        assert.equal(confirmationHarness.requests.length, 0, `stale ${testCase.method} confirmation cannot start a request`);
+        await confirmationOperation;
+
+        const staleHarness = makeHarness();
+        const staleState = configureSceneScheduleBulkMutationHarness(staleHarness);
+        const stalePage = staleHarness.page;
+        const staleApi = staleHarness.api;
+        let staleConfirmation;
+        staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirmation = callback; };
+        const staleOperation = staleApi[testCase.method](stalePage, ...testCase.args);
+        staleConfirmation(true);
+        assert.equal(staleHarness.requests.length, 1, `confirmed ${testCase.method} starts one request`);
+        assert.equal(staleHarness.requests[0].options.type, "POST", `${testCase.method} uses POST`);
+        assert.equal(staleHarness.requests[0].options.url, testCase.route, `${testCase.method} targets its bulk route`);
+        assert.deepEqual(JSON.parse(staleHarness.requests[0].options.data).scheduleIds, ["cue-1", "cue-2"], `${testCase.method} snapshots selected schedule IDs`);
+        staleState.status.textContent = "unchanged after pagehide";
+        staleApi.invalidatePageLifecycle(stalePage);
+        assert.equal(staleHarness.requests[0].promise.aborted, true, `pagehide aborts in-flight ${testCase.method}`);
+        assert.equal(stalePage._huePageRequests[testCase.key], undefined, `pagehide removes ${testCase.method} lifecycle state`);
+        assert.equal(stalePage._hueSceneScheduleBulkMutation, null, `pagehide releases in-flight ${testCase.method} lock`);
+        if (testCase.staleReject) {
+            staleHarness.requests[0].reject(new Error("stale scheduled-cue bulk mutation failure"));
+        } else {
+            staleHarness.requests[0].resolve(testCase.response);
+        }
+        await staleOperation;
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(staleState.status.textContent, "unchanged after pagehide", `stale ${testCase.method} cannot write status`);
+        assert.equal(staleState.scheduleLoads, 0, `stale ${testCase.method} cannot reload schedules`);
+        for (const selector of sceneScheduleBulkMutationControlSelectors()) {
+            assert.equal(stalePage.querySelector(selector).disabled, false, `pagehide restores ${selector} after in-flight ${testCase.method}`);
+        }
+
+        const currentHarness = makeHarness();
+        const currentState = configureSceneScheduleBulkMutationHarness(currentHarness);
+        const currentPage = currentHarness.page;
+        const currentApi = currentHarness.api;
+        let currentConfirmation;
+        let currentConfirmationCalls = 0;
+        currentHarness.dashboard.confirm = (_message, _title, callback) => {
+            currentConfirmationCalls += 1;
+            currentConfirmation = callback;
+        };
+        const currentOperation = currentApi[testCase.method](currentPage, ...testCase.args);
+        currentConfirmation(true);
+        assert.equal(currentHarness.requests.length, 1, `current ${testCase.method} starts one request`);
+        currentApi.runSceneSchedulesBulk(currentPage);
+        assert.equal(currentHarness.requests.length, 1, `pending ${testCase.method} suppresses a conflicting bulk run`);
+        const duplicateWhilePending = currentApi[testCase.method](currentPage, ...testCase.args);
+        const oppositeWhilePending = currentApi[testCase.opposite](currentPage);
+        await Promise.all([duplicateWhilePending, oppositeWhilePending]);
+        assert.equal(currentConfirmationCalls, 1, `pending ${testCase.method} suppresses duplicate and opposite actions`);
+        assert.equal(currentHarness.requests.length, 1, `pending ${testCase.method} keeps one request in flight`);
+        currentHarness.requests[0].resolve(testCase.response);
+        await currentOperation;
+        assert.equal(currentState.status.textContent, testCase.success, `current ${testCase.method} reports success`);
+        assert.equal(currentState.scheduleLoads, 1, `current ${testCase.method} reloads schedules once`);
+        assert.equal(currentState.selectedId, testCase.selectedId === undefined ? "cue-1" : testCase.selectedId, `current ${testCase.method} preserves the expected selection`);
+        assert.equal(currentPage._hueSceneScheduleBulkMutation, null, `current ${testCase.method} releases its lock`);
+        assert.equal(currentPage._huePageRequests[testCase.key], undefined, `current ${testCase.method} removes settled lifecycle state`);
+        for (const selector of sceneScheduleBulkMutationControlSelectors()) {
+            assert.equal(currentPage.querySelector(selector).disabled, false, `current ${testCase.method} restores ${selector}`);
+        }
+    }
+}
+
+function sceneScheduleDirectMutationControlSelectors() {
+    return [
+        "#sceneScheduleSelect",
+        "#runSceneScheduleBtn",
+        "#cancelSceneScheduleRunBtn",
+        "#toggleSceneScheduleEnabledBtn",
+        "#skipNextSceneScheduleBtn",
+        "#duplicateSceneScheduleBtn",
+        "#deleteSceneScheduleBtn",
+        "#resetSceneScheduleRunCountBtn",
+        "#clearSceneScheduleBtn",
+        "#saveSceneScheduleBtn"
+    ];
+}
+
+function sceneScheduleMutationControlSelectors() {
+    return [...new Set([
+        ...sceneScheduleDirectMutationControlSelectors(),
+        ...sceneScheduleBulkMutationControlSelectors()
+    ])];
+}
+
+function configureSceneScheduleDirectMutationHarness(harness) {
+    const { page, api } = harness;
+    const select = page.querySelector("#sceneScheduleSelect");
+    select.value = "cue-1";
+    select.selectedIndex = 0;
+    select.options = [{ value: "cue-1", textContent: "Cue One" }];
+    page._hueSceneSchedules = [{
+        id: "cue-1",
+        enabled: true,
+        skipNextOccurrence: false
+    }];
+    page._hueSceneScheduleMetadataReady = true;
+    const bulkSelect = page.querySelector("#sceneScheduleBulkSelect");
+    bulkSelect.options = [{ value: "cue-1", selected: true }];
+    Object.defineProperty(bulkSelect, "selectedOptions", {
+        configurable: true,
+        get() {
+            return this.options.filter(option => option && option.selected);
+        }
+    });
+    const state = {
+        status: page.querySelector("#sceneScheduleStatus"),
+        scheduleLoads: 0,
+        selectedId: undefined
+    };
+    api.loadSceneSchedules = (_page, selectedId) => {
+        state.scheduleLoads += 1;
+        state.selectedId = selectedId;
+        return Promise.resolve();
+    };
+    return state;
+}
+
+async function testSceneScheduleDirectMutationLifecycleGuards() {
+    const cases = [
+        {
+            method: "duplicateSceneSchedule",
+            key: "sceneScheduleDuplicate",
+            route: "HueSync/SceneSchedules/cue-1/Duplicate",
+            title: "Duplicate Cue",
+            progress: "Duplicating scheduled cue...",
+            response: { id: "cue-copy" },
+            success: "Disabled cue copy created. Edit it, then enable it when ready.",
+            selectedId: "cue-copy"
+        },
+        {
+            method: "setSceneScheduleEnabled",
+            key: "sceneScheduleEnabled",
+            route: "HueSync/SceneSchedules/cue-1/Enabled",
+            title: "Disable Cue",
+            progress: "Disabling scheduled cue...",
+            response: {},
+            success: "Scheduled cue disabled without changing its schedule.",
+            body: { enabled: false }
+        },
+        {
+            method: "setSceneScheduleSkipNext",
+            key: "sceneScheduleSkipNext",
+            route: "HueSync/SceneSchedules/cue-1/SkipNext",
+            title: "Skip Next Cue",
+            progress: "Marking the next automatic cue to skip...",
+            response: {},
+            success: "The next automatic cue will be skipped; future recurrence is unchanged."
+        },
+        {
+            method: "resetSceneScheduleRunCount",
+            key: "sceneScheduleResetRunCount",
+            route: "HueSync/SceneSchedules/cue-1/ResetRunCount",
+            title: "Reset Run Counter",
+            progress: "Resetting scheduled-cue execution counter...",
+            response: {},
+            success: "Scheduled-cue execution counter reset and cue re-enabled."
+        }
+    ];
+
+    for (const testCase of cases) {
+        const pendingHarness = makeHarness();
+        configureSceneScheduleDirectMutationHarness(pendingHarness);
+        const pendingPage = pendingHarness.page;
+        const pendingApi = pendingHarness.api;
+        let pendingConfirmation;
+        let pendingConfirmationCalls = 0;
+        pendingHarness.dashboard.confirm = (_message, title, callback) => {
+            pendingConfirmationCalls += 1;
+            assert.equal(title, testCase.title, `${testCase.method} uses its action-specific confirmation title`);
+            pendingConfirmation = callback;
+        };
+        const pendingOperation = pendingApi[testCase.method](pendingPage);
+        assert.ok(pendingOperation && typeof pendingOperation.then === "function", `${testCase.method} returns a tracked promise before confirmation`);
+        assert.equal(pendingConfirmationCalls, 1, `${testCase.method} opens one confirmation`);
+        assert.equal(pendingHarness.requests.length, 0, `${testCase.method} waits for confirmation before its request`);
+        assert.equal(pendingPage._hueSceneScheduleMutation.key, testCase.key, `${testCase.method} owns the unified schedule mutation lock`);
+        for (const selector of sceneScheduleMutationControlSelectors()) {
+            assert.equal(pendingPage.querySelector(selector).disabled, true, `pending ${testCase.method} disables ${selector}`);
+        }
+        const blockedBulk = pendingApi.setSceneSchedulesEnabledBulk(pendingPage, true);
+        await blockedBulk;
+        pendingApi.runSceneSchedulesBulk(pendingPage);
+        assert.equal(pendingConfirmationCalls, 1, `pending ${testCase.method} blocks bulk confirmation arbitration`);
+        assert.equal(pendingHarness.requests.length, 0, `pending ${testCase.method} blocks bulk requests`);
+        pendingApi.invalidatePageLifecycle(pendingPage);
+        assert.equal(pendingPage._hueSceneScheduleMutation, null, `pagehide releases pending ${testCase.method} lock`);
+        for (const selector of sceneScheduleMutationControlSelectors()) {
+            assert.equal(pendingPage.querySelector(selector).disabled, false, `pagehide restores ${selector} after pending ${testCase.method}`);
+        }
+        pendingConfirmation(true);
+        assert.equal(pendingHarness.requests.length, 0, `stale ${testCase.method} confirmation cannot submit a request`);
+        await pendingOperation;
+
+        const staleHarness = makeHarness();
+        const staleState = configureSceneScheduleDirectMutationHarness(staleHarness);
+        const stalePage = staleHarness.page;
+        const staleApi = staleHarness.api;
+        let staleConfirmation;
+        staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirmation = callback; };
+        const staleOperation = staleApi[testCase.method](stalePage);
+        staleConfirmation(true);
+        assert.equal(staleHarness.requests.length, 1, `confirmed ${testCase.method} starts one request`);
+        assert.equal(staleHarness.requests[0].options.url, testCase.route, `${testCase.method} targets its selected cue`);
+        if (testCase.body) {
+            assert.deepEqual(JSON.parse(staleHarness.requests[0].options.data), testCase.body, `${testCase.method} sends its bounded request body`);
+        }
+        staleState.status.textContent = "unchanged after pagehide";
+        staleApi.invalidatePageLifecycle(stalePage);
+        assert.equal(staleHarness.requests[0].promise.aborted, true, `pagehide aborts in-flight ${testCase.method}`);
+        assert.equal(stalePage._hueSceneScheduleMutation, null, `pagehide releases in-flight ${testCase.method} lock`);
+        staleHarness.requests[0].resolve(testCase.response);
+        await staleOperation;
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(staleState.status.textContent, "unchanged after pagehide", `stale ${testCase.method} cannot write status`);
+        assert.equal(staleState.scheduleLoads, 0, `stale ${testCase.method} cannot reload schedules`);
+        for (const selector of sceneScheduleMutationControlSelectors()) {
+            assert.equal(stalePage.querySelector(selector).disabled, false, `pagehide restores ${selector} after in-flight ${testCase.method}`);
+        }
+
+        const currentHarness = makeHarness();
+        const currentState = configureSceneScheduleDirectMutationHarness(currentHarness);
+        const currentPage = currentHarness.page;
+        const currentApi = currentHarness.api;
+        let currentConfirmation;
+        currentHarness.dashboard.confirm = (_message, title, callback) => {
+            assert.equal(title, testCase.title, `current ${testCase.method} uses its action-specific confirmation title`);
+            currentConfirmation = callback;
+        };
+        const currentOperation = currentApi[testCase.method](currentPage);
+        currentConfirmation(true);
+        assert.equal(currentHarness.requests.length, 1, `current ${testCase.method} starts one request`);
+        assert.equal(currentHarness.requests[0].options.url, testCase.route, `current ${testCase.method} targets its selected cue`);
+        currentState.status.textContent = testCase.progress;
+        currentHarness.requests[0].resolve(testCase.response);
+        await currentOperation;
+        assert.equal(currentState.status.textContent, testCase.success, `current ${testCase.method} reports success`);
+        assert.equal(currentState.scheduleLoads, 1, `current ${testCase.method} reloads schedules once`);
+        assert.equal(currentState.selectedId, testCase.selectedId || "cue-1", `current ${testCase.method} preserves the expected selection`);
+        assert.equal(currentPage._hueSceneScheduleMutation, null, `current ${testCase.method} releases the unified schedule mutation lock`);
+        assert.equal(currentPage._hueSceneScheduleDirectMutation, null, `current ${testCase.method} clears its direct mutation alias`);
+        assert.equal(currentPage._huePageRequests[testCase.key], undefined, `current ${testCase.method} removes settled lifecycle state`);
+        for (const selector of sceneScheduleDirectMutationControlSelectors()) {
+            assert.equal(currentPage.querySelector(selector).disabled, false, `current ${testCase.method} restores ${selector}`);
+        }
+    }
 }
 
 function configureSceneScheduleDeleteHarness(harness) {
@@ -4019,14 +4508,19 @@ async function testSceneScheduleRunCancellationUsesActiveId() {
     const scheduleSelect = page.querySelector("#sceneScheduleSelect");
     scheduleSelect.value = "cue-a";
 
-    api.runSceneSchedule(page);
+    const run = api.runSceneSchedule(page);
+    assert.ok(run && typeof run.then === "function", "scheduled-cue run returns a tracked promise");
     assert.equal(requests.length, 1, "scheduled-cue run starts one request");
+    assert.equal(requests[0].options.type, "POST", "scheduled-cue run uses POST");
+    assert.equal(requests[0].options.url, "HueSync/SceneSchedules/cue-a/Run", "scheduled-cue run scopes the request to the selected cue");
     assert.equal(page._hueSceneScheduleActiveId, "cue-a", "scheduled-cue run stores its active schedule ID");
     assert.equal(scheduleSelect.disabled, true, "scheduled-cue run disables the schedule selector");
+    assert.ok(page._huePageRequests.sceneScheduleRun, "scheduled-cue run is tracked by the page lifecycle");
 
     // Simulate a programmatic/stale selection change while the selector is disabled.
     scheduleSelect.value = "cue-b";
-    api.cancelSceneScheduleRun(page);
+    const cancel = api.cancelSceneScheduleRun(page);
+    assert.ok(cancel && typeof cancel.then === "function", "scheduled-cue cancel returns a tracked promise");
     assert.equal(requests.length, 2, "scheduled-cue cancel starts one request");
     assert.equal(
         requests[1].options.url,
@@ -4034,19 +4528,260 @@ async function testSceneScheduleRunCancellationUsesActiveId() {
         "scheduled-cue cancel uses the ID captured when the run started"
     );
     assert.equal(page._hueSceneScheduleActiveId, "cue-a", "cancel does not clear the active schedule ID early");
+    assert.ok(page._huePageRequests.sceneScheduleCancellation, "scheduled-cue cancel is tracked by the page lifecycle");
 
-    const cancellation = page._hueSceneScheduleCancellationRequest;
     requests[1].resolve({ canceled: true });
-    await cancellation;
+    await cancel;
     assert.equal(page._hueSceneScheduleActiveId, "cue-a", "cancel completion leaves the run identity until the run completes");
     assert.equal(scheduleSelect.disabled, true, "schedule selector remains disabled while the run request is active");
+    assert.equal(page._hueSceneScheduleCancellationRequest, null, "scheduled-cue cancel clears its request after completion");
+    assert.equal(page._huePageRequests.sceneScheduleCancellation, undefined, "scheduled-cue cancel removes its lifecycle record after completion");
 
     requests[0].resolve({ succeeded: true, message: "Cue completed." });
-    await requests[0].promise;
-    await new Promise(resolve => setImmediate(resolve));
+    await run;
     assert.equal(page._hueSceneScheduleRequest, null, "matching run completion clears the active request");
     assert.equal(page._hueSceneScheduleActiveId, null, "matching run completion clears the active schedule ID");
     assert.equal(scheduleSelect.disabled, false, "matching run completion re-enables the schedule selector");
+    assert.equal(page.querySelector("#sceneScheduleStatus").textContent, "Cue completed.", "current scheduled-cue run reports success");
+    assert.equal(page._huePageRequests.sceneScheduleRun, undefined, "scheduled-cue run removes its lifecycle record after completion");
+
+    const staleHarness = makeHarness();
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    const staleSelect = stalePage.querySelector("#sceneScheduleSelect");
+    staleSelect.value = "cue-a";
+    const staleRun = staleApi.runSceneSchedule(stalePage);
+    staleSelect.value = "cue-b";
+    const staleCancel = staleApi.cancelSceneScheduleRun(stalePage);
+    assert.equal(staleHarness.requests.length, 2, "stale run/cancel scenario starts both requests");
+    const staleRunRequest = staleHarness.requests[0];
+    const staleCancelRequest = staleHarness.requests[1];
+    stalePage.querySelector("#sceneScheduleStatus").textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleRunRequest.promise.aborted, true, "pagehide aborts the stale scheduled-cue run");
+    assert.equal(staleCancelRequest.promise.aborted, true, "pagehide aborts the stale scheduled-cue cancellation");
+    assert.equal(stalePage._huePageRequests.sceneScheduleRun, undefined, "pagehide removes stale scheduled-cue run state");
+    assert.equal(stalePage._huePageRequests.sceneScheduleCancellation, undefined, "pagehide removes stale scheduled-cue cancellation state");
+    assert.equal(stalePage._hueSceneScheduleRequest, null, "pagehide clears the stale scheduled-cue run pointer");
+    assert.equal(stalePage._hueSceneScheduleCancellationRequest, null, "pagehide clears the stale scheduled-cue cancellation pointer");
+
+    staleApi.beginPageLifecycle(stalePage);
+    staleSelect.value = "cue-b";
+    const currentRun = staleApi.runSceneSchedule(stalePage);
+    const currentRunRequest = staleHarness.requests[2];
+    const currentCancel = staleApi.cancelSceneScheduleRun(stalePage);
+    const currentCancelRequest = staleHarness.requests[3];
+    const currentRunPointer = stalePage._hueSceneScheduleRequest;
+    const currentCancelPointer = stalePage._hueSceneScheduleCancellationRequest;
+    assert.equal(currentRunRequest.options.url, "HueSync/SceneSchedules/cue-b/Run", "new scheduled-cue run uses the current selection after pagehide");
+    assert.equal(currentCancelRequest.options.url, "HueSync/SceneSchedules/cue-b/Cancel", "new scheduled-cue cancellation uses its current run identity");
+    stalePage.querySelector("#sceneScheduleStatus").textContent = "current lifecycle sentinel";
+
+    staleCancelRequest.resolve({ canceled: true, message: "stale cancellation" });
+    await staleCancel;
+    assert.equal(stalePage._hueSceneScheduleCancellationRequest, currentCancelPointer, "stale cancellation finalizer cannot clear the current cancellation request");
+
+    staleRunRequest.resolve({ succeeded: true, message: "stale run" });
+    await staleRun;
+    assert.equal(stalePage._hueSceneScheduleRequest, currentRunPointer, "stale run finalizer cannot clear the current run request");
+    assert.equal(stalePage.querySelector("#sceneScheduleStatus").textContent, "current lifecycle sentinel", "stale run/cancel completions cannot overwrite the current page");
+
+    currentCancelRequest.resolve({ canceled: true });
+    await currentCancel;
+    assert.equal(stalePage._hueSceneScheduleCancellationRequest, null, "current cancellation finalizer clears only its own request");
+    assert.equal(stalePage._hueSceneScheduleRequest, currentRunPointer, "current cancellation leaves the active run identity intact");
+    currentRunRequest.resolve({ succeeded: true, message: "current cue completed" });
+    await currentRun;
+    assert.equal(stalePage._hueSceneScheduleRequest, null, "current run finalizer clears its own request");
+    assert.equal(stalePage._hueSceneScheduleActiveId, null, "current run finalizer clears its own active identity");
+    assert.equal(stalePage.querySelector("#sceneScheduleStatus").textContent, "current cue completed", "current scheduled-cue run can update status after stale callbacks");
+
+    const barrierHarness = makeHarness();
+    const barrierPage = barrierHarness.page;
+    const barrierApi = barrierHarness.api;
+    barrierPage.querySelector("#sceneScheduleSelect").value = "cue-a";
+    const barrierRun = barrierApi.runSceneSchedule(barrierPage);
+    const barrierRunRequest = barrierHarness.requests[0];
+    const barrierCancel = barrierApi.cancelSceneScheduleRun(barrierPage);
+    const barrierCancelRequest = barrierHarness.requests[1];
+    barrierRunRequest.resolve({ succeeded: true, message: "run finished before cancellation" });
+    await barrierRun;
+    assert.equal(barrierPage._hueSceneScheduleRequest, null, "a completed run releases its run pointer before cancellation settles");
+    assert.equal(
+        barrierPage._hueSceneScheduleCancellationRequest._huePageRequestRecord.request,
+        barrierCancelRequest.promise,
+        "a pending cancellation remains the shared operation barrier"
+    );
+    const blockedRun = barrierApi.runSceneSchedule(barrierPage);
+    const blockedMutation = barrierApi.setSceneScheduleEnabled(barrierPage);
+    await Promise.all([blockedRun, blockedMutation]);
+    assert.equal(barrierHarness.requests.length, 2, "a pending individual cancellation blocks a replacement run and configuration mutation");
+    barrierCancelRequest.resolve({ canceled: true });
+    await barrierCancel;
+    const replacementRun = barrierApi.runSceneSchedule(barrierPage);
+    assert.equal(barrierHarness.requests.length, 3, "a replacement run can start after the cancellation barrier settles");
+    barrierHarness.requests[2].resolve({ succeeded: true, message: "replacement completed" });
+    await replacementRun;
+}
+
+async function testSceneScheduleBulkRunLifecycleGuards() {
+    const confirmationHarness = makeHarness();
+    configureSceneScheduleBulkMutationHarness(confirmationHarness);
+    const confirmationPage = confirmationHarness.page;
+    const confirmationApi = confirmationHarness.api;
+    let confirmation;
+    let confirmationCalls = 0;
+    confirmationHarness.dashboard.confirm = (_message, _title, callback) => {
+        confirmationCalls += 1;
+        confirmation = callback;
+    };
+    const confirmationOperation = confirmationApi.runSceneSchedulesBulk(confirmationPage);
+    assert.ok(confirmationOperation && typeof confirmationOperation.then === "function", "bulk scheduled-cue run returns a tracked confirmation promise");
+    assert.equal(confirmationCalls, 1, "bulk scheduled-cue run opens one confirmation");
+    assert.equal(confirmationHarness.requests.length, 0, "bulk scheduled-cue run waits for confirmation");
+    assert.equal(confirmationPage._hueSceneScheduleBulkMutation.key, "sceneScheduleBulkRun", "bulk scheduled-cue run owns its mutation lock during confirmation");
+    for (const selector of sceneScheduleMutationControlSelectors()) {
+        assert.equal(confirmationPage.querySelector(selector).disabled, true, `pending bulk scheduled-cue run disables ${selector}`);
+    }
+    const duplicateConfirmation = confirmationApi.runSceneSchedulesBulk(confirmationPage);
+    const oppositeConfirmation = confirmationApi.setSceneSchedulesEnabledBulk(confirmationPage, true);
+    await Promise.all([duplicateConfirmation, oppositeConfirmation]);
+    assert.equal(confirmationCalls, 1, "pending bulk scheduled-cue run suppresses duplicate and opposite confirmations");
+    assert.equal(confirmationHarness.requests.length, 0, "pending bulk scheduled-cue run suppresses duplicate and opposite requests");
+    const pendingConfirmation = confirmationPage._hueSceneScheduleBulkConfirmation;
+    confirmationApi.invalidatePageLifecycle(confirmationPage);
+    assert.equal(pendingConfirmation.canceled, true, "pagehide cancels pending bulk scheduled-cue run confirmation");
+    assert.equal(confirmationPage._hueSceneScheduleBulkMutation, null, "pagehide releases the pending bulk scheduled-cue run lock");
+    for (const selector of sceneScheduleMutationControlSelectors()) {
+        assert.equal(confirmationPage.querySelector(selector).disabled, false, `pagehide restores ${selector} after pending bulk scheduled-cue run`);
+    }
+    confirmation(true);
+    assert.equal(confirmationHarness.requests.length, 0, "stale bulk scheduled-cue run confirmation cannot submit a request");
+    await confirmationOperation;
+
+    const staleHarness = makeHarness();
+    const staleState = configureSceneScheduleBulkMutationHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    let staleConfirmation;
+    staleHarness.dashboard.confirm = (_message, _title, callback) => { staleConfirmation = callback; };
+    const staleOperation = staleApi.runSceneSchedulesBulk(stalePage);
+    staleConfirmation(true);
+    assert.equal(staleHarness.requests.length, 1, "confirmed bulk scheduled-cue run starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "POST", "bulk scheduled-cue run uses POST");
+    assert.equal(staleHarness.requests[0].options.url, "HueSync/SceneSchedules/BulkRun", "bulk scheduled-cue run targets the bulk run route");
+    assert.deepEqual(JSON.parse(staleHarness.requests[0].options.data), { scheduleIds: ["cue-1", "cue-2"] }, "bulk scheduled-cue run snapshots selected IDs");
+    assert.ok(stalePage._huePageRequests.sceneScheduleBulkRun, "bulk scheduled-cue run is tracked by the page lifecycle");
+    staleState.status.textContent = "unchanged after pagehide";
+    staleApi.invalidatePageLifecycle(stalePage);
+    assert.equal(staleHarness.requests[0].promise.aborted, true, "pagehide aborts an in-flight bulk scheduled-cue run");
+    assert.equal(stalePage._huePageRequests.sceneScheduleBulkRun, undefined, "pagehide removes bulk scheduled-cue run state");
+    assert.equal(stalePage._hueSceneScheduleBulkRequest, null, "pagehide clears the bulk scheduled-cue run pointer");
+    staleHarness.requests[0].resolve({ message: "stale bulk run" });
+    await staleOperation;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(staleState.status.textContent, "unchanged after pagehide", "stale bulk scheduled-cue completion cannot overwrite the page");
+    assert.equal(staleState.scheduleLoads, 0, "stale bulk scheduled-cue completion cannot reload schedules");
+
+    const currentHarness = makeHarness();
+    const currentState = configureSceneScheduleBulkMutationHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    let currentConfirmation;
+    let currentConfirmationCalls = 0;
+    currentHarness.dashboard.confirm = (_message, _title, callback) => {
+        currentConfirmationCalls += 1;
+        currentConfirmation = callback;
+    };
+    const currentOperation = currentApi.runSceneSchedulesBulk(currentPage);
+    currentConfirmation(true);
+    assert.equal(currentHarness.requests.length, 1, "current bulk scheduled-cue run starts one request");
+    const duplicateWhilePending = currentApi.runSceneSchedulesBulk(currentPage);
+    await duplicateWhilePending;
+    assert.equal(currentConfirmationCalls, 1, "in-flight bulk scheduled-cue run suppresses duplicate confirmation");
+    assert.equal(currentHarness.requests.length, 1, "in-flight bulk scheduled-cue run keeps one request");
+    currentHarness.requests[0].resolve({
+        message: "Selected scheduled cues completed.",
+        results: [{ scheduleName: "Cue One", succeeded: true }]
+    });
+    await currentOperation;
+    assert.equal(currentState.status.textContent, "Selected scheduled cues completed. Cue One: succeeded", "current bulk scheduled-cue run reports its result");
+    assert.equal(currentState.scheduleLoads, 1, "current bulk scheduled-cue run reloads schedules once");
+    assert.equal(currentState.selectedId, "cue-1", "current bulk scheduled-cue run preserves the selected cue");
+    assert.equal(currentPage._hueSceneScheduleBulkRequest, null, "current bulk scheduled-cue run clears its request pointer");
+    assert.equal(currentPage._hueSceneScheduleBulkActiveIds, null, "current bulk scheduled-cue run clears its active IDs");
+    assert.equal(currentPage._huePageRequests.sceneScheduleBulkRun, undefined, "current bulk scheduled-cue run removes its lifecycle record");
+    assert.equal(currentPage.querySelector("#runSelectedSceneSchedulesBtn").disabled, false, "current bulk scheduled-cue run restores the run button");
+    currentState.updateSceneScheduleBulkButtons(currentPage);
+    assert.equal(currentPage.querySelector("#cancelSelectedSceneSchedulesBtn").disabled, true, "current bulk scheduled-cue run disables cancel after completion");
+
+    const barrierHarness = makeHarness();
+    configureSceneScheduleBulkMutationHarness(barrierHarness);
+    const barrierPage = barrierHarness.page;
+    const barrierApi = barrierHarness.api;
+    let barrierConfirmation;
+    barrierHarness.dashboard.confirm = (_message, _title, callback) => { barrierConfirmation = callback; };
+    const barrierRun = barrierApi.runSceneSchedulesBulk(barrierPage);
+    barrierConfirmation(true);
+    const barrierRunRequest = barrierHarness.requests[0];
+    const barrierCancel = barrierApi.cancelSceneSchedulesBulk(barrierPage);
+    const barrierCancelRequest = barrierHarness.requests[1];
+    barrierRunRequest.resolve({ message: "bulk run finished before cancellation" });
+    await barrierRun;
+    assert.equal(barrierPage._hueSceneScheduleBulkRequest, null, "a completed bulk run releases its run pointer before cancellation settles");
+    assert.equal(
+        barrierPage._hueSceneScheduleBulkCancellationRequest._huePageRequestRecord.request,
+        barrierCancelRequest.promise,
+        "a pending bulk cancellation remains the shared operation barrier"
+    );
+    const blockedBulkRun = barrierApi.runSceneSchedulesBulk(barrierPage);
+    const blockedBulkMutation = barrierApi.setSceneSchedulesEnabledBulk(barrierPage, true);
+    await Promise.all([blockedBulkRun, blockedBulkMutation]);
+    assert.equal(barrierHarness.requests.length, 2, "a pending bulk cancellation blocks replacement runs and configuration mutations");
+    barrierCancelRequest.resolve({ canceledCount: 1 });
+    await barrierCancel;
+    const replacementBulkRun = barrierApi.runSceneSchedulesBulk(barrierPage);
+    barrierConfirmation(true);
+    assert.equal(barrierHarness.requests.length, 3, "a replacement bulk run can start after the cancellation barrier settles");
+    barrierHarness.requests[2].resolve({ message: "replacement bulk run completed" });
+    await replacementBulkRun;
+}
+
+async function testSceneScheduleReloadLeaseGuardsActions() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    page.querySelector("#sceneScheduleSelect").value = "cue-1";
+    page.querySelector("#sceneScheduleSelect").options = [{ value: "cue-1", textContent: "Cue One" }];
+
+    const reload = api.loadSceneSchedules(page, "cue-1");
+    assert.ok(reload && typeof reload.then === "function", "scene schedule reload returns a promise");
+    assert.ok(page._hueSceneScheduleReloadLease, "scene schedule reload owns a busy lease while metadata is pending");
+    assert.equal(page.querySelector("#sceneScheduleSelect").disabled, true, "scene schedule reload disables the direct selector");
+    assert.equal(page.querySelector("#saveSceneScheduleBtn").disabled, true, "scene schedule reload disables direct saves");
+    assert.equal(page.querySelector("#runSelectedSceneSchedulesBtn").disabled, true, "scene schedule reload disables bulk runs");
+    const requestCountBeforeBlockedActions = requests.length;
+    await Promise.all([
+        api.runSceneSchedule(page),
+        api.runSceneSchedulesBulk(page),
+        api.saveSceneSchedule(page)
+    ]);
+    assert.equal(requests.length, requestCountBeforeBlockedActions, "scene schedule reload blocks direct and bulk mutation/run submissions");
+
+    // getPageLifecycleRequest creates the time-zone request first, followed by
+    // schedules, presets, playlists, and mapping metadata.
+    requests[0].resolve([]);
+    requests[1].resolve([]);
+    requests[2].resolve([]);
+    requests[3].resolve([]);
+    requests[4].resolve([]);
+    await reload;
+    assert.equal(page._hueSceneScheduleReloadLease, null, "scene schedule reload releases its lease after metadata settles");
+    assert.equal(page.querySelector("#sceneScheduleSelect").disabled, false, "scene schedule reload restores the direct selector");
+    assert.equal(page.querySelector("#sceneScheduleBulkSelect").disabled, false, "scene schedule reload restores the bulk selector");
+
+    // The reload's runtime-status follow-up is independently tracked; tear it
+    // down so the harness cannot retain a background request.
+    api.invalidatePageLifecycle(page);
 }
 
 async function testEntertainmentAreaSelectionHandlesUnsafeIds() {
@@ -4576,10 +5311,15 @@ await testScenePlaylistIndividualMutationLifecycleGuards();
 await testScenePlaylistMutationLockGuards();
 await testScenePlaylistMutationSelectionGuards();
 await testScenePlaylistBulkLifecycleGuards();
+await testScenePlaylistSharedMutationLockArbitration();
 await testHistoryClearLifecycleGuards();
 await testSceneScheduleSaveLifecycleGuards();
+await testSceneScheduleBulkMutationLifecycleGuards();
+await testSceneScheduleDirectMutationLifecycleGuards();
 await testSceneScheduleDeleteLifecycleGuards();
 await testSceneScheduleRunCancellationUsesActiveId();
+await testSceneScheduleBulkRunLifecycleGuards();
+await testSceneScheduleReloadLeaseGuardsActions();
 await testEntertainmentAreaSelectionHandlesUnsafeIds();
 await testPreviewLifecyclePagehideGuards();
 await testDuplicateTargetNormalizationAndGuard();
@@ -4590,4 +5330,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/bulk-delete/bulk-duplicate/history-clear/schedule-delete stale-scope/pagehide, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
