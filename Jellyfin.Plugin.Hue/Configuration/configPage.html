@@ -2992,6 +2992,14 @@
                             HueConfigurationPage.updateSceneScheduleButtons(page);
                         }
                     }
+                    if (key === 'scenePlaylistDependencies') {
+                        var scenePlaylistDependenciesRequest = page._hueScenePlaylistDependenciesRequest;
+                        if (scenePlaylistDependenciesRequest && scenePlaylistDependenciesRequest._huePageRequestRecord === record) {
+                            page._hueScenePlaylistDependenciesRequest = null;
+                            var scenePlaylistDependenciesButton = page.querySelector && page.querySelector('#inspectScenePlaylistBtn');
+                            if (scenePlaylistDependenciesButton) scenePlaylistDependenciesButton.disabled = false;
+                        }
+                    }
                     var exportStates = {
                         sceneScheduleConflictsExport: { property: '_hueSceneScheduleConflictsExporting', selector: '#exportSceneScheduleConflictsBtn' },
                         sceneScheduleConflictsCsvExport: { property: '_hueSceneScheduleConflictsCsvExporting', selector: '#exportSceneScheduleConflictsCsvBtn' },
@@ -3413,6 +3421,7 @@
                     if (page._hueScenePlaylistRenameButton) page._hueScenePlaylistRenameButton.disabled = false;
                     page._hueScenePlaylistRenameButton = null;
                     page._hueScenePlaylistMutation = null;
+                    page._hueScenePlaylistDependenciesRequest = null;
                     page._hueColorPresetDeleting = false;
                     if (page._hueColorPresetDeleteButton) page._hueColorPresetDeleteButton.disabled = false;
                     page._hueColorPresetDeleteButton = null;
@@ -7120,6 +7129,7 @@
                     var save = page && page.querySelector('#saveScenePlaylistBtn');
                     var add = page && page.querySelector('#addScenePlaylistStepBtn');
                     var mutation = page && page._hueScenePlaylistMutation;
+                    var inspectBusy = !!(page && page._hueScenePlaylistDependenciesRequest);
                     var deleteBusy = !!(page && (page._hueScenePlaylistDeleting || page._hueScenePlaylistDeleteConfirmation));
                     var duplicateBusy = !!(page && page._hueScenePlaylistDuplicating);
                     var renameBusy = !!(page && page._hueScenePlaylistRenaming);
@@ -7131,7 +7141,7 @@
                     if (previewTargetSelect) previewTargetSelect.disabled = !hasSelection || !targetMetadataReady;
                     if (duplicate) duplicate.disabled = mutationBusy || duplicateBusy || !hasSelection;
                     if (rename) rename.disabled = mutationBusy || renameBusy || !hasSelection;
-                    if (inspect) inspect.disabled = !hasSelection;
+                    if (inspect) inspect.disabled = inspectBusy || !hasSelection;
                     if (deleteButton) deleteButton.disabled = mutationBusy || deleteBusy || !hasSelection;
                     if (add) add.disabled = !source || !source.value || items.length >= 20;
                     if (mutation) {
@@ -8417,12 +8427,16 @@
                     });
                 },
                 inspectScenePlaylistDependencies: function (page) {
+                    if (!page) return Promise.resolve();
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
+                        page._hueScenePlaylistDependenciesRequest) return Promise.resolve();
                     var select = page.querySelector('#scenePlaylistSelect');
-                    var name = select ? select.value : '';
+                    var name = select ? String(select.value || '') : '';
                     var status = page.querySelector('#scenePlaylistStatus');
                     if (!name) {
                         Dashboard.alert("Choose a saved playlist first.");
-                        return;
+                        return Promise.resolve();
                     }
 
                     var button = page.querySelector('#inspectScenePlaylistBtn');
@@ -8431,42 +8445,65 @@
                         status.textContent = "Checking scheduled-cue references...";
                         status.style.color = "";
                     }
-                    ApiClient.getJSON(ApiClient.getUrl("HueSync/ScenePlaylists/" + encodeURIComponent(name) + "/Dependencies"))
-                        .then(function (response) {
-                            var resultName = response && (response.name || response.Name) || name;
-                            var canDelete = response && (response.canDelete !== undefined ? response.canDelete : response.CanDelete);
-                            var cueCount = response && (response.scheduledCueCount !== undefined ? response.scheduledCueCount : response.ScheduledCueCount) || 0;
-                            var cues = response && (response.scheduledCues || response.ScheduledCues) || [];
-                            var details = ["Saved playlist: " + resultName];
-                            if (canDelete) {
-                                details.push("No scheduled-cue references were found. The playlist can be deleted safely.");
-                            } else {
-                                details.push("References: " + cueCount + " scheduled cue(s).");
-                                cues.forEach(function (cue) {
-                                    if (!cue) return;
-                                    var cueName = cue.name !== undefined ? cue.name : cue.Name;
-                                    var enabled = cue.enabled !== undefined ? cue.enabled : cue.Enabled;
-                                    details.push("Scheduled cue: " + (cueName || "Unnamed") + (enabled ? " (enabled)" : " (disabled)"));
-                                });
-                            }
-                            Dashboard.alert(details.join("\n"));
-                            if (status) {
-                                status.textContent = canDelete
-                                    ? "No scheduled-cue references found; the playlist can be deleted safely."
-                                    : "This playlist is referenced by " + cueCount + " scheduled cue(s).";
-                                status.style.color = canDelete ? "#8bc34a" : "#f0ad4e";
-                            }
-                        })
-                        .catch(function (err) {
-                            console.error("Failed to inspect scene playlist dependencies:", err);
-                            if (status) {
-                                status.textContent = "Unable to inspect playlist references. Check the server log.";
-                                status.style.color = "#d9534f";
-                            }
-                        })
-                        .finally(function () {
-                            HueConfigurationPage.updateScenePlaylistButtons(page);
-                        });
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'scenePlaylistDependencies',
+                        ApiClient.getUrl("HueSync/ScenePlaylists/" + encodeURIComponent(name) + "/Dependencies"));
+                    page._hueScenePlaylistDependenciesRequest = request;
+                    var isCurrent = function () {
+                        return page._hueScenePlaylistDependenciesRequest === request &&
+                            HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
+                    };
+                    var isTargetCurrent = function () {
+                        var currentSelect = page.querySelector('#scenePlaylistSelect');
+                        return isCurrent() && String(currentSelect && currentSelect.value || '') === name;
+                    };
+                    return request.then(function (response) {
+                        if (!isTargetCurrent()) return;
+                        var resultName = response && (response.name || response.Name) || name;
+                        var canDelete = response && (response.canDelete !== undefined ? response.canDelete : response.CanDelete);
+                        var cueCount = response && (response.scheduledCueCount !== undefined ? response.scheduledCueCount : response.ScheduledCueCount) || 0;
+                        var cues = response && (response.scheduledCues || response.ScheduledCues) || [];
+                        var details = ["Saved playlist: " + resultName];
+                        if (canDelete) {
+                            details.push("No scheduled-cue references were found. The playlist can be deleted safely.");
+                        } else {
+                            details.push("References: " + cueCount + " scheduled cue(s).");
+                            cues.forEach(function (cue) {
+                                if (!cue) return;
+                                var cueName = cue.name !== undefined ? cue.name : cue.Name;
+                                var enabled = cue.enabled !== undefined ? cue.enabled : cue.Enabled;
+                                details.push("Scheduled cue: " + (cueName || "Unnamed") + (enabled ? " (enabled)" : " (disabled)"));
+                            });
+                        }
+                        Dashboard.alert(details.join("\n"));
+                        if (status) {
+                            status.textContent = canDelete
+                                ? "No scheduled-cue references found; the playlist can be deleted safely."
+                                : "This playlist is referenced by " + cueCount + " scheduled cue(s).";
+                            status.style.color = canDelete ? "#8bc34a" : "#f0ad4e";
+                        }
+                    })
+                    .catch(function (err) {
+                        if (!isTargetCurrent()) return;
+                        console.error("Failed to inspect scene playlist dependencies:", err);
+                        if (status) {
+                            status.textContent = "Unable to inspect playlist references. Check the server log.";
+                            status.style.color = "#d9534f";
+                        }
+                    })
+                    .finally(function () {
+                        var current = isCurrent();
+                        var requestRecord = request && request._huePageRequestRecord;
+                        var tracked = page && page._huePageRequests &&
+                            page._huePageRequests.scenePlaylistDependencies === requestRecord;
+                        if (page._hueScenePlaylistDependenciesRequest === request) {
+                            page._hueScenePlaylistDependenciesRequest = null;
+                            if (current) HueConfigurationPage.updateScenePlaylistButtons(page);
+                        }
+                        if (tracked) HueConfigurationPage.cancelPageLifecycleRequest(page, 'scenePlaylistDependencies');
+                    });
                 },
                 deleteScenePlaylist: function (page) {
                     if (!page) return Promise.resolve();

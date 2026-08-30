@@ -490,7 +490,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.402 (Current)
+### Version 1.5.403 (Current)
+
+- **Playlist dependency inspection lifecycle**: dependency checks are generation-owned, selection-aware, duplicate-suppressed, and canceled on page teardown; stale responses cannot overwrite a reused administrator page and the inspect control always recovers.
+
+- **Regression coverage**: selection-change, pagehide abort, stale completion, current success, and duplicate-submit contracts cover the dependency-inspection lifecycle.
+
+### Version 1.5.402
 
 - **Scheduled-cue and playlist lifecycle ownership**: direct and bulk mutations are generation-owned, duplicate-suppressed, stale-safe, and canceled on teardown; controls remain locked through refresh and cancellation barriers.
 

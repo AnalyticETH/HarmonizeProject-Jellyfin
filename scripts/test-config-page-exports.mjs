@@ -3422,6 +3422,99 @@ async function testScenePlaylistIndividualMutationLifecycleGuards() {
     }
 }
 
+function configureScenePlaylistDependenciesHarness(harness) {
+    const { page } = harness;
+    const select = page.querySelector("#scenePlaylistSelect");
+    select.options = [
+        { value: "Playlist One", textContent: "Playlist One" },
+        { value: "Playlist Two", textContent: "Playlist Two" }
+    ];
+    select.value = "Playlist One";
+    select.selectedIndex = 0;
+    return {
+        select,
+        button: page.querySelector("#inspectScenePlaylistBtn"),
+        status: page.querySelector("#scenePlaylistStatus")
+    };
+}
+
+async function testScenePlaylistDependenciesLifecycleGuards() {
+    const staleHarness = makeHarness();
+    const staleState = configureScenePlaylistDependenciesHarness(staleHarness);
+    const stalePage = staleHarness.page;
+    const staleApi = staleHarness.api;
+    const staleOperation = staleApi.inspectScenePlaylistDependencies(stalePage);
+    assert.ok(staleOperation && typeof staleOperation.then === "function", "scene playlist dependency inspection returns a tracked promise");
+    assert.equal(staleHarness.requests.length, 1, "scene playlist dependency inspection starts one request");
+    assert.equal(staleHarness.requests[0].options.type, "GET", "scene playlist dependency inspection uses GET");
+    assert.equal(
+        staleHarness.requests[0].options.url,
+        "HueSync/ScenePlaylists/Playlist%20One/Dependencies",
+        "scene playlist dependency inspection scopes the request to the selected playlist"
+    );
+    assert.ok(stalePage._huePageRequests.scenePlaylistDependencies, "scene playlist dependency inspection is tracked by page lifecycle");
+    assert.equal(staleState.button.disabled, true, "scene playlist dependency inspection disables its button while pending");
+    const duplicateOperation = staleApi.inspectScenePlaylistDependencies(stalePage);
+    await duplicateOperation;
+    assert.equal(staleHarness.requests.length, 1, "duplicate scene playlist dependency inspection is suppressed");
+    staleState.select.value = "Playlist Two";
+    staleState.status.textContent = "current playlist status";
+    staleHarness.requests[0].resolve({
+        name: "Playlist One",
+        canDelete: false,
+        scheduledCueCount: 1,
+        scheduledCues: [{ name: "Cue One", enabled: true }]
+    });
+    await staleOperation;
+    assert.equal(staleState.status.textContent, "current playlist status", "selection-changed dependency response cannot overwrite current status");
+    assert.equal(staleHarness.dashboard.alerts.length, 0, "selection-changed dependency response cannot show a stale alert");
+    assert.equal(stalePage._hueScenePlaylistDependenciesRequest, null, "selection-changed dependency request clears its pointer");
+    assert.equal(stalePage._huePageRequests.scenePlaylistDependencies, undefined, "selection-changed dependency request removes its lifecycle record");
+    assert.equal(staleState.button.disabled, false, "selection-changed dependency request restores its button");
+
+    const pagehideHarness = makeHarness();
+    const pagehideState = configureScenePlaylistDependenciesHarness(pagehideHarness);
+    const pagehidePage = pagehideHarness.page;
+    const pagehideApi = pagehideHarness.api;
+    const pagehideOperation = pagehideApi.inspectScenePlaylistDependencies(pagehidePage);
+    assert.equal(pagehideHarness.requests.length, 1, "pagehide dependency scenario starts one request");
+    pagehideState.status.textContent = "unchanged after pagehide";
+    pagehideApi.invalidatePageLifecycle(pagehidePage);
+    assert.equal(pagehideHarness.requests[0].promise.aborted, true, "pagehide aborts the dependency request");
+    assert.equal(pagehidePage._huePageRequests.scenePlaylistDependencies, undefined, "pagehide removes dependency request state");
+    assert.equal(pagehidePage._hueScenePlaylistDependenciesRequest, null, "pagehide clears the dependency request pointer");
+    assert.equal(pagehideState.button.disabled, false, "pagehide restores the dependency inspection button");
+    pagehideHarness.requests[0].resolve({
+        name: "Playlist One",
+        canDelete: true,
+        scheduledCueCount: 0,
+        scheduledCues: []
+    });
+    await pagehideOperation;
+    assert.equal(pagehideState.status.textContent, "unchanged after pagehide", "pagehide dependency response cannot overwrite status");
+    assert.equal(pagehideHarness.dashboard.alerts.length, 0, "pagehide dependency response cannot show an alert");
+
+    const currentHarness = makeHarness();
+    const currentState = configureScenePlaylistDependenciesHarness(currentHarness);
+    const currentPage = currentHarness.page;
+    const currentApi = currentHarness.api;
+    const currentOperation = currentApi.inspectScenePlaylistDependencies(currentPage);
+    assert.equal(currentState.button.disabled, true, "current dependency inspection keeps its button disabled while pending");
+    currentHarness.requests[0].resolve({
+        name: "Playlist One",
+        canDelete: false,
+        scheduledCueCount: 1,
+        scheduledCues: [{ name: "Cue One", enabled: true }]
+    });
+    await currentOperation;
+    assert.equal(currentState.status.textContent, "This playlist is referenced by 1 scheduled cue(s).", "current dependency inspection renders its result");
+    assert.equal(currentHarness.dashboard.alerts.length, 1, "current dependency inspection shows one result alert");
+    assert.match(currentHarness.dashboard.alerts[0], /Playlist One[\s\S]*Cue One/, "current dependency inspection alert includes the returned references");
+    assert.equal(currentPage._hueScenePlaylistDependenciesRequest, null, "current dependency inspection clears its request pointer");
+    assert.equal(currentPage._huePageRequests.scenePlaylistDependencies, undefined, "current dependency inspection removes its lifecycle record");
+    assert.equal(currentState.button.disabled, false, "current dependency inspection restores its button");
+}
+
 function scenePlaylistMutationControlSelectors() {
     return [
         "#scenePlaylistSelect",
@@ -5308,6 +5401,7 @@ await testColorPresetRenameLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
 await testScenePlaylistDeleteLifecycleGuards();
 await testScenePlaylistIndividualMutationLifecycleGuards();
+await testScenePlaylistDependenciesLifecycleGuards();
 await testScenePlaylistMutationLockGuards();
 await testScenePlaylistMutationSelectionGuards();
 await testScenePlaylistBulkLifecycleGuards();
@@ -5330,4 +5424,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

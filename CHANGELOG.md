@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.403] - 2026-08-29
+
+### Playlist dependency inspection lifecycle
+- **Stale-result suppression**: playlist dependency inspection is generation-owned, selection-aware, and canceled on page teardown so an older response cannot overwrite a reused administrator page.
+- **Control recovery**: duplicate inspection is suppressed and the inspect control is restored on success, failure, selection changes, and pagehide cancellation.
+- **Regression coverage**: selection-change, pagehide abort, stale completion, current success, and duplicate-submit contracts cover the dependency-inspection lifecycle.
+
 ## [1.5.402] - 2026-08-29
 
 ### Scheduled-cue and playlist mutation integrity
