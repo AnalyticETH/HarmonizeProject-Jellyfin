@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.412] - 2026-08-30
+
+### Lifecycle and boundary hardening
+- **Page-scoped playback-device routing**: discovery results and route refreshes stay on the configuration page that initiated the request, preventing retained pages from receiving another page's devices.
+- **Solar boundary fail-closed behavior**: solar calculations return no event instead of throwing when date, offset, or local conversion arithmetic would overflow.
+- **Runner isolation documentation**: the self-hosted runner runbook now distinguishes the build/release identities' lack of Docker access from Dependabot's separately confined rootless Docker socket.
+
 ## [1.5.411] - 2026-08-30
 
 ### Discovery lifecycle and release-helper safety

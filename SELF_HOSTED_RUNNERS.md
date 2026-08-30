@@ -10,9 +10,11 @@ separate build state from release authority.
 | GitHub Release publication only | `harmonizeproject-jellyfin-release` | `harmonize-release-runner` | `/var/lib/harmonize-release-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache |
 | Dependabot update jobs | `dependabot` (with GitHub's default `self-hosted`, `Linux`, and `X64` labels) | `harmonize-dependabot-runner` | `/var/lib/harmonize-dependabot-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache/rootless-Docker state |
 
-All three identities are locked system users with `nologin`, no sudo, Docker, LXD, or
-supplementary groups, and no access to the interactive user's home or GitHub CLI
-credentials. Their root-owned runner installations are read-only inside systemd;
+All three identities are locked system users with `nologin`, no sudo, privileged Docker
+access, LXD, or supplementary groups, and no access to the interactive user's home or
+GitHub CLI credentials. The build and release identities have no Docker daemon or socket
+access; only the isolated Dependabot identity uses the rootless socket described below.
+Their root-owned runner installations are read-only inside systemd;
 credentials are `0440` and work/home/cache directories are `0700`. The services use
 `ProtectSystem=strict`, `ProtectHome`, private devices and temporary directories,
 namespace and SUID/SGID restrictions, an empty capability set, and bounded resources.

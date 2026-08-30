@@ -496,7 +496,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.411 (Current)
+### Version 1.5.412 (Current)
+
+- **Page-scoped playback-device routing**: discovery results and route refreshes stay on the configuration page that initiated the request, preventing retained pages from receiving another page's devices.
+
+- **Solar boundary fail-closed behavior**: solar calculations return no event instead of throwing when date, offset, or local conversion arithmetic would overflow.
+
+- **Runner isolation documentation**: the self-hosted runner runbook now distinguishes the build/release identities' lack of Docker access from Dependabot's separately confined rootless Docker socket.
 
 - **Discovery lifecycle ownership**: global and per-mapping bridge discovery requests are page-scoped, abort on pagehide, and ignore stale target edits before applying candidates or status.
 
