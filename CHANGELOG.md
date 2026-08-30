@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.416] - 2026-08-30
+
+### Retained configuration-page isolation
+- **Mapping editor ownership**: retained administrator pages now keep mapping editor state on their owning page, preventing duplicate-page edits, credentials, and saves from crossing page boundaries.
+- **Registration and discovery ownership**: page teardown only cancels the registration preflight it owns, and playback-device discovery cache reads remain restricted to the owning page while bridge registration stays serialized.
+- **Regression coverage**: configuration-page contracts cover retained-page state isolation, sibling pagehide cancellation, and playback-device cache ownership.
+
 ## [1.5.415] - 2026-08-30
 
 ### Release verification stability

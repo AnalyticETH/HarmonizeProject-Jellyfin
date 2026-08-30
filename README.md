@@ -496,7 +496,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.415 (Current)
+### Version 1.5.416 (Current)
+
+- **Mapping editor ownership**: retained administrator pages now keep mapping editor state on their owning page, preventing duplicate-page edits, credentials, and saves from crossing page boundaries.
+
+- **Registration and discovery ownership**: page teardown only cancels the registration preflight it owns, and playback-device discovery cache reads remain restricted to the owning page while bridge registration stays serialized.
+
+- **Regression coverage**: configuration-page contracts cover retained-page state isolation, sibling pagehide cancellation, and playback-device cache ownership.
 
 - **Bounded FFmpeg cleanup test**: the stderr-reader regression now waits within the existing five-second deadline for inherited pipe descriptors to settle after bounded `Stop()` cleanup, removing scheduler-timing flakes without weakening the cleanup contract.
 
