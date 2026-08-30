@@ -809,6 +809,7 @@ const requiredScript = [
     'ApiClient.getUrl("HueSync/PlaybackDevices")',
     'deviceId: deviceId || ""',
     'discoverMappingDevices: function',
+    "discoverMappingDevices(this.closest('.page'))",
     'canUseStoredDeviceRouteCredentials: function',
     'Selected route " + target.deviceId'
 ];
@@ -892,7 +893,7 @@ for (const [functionName, markers] of [
         "cancelPageLifecycleRequest(page, 'mappingPlaybackDevices')",
         "getPageLifecycleRequest",
         "isPageLifecycleTargetRequestCurrent",
-        "HueConfigurationPage.refreshMappingDeviceRoutes()"
+        "HueConfigurationPage.refreshMappingDeviceRoutes(page, undefined, true)"
     ]],
     ["loadChannelIds", [
         "var pageGeneration",

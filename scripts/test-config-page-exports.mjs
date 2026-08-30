@@ -423,6 +423,40 @@ function mutateQuery(page, method) {
     }
 }
 
+function testMappingDeviceDiscoveryPageOwnershipContract() {
+    assert.match(
+        scriptMatch[1],
+        /document\.querySelector\('#mappingDiscoverDevicesBtn'\)\.addEventListener\(\s*'click', function \(\) \{\s*HueConfigurationPage\.discoverMappingDevices\(this\.closest\('\.page'\)\);\s*\}\);/s,
+        "mapping playback-device discovery must pass the clicked control's owning page"
+    );
+    assert.match(
+        scriptMatch[1],
+        /refreshMappingDeviceRoutes: function \(page, selectedDeviceId, preserveEditor\)/,
+        "mapping route refresh must accept an owning page"
+    );
+    assert.match(
+        scriptMatch[1],
+        /HueConfigurationPage\._huePlaybackDevices = devices;\s*\/\/ The discovery result belongs to this page\.[\s\S]*?HueConfigurationPage\.refreshMappingDeviceRoutes\(page, undefined, true\);/,
+        "discovery results must refresh only the owning page's route picker"
+    );
+
+    const harness = makeHarness();
+    const { page, api } = harness;
+    page.querySelector("#mappingDeviceTargets").value = JSON.stringify([
+        { DeviceId: "configured-device", DeviceName: "Configured" }
+    ]);
+    api._huePlaybackDevices = [
+        { DeviceId: "discovered-device", DeviceName: "Discovered" }
+    ];
+    api.refreshMappingDeviceRoutes(page, undefined, true);
+    const routeSelect = page.querySelector("#mappingDeviceRouteSelect");
+    assert.equal(routeSelect.children.length, 2, "page-scoped route refresh includes configured and discovered devices");
+    assert.ok(
+        routeSelect.children.some(option => option.value === "discovered-device"),
+        "page-scoped route refresh renders the discovered device on its owning page"
+    );
+}
+
 function assertExportPayload(testCase, download) {
     assert.equal(download.fileName, testCase.fileName, `${testCase.method} file name`);
     assert.ok(download.blob, `${testCase.method} creates a blob`);
@@ -5682,6 +5716,7 @@ for (const testCase of exportCases) {
     await testDuplicateClickIsBounded(testCase);
 }
 
+testMappingDeviceDiscoveryPageOwnershipContract();
 await testEditMappingLifecycleGuards();
 await testUserMappingSaveLifecycleGuards();
 await testUserMappingDeleteLifecycleGuards();
@@ -5740,4 +5775,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus page-scoped mapping-device discovery and route-refresh ownership, mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

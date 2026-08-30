@@ -2373,8 +2373,10 @@
                             Dashboard.alert(err && err.message ? err.message : 'Bridge certificate verification failed.');
                         });
                 },
-                readMappingDeviceTargets: function () {
-                    var element = document.getElementById('mappingDeviceTargets');
+                readMappingDeviceTargets: function (page) {
+                    var element = page && page.querySelector
+                        ? page.querySelector('#mappingDeviceTargets')
+                        : document.getElementById('mappingDeviceTargets');
                     if (!element || !element.value.trim()) return [];
                     try {
                         var parsed = JSON.parse(element.value);
@@ -2784,10 +2786,21 @@
                     if (owner === page) HueConfigurationPage._huePlaybackDevicesOwner = null;
                     return true;
                 },
-                refreshMappingDeviceRoutes: function (selectedDeviceId, preserveEditor) {
-                    var select = document.getElementById('mappingDeviceRouteSelect');
+                refreshMappingDeviceRoutes: function (page, selectedDeviceId, preserveEditor) {
+                    // Keep the legacy (selectedDeviceId, preserveEditor) signature
+                    // working for callers outside the page lifecycle, while allowing
+                    // retained Jellyfin configuration pages to refresh only their
+                    // own route picker.
+                    if (!page || typeof page.querySelector !== 'function') {
+                        preserveEditor = selectedDeviceId;
+                        selectedDeviceId = page;
+                        page = null;
+                    }
+                    page = page || document.querySelector('.pluginConfigurationPage');
+                    if (!page) return;
+                    var select = page.querySelector('#mappingDeviceRouteSelect');
                     if (!select) return;
-                    var routes = HueConfigurationPage.readMappingDeviceTargets();
+                    var routes = HueConfigurationPage.readMappingDeviceTargets(page);
                     var discovered = Array.isArray(HueConfigurationPage._huePlaybackDevices)
                         ? HueConfigurationPage._huePlaybackDevices
                         : [];
@@ -2826,7 +2839,7 @@
                         select.appendChild(option);
                     });
                     select.value = entries.some(function (entry) { return entry.deviceId === previous; }) ? previous : '';
-                    if (!preserveEditor) HueConfigurationPage.populateMappingDeviceRouteEditor(select.value);
+                    if (!preserveEditor) HueConfigurationPage.populateMappingDeviceRouteEditor(select.value, page);
                 },
                 discoverMappingDevices: function (page) {
                     page = page || document.querySelector('.pluginConfigurationPage');
@@ -2886,7 +2899,10 @@
                                 return !candidate || HueConfigurationPage.areSameJellyfinUserId(candidate, userId);
                             });
                             HueConfigurationPage._huePlaybackDevices = devices;
-                            HueConfigurationPage.refreshMappingDeviceRoutes();
+                            // The discovery result belongs to this page. Do not let a
+                            // retained sibling configuration page receive its route
+                            // list or editor refresh.
+                            HueConfigurationPage.refreshMappingDeviceRoutes(page, undefined, true);
                             if (status) {
                                 status.textContent = devices.length
                                     ? "Found " + devices.length + " recent playback device(s). Select one to test or load its saved route."
@@ -16773,7 +16789,7 @@
             });
 
             document.querySelector('#mappingDiscoverDevicesBtn').addEventListener('click', function () {
-                HueConfigurationPage.discoverMappingDevices();
+                HueConfigurationPage.discoverMappingDevices(this.closest('.page'));
             });
 
             document.querySelector('#mappingDeviceRouteSelect').addEventListener('change', function () {
@@ -16819,7 +16835,7 @@
             });
 
             document.querySelector('#mappingDeviceTargets').addEventListener('input', function () {
-                HueConfigurationPage.refreshMappingDeviceRoutes(undefined, true);
+                HueConfigurationPage.refreshMappingDeviceRoutes(this.closest('.page'), undefined, true);
             });
 
             document.querySelector('#mappingTestConnectionBtn').addEventListener('click', function () {
@@ -16907,7 +16923,7 @@
                     HueConfigurationPage.loadConfiguration(e.target);
                     HueConfigurationPage.loadUsers(e.target);
                     HueConfigurationPage.loadUserMappings(e.target);
-                    HueConfigurationPage.refreshMappingDeviceRoutes();
+                    HueConfigurationPage.refreshMappingDeviceRoutes(e.target, undefined, true);
                     HueConfigurationPage.startRuntimeStatusPolling(e.target);
                     HueConfigurationPage.loadSessionHistory(e.target);
                     HueConfigurationPage.loadEnvironmentDiagnostics(e.target);
