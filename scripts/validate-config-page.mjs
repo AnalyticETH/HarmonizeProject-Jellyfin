@@ -1152,6 +1152,43 @@ for (const [functionName, markers] of [
 }
 
 {
+    const claimStart = scriptMatch[1].indexOf("claimConfigurationOperationLoading: function");
+    const claimEnd = scriptMatch[1].indexOf("\n                },", claimStart);
+    const claimBody = claimStart >= 0 && claimEnd > claimStart ? scriptMatch[1].slice(claimStart, claimEnd) : "";
+    if (!claimBody.includes("HueConfigurationPage._hueGlobalLoadingOwner = owner;")) {
+        throw new Error(`${file} claimConfigurationOperationLoading must use the shared global loader owner`);
+    }
+    const helperStart = scriptMatch[1].indexOf("releaseConfigurationOperationLoading: function");
+    const helperEnd = scriptMatch[1].indexOf("\n                },", helperStart);
+    const helperBody = helperStart >= 0 && helperEnd > helperStart ? scriptMatch[1].slice(helperStart, helperEnd) : "";
+    for (const marker of [
+        "if (HueConfigurationPage._hueGlobalLoadingOwner !== owner) return false;",
+        "HueConfigurationPage._hueGlobalLoadingOwner = null;",
+        "Dashboard.hideLoadingMsg();"
+    ]) {
+        if (!helperBody.includes(marker)) {
+            throw new Error(`${file} releaseConfigurationOperationLoading must only hide the loader for its current owner: ${marker}`);
+        }
+    }
+    for (const functionName of ["loadConfiguration", "saveConfiguration"]) {
+        const start = scriptMatch[1].indexOf(`${functionName}: function`);
+        const end = scriptMatch[1].indexOf("\n                },", start);
+        const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+        for (const marker of [
+            "var loadingOwner = HueConfigurationPage.claimConfigurationOperationLoading(page, request);",
+            "HueConfigurationPage.releaseConfigurationOperationLoading(loadingOwner);"
+        ]) {
+            if (!functionBody.includes(marker)) {
+                throw new Error(`${file} ${functionName} must release only its owned global loader: ${marker}`);
+            }
+        }
+        if (functionBody.includes("Dashboard.hideLoadingMsg();")) {
+            throw new Error(`${file} ${functionName} must not hide a newer operation's global loader directly`);
+        }
+    }
+}
+
+{
     const start = scriptMatch[1].indexOf("ensureBridgeCertificate: function");
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";

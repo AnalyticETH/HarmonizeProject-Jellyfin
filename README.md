@@ -496,7 +496,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.422 (Current)
+### Version 1.5.423 (Current)
+
+- **Configuration loader ownership**: configuration load and save completions now release the shared global loader only when they still own it, so a late request cannot hide a newer export or runtime-stop indicator.
+
+- **Regression coverage**: configuration-page contracts cover load/export and save/export races alongside the existing retained-page and cross-operation loader tests.
+
+### Version 1.5.422
 
 - **Target FPS validation parity**: the global administrator Target FPS field now enforces the server’s supported 1–60 range before submission.
 

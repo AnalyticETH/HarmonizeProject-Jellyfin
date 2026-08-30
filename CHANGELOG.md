@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.423] - 2026-08-30
+
+### Global loader arbitration for configuration lifecycle operations
+- **Configuration loader ownership**: configuration load and save completions now release the shared global loader only when they still own it, so a late request cannot hide a newer export or runtime-stop indicator.
+- **Regression coverage**: configuration-page contracts cover load/export and save/export races alongside the existing retained-page and cross-operation loader tests.
+
 ## [1.5.422] - 2026-08-30
 
 ### Validation parity and complete embedded JavaScript scanning

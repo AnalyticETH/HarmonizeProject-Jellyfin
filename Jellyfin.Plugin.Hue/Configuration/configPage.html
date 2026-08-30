@@ -3078,6 +3078,20 @@
                     Dashboard.hideLoadingMsg();
                     return true;
                 },
+                // Configuration load and save operations share the same global
+                // loader owner as runtime stops and exports. A late completion
+                // from one operation must never hide a newer operation's loader.
+                claimConfigurationOperationLoading: function (page, request) {
+                    var owner = { page: page, request: request };
+                    HueConfigurationPage._hueGlobalLoadingOwner = owner;
+                    return owner;
+                },
+                releaseConfigurationOperationLoading: function (owner) {
+                    if (HueConfigurationPage._hueGlobalLoadingOwner !== owner) return false;
+                    HueConfigurationPage._hueGlobalLoadingOwner = null;
+                    Dashboard.hideLoadingMsg();
+                    return true;
+                },
                 isPageLifecycleRequestCurrent: function (page, generation, request) {
                     if (!HueConfigurationPage.isPageLifecycleCurrent(page, generation)) return false;
                     var requests = page._huePageRequests || {};
@@ -4043,6 +4057,7 @@
                         pageGeneration,
                         'configuration',
                         ApiClient.getUrl("HueSync/Configuration"));
+                    var loadingOwner = HueConfigurationPage.claimConfigurationOperationLoading(page, request);
                     return request.then(function (config) {
                         if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                         config = config || {};
@@ -4140,8 +4155,7 @@
                         HueConfigurationPage.markSceneScheduleMetadataUnavailable(page, "Scheduled-cue targets are unavailable because plugin configuration could not be loaded. Reload this page before saving a cue.");
                         HueConfigurationPage.refreshStatus(page, "Unable to load plugin configuration.", "error");
                     }).finally(function () {
-                        if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
-                        Dashboard.hideLoadingMsg();
+                        HueConfigurationPage.releaseConfigurationOperationLoading(loadingOwner);
                     });
                 },
                 saveConfiguration: function (page, clearConfirmationComplete) {
@@ -4260,6 +4274,7 @@
                             contentType: "application/json",
                             dataType: "json"
                         });
+                    var loadingOwner = HueConfigurationPage.claimConfigurationOperationLoading(page, request);
                     var isCurrent = function () {
                         return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
                     };
@@ -4287,7 +4302,7 @@
                             if (saveButton) saveButton.disabled = false;
                             if (!current) HueConfigurationPage.cancelPageLifecycleRequest(page, 'configurationSave');
                         }
-                        if (current) Dashboard.hideLoadingMsg();
+                        HueConfigurationPage.releaseConfigurationOperationLoading(loadingOwner);
                     });
                 },
                 exportConfiguration: function (page) {
