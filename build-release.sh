@@ -14,12 +14,20 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 
+# Provenance is bound to the commit, so refuse to package a dirty checkout
+# whose uncommitted source files would not be represented by that SHA.
+if [ -n "$(git -c safe.directory="$PWD" status --porcelain=v1 --untracked-files=all)" ]; then
+    echo "❌ Release helper requires a clean Git checkout; commit or remove local changes first." >&2
+    exit 1
+fi
+
 if ! command -v unzip >/dev/null 2>&1; then
     echo "❌ unzip is required to verify the release archive." >&2
     exit 1
 fi
 
-# Clean previous builds
+# Clean previous builds only after the provenance guard. A failed invocation
+# from a dirty checkout must not destroy an operator's existing artifacts.
 echo "📦 Cleaning previous builds..."
 rm -rf ./Jellyfin.Plugin.Hue/bin/Release
 rm -rf ./release-package
@@ -28,13 +36,6 @@ rm -f jellyfin-plugin-hue-*.zip
 rm -f jellyfin-plugin-hue-*.zip.sha256
 rm -f jellyfin-plugin-hue-*.manifest.json
 rm -f jellyfin-plugin-hue-*.manifest.json.sha256
-
-# Provenance is bound to the commit, so refuse to package a dirty checkout
-# whose uncommitted source files would not be represented by that SHA.
-if [ -n "$(git -c safe.directory="$PWD" status --porcelain=v1 --untracked-files=all)" ]; then
-    echo "❌ Release helper requires a clean Git checkout; commit or remove local changes first." >&2
-    exit 1
-fi
 
 # Restore dependencies
 echo "📥 Restoring dependencies..."

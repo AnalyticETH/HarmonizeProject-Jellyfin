@@ -11,11 +11,19 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
 $pythonCommand = @("python", "python3") |
     Where-Object { Get-Command $_ -ErrorAction SilentlyContinue } |
     Select-Object -First 1
+# Provenance is bound to the commit, so refuse to package a dirty checkout
+# whose uncommitted source files would not be represented by that SHA.
+$gitStatus = (& git -c "safe.directory=$((Get-Location).Path)" status --porcelain=v1 --untracked-files=all)
+if (-not [string]::IsNullOrWhiteSpace(($gitStatus -join "`n"))) {
+    throw "Release helper requires a clean Git checkout; commit or remove local changes first."
+}
+
 if (-not $pythonCommand) {
     throw "Python 3 is required to create the deterministic release archive and manifest."
 }
 
-# Clean previous builds
+# Clean previous builds only after the provenance guard. A failed invocation
+# from a dirty checkout must not destroy an operator's existing artifacts.
 Write-Host "📦 Cleaning previous builds..." -ForegroundColor Yellow
 if (Test-Path "./Jellyfin.Plugin.Hue/bin/Release") {
     Remove-Item -Recurse -Force "./Jellyfin.Plugin.Hue/bin/Release"
@@ -30,13 +38,6 @@ Get-ChildItem -Filter "jellyfin-plugin-hue-*.zip" | Remove-Item -Force
 Get-ChildItem -Filter "jellyfin-plugin-hue-*.zip.sha256" | Remove-Item -Force
 Get-ChildItem -Filter "jellyfin-plugin-hue-*.manifest.json" | Remove-Item -Force
 Get-ChildItem -Filter "jellyfin-plugin-hue-*.manifest.json.sha256" | Remove-Item -Force
-
-# Provenance is bound to the commit, so refuse to package a dirty checkout
-# whose uncommitted source files would not be represented by that SHA.
-$gitStatus = (& git -c "safe.directory=$((Get-Location).Path)" status --porcelain=v1 --untracked-files=all)
-if (-not [string]::IsNullOrWhiteSpace(($gitStatus -join "`n"))) {
-    throw "Release helper requires a clean Git checkout; commit or remove local changes first."
-}
 
 # Restore dependencies
 Write-Host "📥 Restoring dependencies..." -ForegroundColor Yellow
