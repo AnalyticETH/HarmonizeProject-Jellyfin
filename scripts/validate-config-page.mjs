@@ -769,9 +769,10 @@ const requiredScript = [
     "cleanupStaleUserMappings: function",
     "HueSync/UserMappings/Cleanup",
     "cleanupStaleUserMappingsBtn",
-    "mappingEditingMappingId",
+    "getMappingEditingState: function",
+    "page._hueMappingEditingState",
     "data-mappingid",
-    "MappingId: HueConfigurationPage.mappingEditingMappingId",
+    "MappingId: mappingState.mappingId || ''",
     "setUserMappingsEnabledBulk: function",
     "HueSync/UserMappings/BulkEnabled",
     "getSelectedUserMappingBulkIds: function",
@@ -840,7 +841,11 @@ for (const forbidden of [
     'document.getElementById("mapping',
     "getSelectedMappingDeviceRoute()",
     "getMappingDeviceRouteTarget()",
-    "readMappingDeviceTargets()"
+    "readMappingDeviceTargets()",
+    "HueConfigurationPage.mappingEditingUserId",
+    "HueConfigurationPage.mappingEditingMappingId",
+    "HueConfigurationPage.mappingEditingHasAppKey",
+    "HueConfigurationPage.mappingEditingHasClientKey"
 ]) {
     if (scriptMatch[1].includes(forbidden)) {
         throw new Error(`${file} contains an unscoped mapping-page lookup: ${forbidden}`);

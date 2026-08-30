@@ -364,21 +364,25 @@ function makeHarness() {
 
     new vm.Script(`"use strict";\n${scriptMatch[1]}`, { filename: file }).runInContext(context);
 
-    const page = {
-        _huePageActive: true,
-        _huePageGeneration: 7,
-        querySelector(selector) {
-            if (typeof selector !== "string" || selector[0] !== "#") return null;
-            const id = selector.slice(1);
-            if (!pageElements.has(id)) {
-                pageElements.set(id, makeElement());
+    function makePage(elements = new Map()) {
+        return {
+            _huePageActive: true,
+            _huePageGeneration: 7,
+            querySelector(selector) {
+                if (typeof selector !== "string" || selector[0] !== "#") return null;
+                const id = selector.slice(1);
+                if (!elements.has(id)) {
+                    elements.set(id, makeElement());
+                }
+                return elements.get(id);
+            },
+            querySelectorAll() {
+                return [];
             }
-            return pageElements.get(id);
-        },
-        querySelectorAll() {
-            return [];
-        }
-    };
+        };
+    }
+
+    const page = makePage(pageElements);
     activePage = page;
 
     for (const [id, value] of [
@@ -400,6 +404,7 @@ function makeHarness() {
 
     return {
         page,
+        makePage,
         api: context.HueConfigurationPage,
         requests,
         readers,
@@ -822,6 +827,43 @@ async function testEditMappingLifecycleGuards() {
         "invalidated mapping edit cannot overwrite the hidden page");
 }
 
+async function testRetainedMappingPageStateIsolation() {
+    const harness = makeHarness();
+    const { page, makePage, api, requests } = harness;
+    const retainedPage = makePage();
+    const retainedState = api.getMappingEditingState(retainedPage);
+    retainedState.userId = "user-retained";
+    retainedState.mappingId = "mapping-retained";
+    retainedState.hasAppKey = true;
+    retainedState.hasClientKey = true;
+
+    // A retained page can be hidden while another configuration page becomes
+    // active. Its edit state must not become the active page's save context.
+    api.invalidatePageLifecycle(retainedPage);
+
+    const userSelect = page.querySelector("#mappingUserSelect");
+    userSelect.value = "user-active";
+    userSelect.selectedOptions = [{ dataset: { userName: "Active User" } }];
+    page.querySelector("#mappingAreaSelect").selectedOptions = [];
+    page.querySelector("#mappingSyncEnabled").checked = false;
+    api.loadUserMappings = () => {};
+    api.resetMappingForm = () => {};
+
+    const operation = api.addUserMapping(page);
+    assert.equal(requests.length, 1, "active retained-page save starts one request");
+    const mapping = JSON.parse(requests[0].options.data);
+    assert.equal(mapping.MappingId, "", "active page save does not inherit the hidden page mapping ID");
+    assert.equal(mapping.UserId, "user-active", "active page save keeps its own selected user");
+    const activeState = api.getMappingEditingState(page);
+    assert.equal(activeState.userId, "", "active page owns its mapping user state");
+    assert.equal(activeState.mappingId, "", "active page owns its mapping ID state");
+    assert.equal(activeState.hasAppKey, false, "active page owns its App Key-preservation state");
+    assert.equal(activeState.hasClientKey, false, "active page owns its Client Key-preservation state");
+
+    requests[0].resolve({});
+    await operation;
+}
+
 async function testUserMappingSaveLifecycleGuards() {
     const staleHarness = makeHarness();
     const stalePage = staleHarness.page;
@@ -1004,7 +1046,7 @@ async function testUserMappingDeleteLifecycleGuards() {
     const currentApi = currentHarness.api;
     const currentButton = currentPage.querySelector("#mappingDeleteButton");
     const currentFollowUps = [];
-    currentApi.mappingEditingMappingId = "mapping-two";
+    currentApi.getMappingEditingState(currentPage).mappingId = "mapping-two";
     currentApi.loadUserMappings = () => { currentFollowUps.push("mappings"); };
     currentApi.resetMappingForm = () => { currentFollowUps.push("reset"); };
     currentHarness.dashboard.confirm = (_message, _title, callback) => { confirmation = callback; };
@@ -1634,8 +1676,9 @@ async function testStoredDeviceRouteCredentialFlags() {
     const { page, api } = harness;
     const userId = "12345678-1234-1234-1234-1234567890ab";
     const deviceId = "living-room-tv";
-    api.mappingEditingUserId = userId;
-    api.mappingEditingMappingId = "mapping-one";
+    const mappingState = api.getMappingEditingState(page);
+    mappingState.userId = userId;
+    mappingState.mappingId = "mapping-one";
     page.querySelector("#mappingUserSelect").value = userId;
     page.querySelector("#mappingDeviceRouteSelect").value = deviceId;
     page.querySelector("#mappingDeviceTargets").value = JSON.stringify([{
@@ -1892,8 +1935,9 @@ async function testMappingDeviceRouteChannelIsolation() {
     const userId = "12345678-1234-1234-1234-1234567890ab";
     const deviceId = "living-room-tv";
 
-    api.mappingEditingUserId = userId;
-    api.mappingEditingMappingId = "mapping-one";
+    const mappingState = api.getMappingEditingState(page);
+    mappingState.userId = userId;
+    mappingState.mappingId = "mapping-one";
     page.querySelector("#mappingUserSelect").value = userId;
     page.querySelector("#mappingDeviceRouteSelect").value = deviceId;
     page.querySelector("#mappingDeviceTargets").value = JSON.stringify([
@@ -5718,6 +5762,7 @@ for (const testCase of exportCases) {
 
 testMappingDeviceDiscoveryPageOwnershipContract();
 await testEditMappingLifecycleGuards();
+await testRetainedMappingPageStateIsolation();
 await testUserMappingSaveLifecycleGuards();
 await testUserMappingDeleteLifecycleGuards();
 await testUserMappingCleanupLifecycleGuards();
@@ -5775,4 +5820,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus page-scoped mapping-device discovery and route-refresh ownership, mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus page-scoped mapping-device discovery and route-refresh ownership, retained mapping-page state isolation, mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop pagehide, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
