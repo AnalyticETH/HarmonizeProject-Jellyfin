@@ -4522,6 +4522,12 @@ public sealed class HueSceneAutomationService : BackgroundService
 
             if (!string.IsNullOrWhiteSpace(targetDeviceId))
             {
+                if (PluginConfiguration.HasAmbiguousDeviceTarget(mapping, targetDeviceId))
+                {
+                    error = $"The selected device route '{targetDeviceId}' is ambiguous because the user mapping contains duplicate device targets. Resolve duplicate device targets before running scene automation.";
+                    return false;
+                }
+
                 var deviceTarget = mapping.DeviceTargets?.FirstOrDefault(candidate =>
                     candidate != null &&
                     string.Equals(candidate.DeviceId?.Trim(), targetDeviceId, StringComparison.Ordinal));

@@ -2894,6 +2894,55 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task CaptureCurrentColors_RejectsDuplicatePersistedDeviceRouteBeforeBridgeActivity()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "duplicate-device-route",
+                    UserName = "Device room",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = " device-tv ",
+                            HueBridgeIp = "192.168.1.111",
+                            HueAppKey = "first-device-app-secret",
+                            HueClientKey = "first-device-client-secret",
+                            EntertainmentAreaId = "first-device-area"
+                        },
+                        new()
+                        {
+                            DeviceId = "device-tv",
+                            HueBridgeIp = "192.168.1.112",
+                            HueAppKey = "second-device-app-secret",
+                            HueClientKey = "second-device-client-secret",
+                            EntertainmentAreaId = "second-device-area"
+                        }
+                    }
+                }
+            }
+        });
+
+        var action = await CreateController().CaptureCurrentColors(new HueCurrentLightColorBatchRequest
+        {
+            TargetRoutes = new List<HueCurrentLightColorTargetRoute>
+            {
+                new() { UserId = "duplicate-device-route", DeviceId = "device-tv" }
+            }
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Contains("duplicate device", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task CaptureCurrentColors_AllTargetsRejectsDuplicateMappingsBeforeBridgeActivity()
     {
         InstallConfiguration(new PluginConfiguration
@@ -12235,6 +12284,60 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.DoesNotContain("support-global-ffmpeg-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("support-mapping-ffmpeg-secret", serialized, StringComparison.Ordinal);
         probe.Verify(environment => environment.CheckAsync(It.Is<CancellationToken>(token => token.CanBeCanceled)), Times.Once);
+    }
+
+    [Fact]
+    public async Task TargetDiagnostics_BlocksDuplicatePersistedDeviceRouteBeforeBridgeActivity()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "duplicate-device-route",
+                    UserName = "Device room",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = " device-tv ",
+                            HueBridgeIp = "192.168.1.111",
+                            HueAppKey = "first-device-app-secret",
+                            HueClientKey = "first-device-client-secret",
+                            EntertainmentAreaId = "first-device-area"
+                        },
+                        new()
+                        {
+                            DeviceId = "device-tv",
+                            HueBridgeIp = "192.168.1.112",
+                            HueAppKey = "second-device-app-secret",
+                            HueClientKey = "second-device-client-secret",
+                            EntertainmentAreaId = "second-device-area"
+                        }
+                    }
+                }
+            }
+        });
+
+        var action = await CreateController().GetTargetDiagnostics();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var diagnostics = Assert.IsType<HueTargetDiagnosticsResult>(response.Value);
+        Assert.Equal(2, diagnostics.TargetCount);
+        Assert.Equal(0, diagnostics.ReadyTargetCount);
+        Assert.False(diagnostics.AllTargetsReady);
+        Assert.All(diagnostics.Targets, target =>
+        {
+            Assert.False(target.Ready);
+            Assert.Contains("duplicate device", target.Status, StringComparison.OrdinalIgnoreCase);
+        });
+        _httpHandlerMock.VerifyNoOtherCalls();
+
+        var serialized = JsonSerializer.Serialize(diagnostics);
+        Assert.DoesNotContain("first-device-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("second-device-app-secret", serialized, StringComparison.Ordinal);
     }
 
     [Fact]

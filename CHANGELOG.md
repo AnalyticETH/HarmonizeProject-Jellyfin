@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.424] - 2026-08-30
+
+### Global loader arbitration for configuration import lifecycle operations
+- **Configuration import loader ownership**: import validation and submit completions now release the shared global loader only when they still own it, so a late import request cannot hide a newer export or runtime-stop indicator.
+- **Regression coverage**: configuration-page contracts cover import-validation/export and import-submit/export races alongside load/export and save/export ownership tests.
+
+### Fail-closed duplicate device-route arbitration
+- **Duplicate device-route arbitration**: legacy or hand-edited mappings with duplicate nested device IDs now fail closed in schedule validation and execution, current-light capture, and target diagnostics instead of selecting the first route.
+- **Regression coverage**: route validation, scheduler, capture, and diagnostics tests cover duplicate nested device IDs without bridge activity or credential leakage.
+
 ## [1.5.423] - 2026-08-30
 
 ### Global loader arbitration for configuration lifecycle operations

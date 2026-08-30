@@ -4636,6 +4636,7 @@
                             contentType: "application/json",
                             dataType: "json"
                         });
+                    var loadingOwner = HueConfigurationPage.claimConfigurationOperationLoading(page, request);
                     var isCurrent = function () {
                         return validationGeneration === page._hueImportValidationGeneration &&
                             HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
@@ -4680,8 +4681,8 @@
                         if (isCurrent()) {
                             if (validateButton) validateButton.disabled = false;
                             if (applyButton) applyButton.disabled = !page._hueImportValidated;
-                            Dashboard.hideLoadingMsg();
                         }
+                        HueConfigurationPage.releaseConfigurationOperationLoading(loadingOwner);
                     });
                 },
                 submitConfigurationImport: function (page) {
@@ -4724,6 +4725,7 @@
                                 contentType: "application/json",
                                 dataType: "json"
                             });
+                        var loadingOwner = HueConfigurationPage.claimConfigurationOperationLoading(page, request);
                         var isCurrent = function () {
                             return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
                         };
@@ -4759,8 +4761,8 @@
                             if (current) {
                                 if (button) button.disabled = false;
                                 if (applyButton) applyButton.disabled = !page._hueImportValidated;
-                                Dashboard.hideLoadingMsg();
                             }
+                            HueConfigurationPage.releaseConfigurationOperationLoading(loadingOwner);
                             var requestRecord = request && request._huePageRequestRecord;
                             if (page && page._huePageRequests && page._huePageRequests.configurationImport === requestRecord) {
                                 HueConfigurationPage.cancelPageLifecycleRequest(page, 'configurationImport');

@@ -6174,6 +6174,59 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void TryResolveTargets_FailsClosedForDuplicatePersistedDeviceRoute()
+    {
+        var config = new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "duplicate-device-route",
+                    UserName = "Device room",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = " device-tv ",
+                            HueBridgeIp = "192.168.1.101",
+                            HueAppKey = "first-device-app-secret",
+                            HueClientKey = "first-device-client-secret",
+                            EntertainmentAreaId = "first-device-area"
+                        },
+                        new()
+                        {
+                            DeviceId = "device-tv",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "second-device-app-secret",
+                            HueClientKey = "second-device-client-secret",
+                            EntertainmentAreaId = "second-device-area"
+                        }
+                    }
+                }
+            }
+        };
+
+        var resolved = HueSceneAutomationService.TryResolveTargets(
+            config,
+            new HueSceneSchedule
+            {
+                TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                {
+                    new() { UserId = "duplicate-device-route", DeviceId = "device-tv" }
+                }
+            },
+            out _,
+            out var error);
+
+        Assert.False(resolved);
+        Assert.Contains("duplicate device", error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("first-device-app-secret", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("second-device-app-secret", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TryResolveTargets_BroadcastIncludesDistinctEnabledTargetsAndDeduplicatesInheritedMappings()
     {
         var config = new PluginConfiguration

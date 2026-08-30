@@ -496,7 +496,17 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.423 (Current)
+### Version 1.5.424 (Current)
+
+- **Configuration import loader ownership**: import validation and submit completions now release the shared global loader only when they still own it, so a late import request cannot hide a newer export or runtime-stop indicator.
+
+- **Regression coverage**: configuration-page contracts cover import-validation/export and import-submit/export races alongside load/export and save/export ownership tests.
+
+- **Duplicate device-route arbitration**: legacy or hand-edited mappings with duplicate nested device IDs now fail closed in schedule validation and execution, current-light capture, and target diagnostics instead of selecting the first route.
+
+- **Regression coverage**: route validation, scheduler, capture, and diagnostics tests cover duplicate nested device IDs without bridge activity or credential leakage.
+
+### Version 1.5.423
 
 - **Configuration loader ownership**: configuration load and save completions now release the shared global loader only when they still own it, so a late request cannot hide a newer export or runtime-stop indicator.
 

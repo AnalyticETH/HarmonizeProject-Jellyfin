@@ -2913,6 +2913,40 @@ namespace Jellyfin.Plugin.Hue.Configuration
         }
 
         /// <summary>
+        /// Gets the trimmed, case-sensitive device identifiers that occur more than once
+        /// under one persisted user mapping. Runtime target resolution uses this helper to
+        /// fail closed for legacy or hand-edited configurations that bypass full validation.
+        /// </summary>
+        internal static IReadOnlyList<string> GetDuplicateDeviceTargetIds(UserBridgeMapping? mapping)
+        {
+            var deviceTargets = mapping?.DeviceTargets;
+            if (deviceTargets == null || deviceTargets.Count == 0)
+                return Array.Empty<string>();
+
+            return deviceTargets
+                .Where(target => target != null)
+                .Select(target => target!.DeviceId?.Trim() ?? string.Empty)
+                .Where(deviceId => !string.IsNullOrWhiteSpace(deviceId))
+                .GroupBy(deviceId => deviceId, StringComparer.Ordinal)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .OrderBy(deviceId => deviceId, StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        /// <summary>
+        /// Reports whether a requested exact device route is ambiguous in persisted data.
+        /// Blank identifiers are handled by the caller's route validation and are never
+        /// considered duplicate device targets here.
+        /// </summary>
+        internal static bool HasAmbiguousDeviceTarget(UserBridgeMapping? mapping, string? deviceId)
+        {
+            var normalizedDeviceId = deviceId?.Trim() ?? string.Empty;
+            return !string.IsNullOrWhiteSpace(normalizedDeviceId) &&
+                GetDuplicateDeviceTargetIds(mapping).Contains(normalizedDeviceId, StringComparer.Ordinal);
+        }
+
+        /// <summary>
         /// Validates one reusable scene-effect preview preset.
         /// </summary>
         public static List<string> ValidateColorPreset(HueColorPreset? preset, string label = "Color preset")
@@ -3682,6 +3716,10 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 else if (!matchingMappings[0].SyncEnabled)
                 {
                     errors.Add($"{label} references a disabled device-route user mapping: {routeUserId}");
+                }
+                else if (HasAmbiguousDeviceTarget(matchingMappings[0], routeDeviceId))
+                {
+                    errors.Add($"{label} references a device route with duplicate device IDs: {routeUserId}/{routeDeviceId}; resolve duplicate device targets before running scene automation");
                 }
                 else if (matchingMappings[0].DeviceTargets?.Any(target =>
                     target != null &&

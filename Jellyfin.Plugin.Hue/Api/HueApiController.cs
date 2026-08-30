@@ -1826,6 +1826,12 @@ namespace Jellyfin.Plugin.Hue.Api
                     "The selected Jellyfin user has multiple mapping rows. Resolve the duplicate mappings before capturing current light colors.");
             }
 
+            if (HasAmbiguousCaptureDeviceTarget(config, targetUserId, targetDeviceId))
+            {
+                return BadRequest(
+                    $"The selected device target '{targetUserId}/{targetDeviceId}' is ambiguous because the mapping contains duplicate device IDs. Resolve duplicate device targets before capturing current light colors.");
+            }
+
             var target = ResolveSingleCaptureTarget(config, targetUserId, targetDeviceId);
             if (target == null)
             {
@@ -7377,8 +7383,14 @@ namespace Jellyfin.Plugin.Hue.Api
             foreach (var target in targets)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var hasAmbiguousDeviceTarget = string.Equals(target.Scope, "UserDevice", StringComparison.Ordinal) &&
+                    HasAmbiguousCaptureDeviceTarget(config, target.UserId, target.DeviceId);
                 results.Add(HasAmbiguousCaptureUserMapping(config, target.UserId)
                     ? BuildAmbiguousTargetDiagnostic(target)
+                    : hasAmbiguousDeviceTarget
+                    ? BuildAmbiguousTargetDiagnostic(
+                        target,
+                        "The saved device route has duplicate device IDs; resolve duplicate device targets before bridge validation.")
                     : await ValidateTargetAsync(
                         target,
                         areaRequests,
@@ -7529,7 +7541,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 .OrderBy(group => group.UserId, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-        private static HueTargetDiagnostic BuildAmbiguousTargetDiagnostic(HueTarget target)
+        private static HueTargetDiagnostic BuildAmbiguousTargetDiagnostic(
+            HueTarget target,
+            string status = "The Jellyfin user has multiple mapping rows; resolve duplicate mappings before bridge validation.")
             => new()
             {
                 Scope = target.Scope,
@@ -7549,7 +7563,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 AreaFound = false,
                 ChannelProfileValid = false,
                 Ready = false,
-                Status = "The Jellyfin user has multiple mapping rows; resolve duplicate mappings before bridge validation."
+                Status = status
             };
 
         /// <summary>
@@ -7930,6 +7944,9 @@ namespace Jellyfin.Plugin.Hue.Api
             if (HasAmbiguousCaptureUserMapping(config, normalizedUserId))
                 return null;
 
+            if (HasAmbiguousCaptureDeviceTarget(config, normalizedUserId, normalizedDeviceId))
+                return null;
+
             return EnumerateConfiguredTargets(config).FirstOrDefault(candidate =>
                 PluginConfiguration.AreSameJellyfinUserId(candidate.UserId, normalizedUserId) &&
                 (string.IsNullOrWhiteSpace(normalizedDeviceId)
@@ -7949,6 +7966,26 @@ namespace Jellyfin.Plugin.Hue.Api
                         PluginConfiguration.AreSameJellyfinUserId(mapping.UserId, normalizedUserId)) > 1;
         }
 
+        private static bool HasAmbiguousCaptureDeviceTarget(
+            PluginConfiguration config,
+            string? userId,
+            string? deviceId)
+        {
+            var normalizedUserId = PluginConfiguration.NormalizeJellyfinUserId(userId);
+            var normalizedDeviceId = deviceId?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(normalizedUserId) || string.IsNullOrWhiteSpace(normalizedDeviceId))
+                return false;
+
+            var matchingMappings = (config.UserMappings ?? new List<UserBridgeMapping>())
+                .Where(mapping => mapping != null &&
+                    PluginConfiguration.AreSameJellyfinUserId(mapping.UserId, normalizedUserId))
+                .Cast<UserBridgeMapping>()
+                .ToArray();
+            return matchingMappings.Length == 1 &&
+                matchingMappings[0].SyncEnabled &&
+                PluginConfiguration.HasAmbiguousDeviceTarget(matchingMappings[0], normalizedDeviceId);
+        }
+
         private static string[] GetAmbiguousCaptureUserMappingIds(PluginConfiguration config)
             => (config.UserMappings ?? new List<UserBridgeMapping>())
                 .Where(mapping => mapping != null && !string.IsNullOrWhiteSpace(mapping.UserId))
@@ -7956,6 +7993,19 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Where(group => group.Count() > 1)
                 .Select(group => group.Key)
                 .OrderBy(userId => userId, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+        private static string[] GetAmbiguousCaptureDeviceTargetRoutes(PluginConfiguration config)
+            => (config.UserMappings ?? new List<UserBridgeMapping>())
+                .Where(mapping => mapping != null &&
+                    mapping.SyncEnabled &&
+                    !string.IsNullOrWhiteSpace(mapping.UserId))
+                .Cast<UserBridgeMapping>()
+                .SelectMany(mapping => PluginConfiguration.GetDuplicateDeviceTargetIds(mapping)
+                    .Select(deviceId =>
+                        $"{PluginConfiguration.NormalizeJellyfinUserId(mapping.UserId)}/{deviceId}"))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(route => route, StringComparer.Ordinal)
                 .ToArray();
 
         private static IReadOnlyList<HueSceneAutomationTargetRoute> NormalizeSceneAutomationTargetRoutes(
@@ -8026,6 +8076,20 @@ namespace Jellyfin.Plugin.Hue.Api
                 return false;
             }
 
+            var ambiguousSelectedDeviceRoutes = selectedRoutes
+                .Where(route => !string.IsNullOrWhiteSpace(route.DeviceId) &&
+                    HasAmbiguousCaptureDeviceTarget(config, route.UserId, route.DeviceId))
+                .Select(route =>
+                    $"{PluginConfiguration.NormalizeJellyfinUserId(route.UserId)}/{route.DeviceId}")
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(route => route, StringComparer.Ordinal)
+                .ToArray();
+            if (ambiguousSelectedDeviceRoutes.Length > 0)
+            {
+                error = $"The selected device target route(s) are ambiguous: {string.Join(", ", ambiguousSelectedDeviceRoutes)}. Resolve duplicate device targets before capturing current light colors.";
+                return false;
+            }
+
             if (selectedUserIds.Length + selectedRoutes.Length > PluginConfiguration.MaxSceneScheduleTargetMappings)
             {
                 error = $"Current-light capture cannot select more than {PluginConfiguration.MaxSceneScheduleTargetMappings} target routes.";
@@ -8044,6 +8108,13 @@ namespace Jellyfin.Plugin.Hue.Api
                 if (ambiguousUserIds.Length > 0)
                 {
                     error = $"All-target current-light capture is blocked while Jellyfin user mapping(s) are ambiguous: {string.Join(", ", ambiguousUserIds)}. Resolve the duplicate mappings before capturing current light colors.";
+                    return false;
+                }
+
+                var ambiguousDeviceRoutes = GetAmbiguousCaptureDeviceTargetRoutes(config);
+                if (ambiguousDeviceRoutes.Length > 0)
+                {
+                    error = $"All-target current-light capture is blocked while device route(s) are ambiguous: {string.Join(", ", ambiguousDeviceRoutes)}. Resolve duplicate device targets before capturing current light colors.";
                     return false;
                 }
             }

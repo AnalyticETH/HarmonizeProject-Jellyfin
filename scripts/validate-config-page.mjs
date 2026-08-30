@@ -1170,8 +1170,8 @@ for (const [functionName, markers] of [
             throw new Error(`${file} releaseConfigurationOperationLoading must only hide the loader for its current owner: ${marker}`);
         }
     }
-    for (const functionName of ["loadConfiguration", "saveConfiguration"]) {
-        const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    for (const functionName of ["loadConfiguration", "saveConfiguration", "validateConfigurationImport", "submitConfigurationImport"]) {
+        const start = scriptMatch[1].indexOf(`\n                ${functionName}: function`);
         const end = scriptMatch[1].indexOf("\n                },", start);
         const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
         for (const marker of [
@@ -1741,7 +1741,8 @@ for (const contract of [
         !functionBody.includes("isPageLifecycleRequestCurrent(page, pageGeneration, request)") ||
         !functionBody.includes("return request.then") ||
         !functionBody.includes("if (isCurrent())") ||
-        !functionBody.includes("Dashboard.hideLoadingMsg();")) {
+        !functionBody.includes("var loadingOwner = HueConfigurationPage.claimConfigurationOperationLoading(page, request);") ||
+        !functionBody.includes("HueConfigurationPage.releaseConfigurationOperationLoading(loadingOwner);")) {
         throw new Error(`${file} ${functionName} must only enable import after a current, successful validation`);
     }
 }

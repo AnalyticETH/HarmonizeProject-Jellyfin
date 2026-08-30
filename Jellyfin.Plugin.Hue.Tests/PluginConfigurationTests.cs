@@ -1447,6 +1447,46 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateSceneSchedules_RejectsPersistedDuplicateDeviceRoute()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Evening" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new() { DeviceId = "device-tv" },
+                        new() { DeviceId = " device-tv " }
+                    }
+                }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "duplicate-device-route",
+                    Name = "Duplicate device route cue",
+                    PresetName = "Evening",
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = "user-1", DeviceId = "device-tv" }
+                    }
+                }
+            }
+        };
+
+        var errors = config.ValidateSceneSchedules();
+
+        Assert.Contains(errors, error =>
+            error.Contains("device route with duplicate device IDs: user-1/device-tv", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateSceneSchedules_RejectsPriorityOutsideBounds()
     {
         var config = new PluginConfiguration
