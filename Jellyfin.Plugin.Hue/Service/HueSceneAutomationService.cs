@@ -3644,9 +3644,14 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceWeekly, StringComparison.Ordinal))
         {
-            var anchorWeek = anchorDate.AddDays(-(int)anchorDate.DayOfWeek);
-            var candidateWeek = candidateDate.AddDays(-(int)candidateDate.DayOfWeek);
-            return ((candidateWeek - anchorWeek).Days / 7) % interval == 0;
+            // Compute the Monday/Sunday-aligned week distance arithmetically. Using
+            // AddDays to move the anchor to the start of its week throws when a valid
+            // year-one anchor falls on Monday through Saturday and would move before
+            // DateTime.MinValue.
+            var elapsedWeekDays = (candidateDate - anchorDate).Days +
+                                  (int)anchorDate.DayOfWeek -
+                                  (int)candidateDate.DayOfWeek;
+            return (elapsedWeekDays / 7) % interval == 0;
         }
 
         if (string.Equals(recurrence, PluginConfiguration.SceneScheduleRecurrenceMonthly, StringComparison.Ordinal) ||

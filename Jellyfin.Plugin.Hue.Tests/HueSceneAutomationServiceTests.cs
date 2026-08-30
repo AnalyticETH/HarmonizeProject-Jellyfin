@@ -1043,6 +1043,29 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void GetNextRunUtc_WeeklyIntervalWithMinimumAnchorDoesNotOverflow()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceWeekly,
+            RecurrenceInterval = 2,
+            StartDate = "0001-01-01",
+            DaysOfWeekMask = 1 << (int)DayOfWeek.Monday
+        };
+        var serverUtcNow = new DateTime(1, 1, 1, 6, 0, 0, DateTimeKind.Utc);
+
+        var exception = Record.Exception(() => HueSceneAutomationService.GetNextRunUtc(schedule, serverUtcNow));
+
+        Assert.Null(exception);
+        Assert.Equal(
+            new DateTime(1, 1, 1, 7, 5, 0, DateTimeKind.Utc),
+            HueSceneAutomationService.GetNextRunUtc(schedule, serverUtcNow));
+    }
+
+    [Fact]
     public void TimeZoneAwareSchedule_UsesUtcInstantAndSelectedZoneWallClock()
     {
         var schedule = new HueSceneSchedule
