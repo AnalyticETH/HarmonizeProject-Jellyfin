@@ -4526,7 +4526,8 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         foreach (var mapping in config.UserMappings?.Where(candidate => candidate != null && candidate.SyncEnabled) ?? Enumerable.Empty<UserBridgeMapping>())
         {
-            if (string.IsNullOrWhiteSpace(mapping.HueBridgeIp))
+            if (string.IsNullOrWhiteSpace(mapping.HueBridgeIp) &&
+                string.IsNullOrWhiteSpace(mapping.ChannelIdsOverride))
             {
                 if (!globalResolved)
                 {

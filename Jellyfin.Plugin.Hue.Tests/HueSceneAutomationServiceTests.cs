@@ -6425,6 +6425,51 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void TryResolveTargets_BroadcastIncludesInheritedChannelOverrideAndDeduplicatesMatchingOverride()
+    {
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "global-app-secret",
+            HueClientKey = "global-client-secret",
+            EntertainmentAreaId = "global-area",
+            ChannelIds = "1,2",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "inherited-different",
+                    UserName = "Alternate channels",
+                    SyncEnabled = true,
+                    ChannelIdsOverride = "3"
+                },
+                new()
+                {
+                    UserId = "inherited-matching",
+                    UserName = "Same channels",
+                    SyncEnabled = true,
+                    ChannelIdsOverride = "2,1"
+                }
+            }
+        };
+
+        Assert.True(HueSceneAutomationService.TryResolveTargets(
+            config,
+            new HueSceneSchedule { TargetAllEnabledMappings = true },
+            out var targets,
+            out var error));
+        Assert.Empty(error);
+        Assert.Equal(2, targets.Count);
+
+        var defaultTarget = Assert.Single(targets, target => target.TargetLabel == "Default bridge target");
+        Assert.Equal(new[] { 1, 2 }, defaultTarget.ChannelIds!.OrderBy(id => id));
+
+        var alternateTarget = Assert.Single(targets, target => target.TargetLabel == "Alternate channels");
+        Assert.Equal(new[] { 3 }, alternateTarget.ChannelIds!.OrderBy(id => id));
+        Assert.DoesNotContain(targets, target => target.TargetLabel == "Same channels");
+    }
+
+    [Fact]
     public void TryResolveTargets_BroadcastDeduplicatesPinnedBridgeAliases()
     {
         var sharedFingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
