@@ -4,11 +4,23 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
 using System.Text.Json.Serialization;
+using System.Xml.Serialization;
 using Jellyfin.Plugin.Hue.Video;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.Hue.Configuration
 {
+    /// <summary>
+    /// XML-serializable representation of one persisted Hue bridge certificate pin.
+    /// Jellyfin's configuration serializer cannot reflect dictionary members, so the
+    /// runtime dictionary is projected to a bounded list for plugin persistence.
+    /// </summary>
+    public sealed class HueBridgeCertificatePin
+    {
+        public string Host { get; set; } = string.Empty;
+        public string Fingerprint { get; set; } = string.Empty;
+    }
+
     /// <summary>
     /// An exact Jellyfin playback-device target nested under one per-user mapping.
     /// Device identifiers are opaque, case-sensitive values supplied by Jellyfin.
@@ -1714,9 +1726,60 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// SHA-256 certificate fingerprints keyed by configured bridge host. Local Hue
         /// bridges use self-signed certificates, so a pin is required before any
         /// credential-bearing request is allowed. The dictionary is credential-free and
-        /// can safely be included in configuration exports.
+        /// can safely be included in configuration exports. It is ignored by Jellyfin's
+        /// XML serializer and projected through HueBridgeCertificatePinEntries because
+        /// that serializer cannot reflect IDictionary members.
         /// </summary>
+        [XmlIgnore]
         public Dictionary<string, string> HueBridgeCertificatePins { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// XML persistence adapter for <see cref="HueBridgeCertificatePins"/>. Keep this
+        /// out of JSON contracts: the public API already exposes the credential-free
+        /// dictionary and should not duplicate it under a transport-only name.
+        /// </summary>
+        [JsonIgnore]
+        [XmlArray("HueBridgeCertificatePins")]
+        [XmlArrayItem("Pin")]
+        public HueBridgeCertificatePin[] HueBridgeCertificatePinEntries
+        {
+            get => (HueBridgeCertificatePins ?? new Dictionary<string, string>())
+                .Select(pair => new HueBridgeCertificatePin
+                {
+                    Host = pair.Key,
+                    Fingerprint = pair.Value
+                })
+                .ToArray();
+            set
+            {
+                var pins = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (value != null)
+                {
+                    foreach (var entry in value)
+                    {
+                        if (entry == null || string.IsNullOrWhiteSpace(entry.Host))
+                            continue;
+
+                        var host = entry.Host.Trim();
+                        var fingerprint = entry.Fingerprint?.Trim() ?? string.Empty;
+                        if (pins.TryGetValue(host, out var existingFingerprint) &&
+                            !string.Equals(existingFingerprint, fingerprint, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Preserve an explicit conflict marker instead of letting
+                            // duplicate case/whitespace variants silently select the
+                            // last XML entry. Certificate resolution treats malformed
+                            // fingerprints as a fail-closed condition.
+                            pins[host] = string.Empty;
+                            continue;
+                        }
+
+                        pins[host] = fingerprint;
+                    }
+                }
+
+                HueBridgeCertificatePins = pins;
+            }
+        }
         // These keys are persisted for bridge access but must never be emitted by
         // Jellyfin's generic JSON plugin-configuration endpoint. The dedicated
         // HueSync configuration/export contracts expose only presence flags.

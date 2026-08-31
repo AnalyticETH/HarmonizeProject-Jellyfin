@@ -496,7 +496,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.429 (Current)
+### Version 1.5.430 (Current)
+
+- **Jellyfin configuration serializer compatibility**: certificate pins persist through an XML-safe adapter while the runtime/API retain their credential-free case-insensitive dictionary, preventing plugin startup from being disabled by Jellyfin's serializer.
+
+- **Fail-closed pin migration**: blank hosts are discarded and conflicting case/whitespace aliases force certificate re-pinning instead of silently selecting one entry.
+
+- **Regression coverage**: plugin configuration XML round-trip and malformed/conflicting pin handling are covered by security tests.
 
 - **Fail-closed entertainment-area identifiers**: malformed successful Hue bridge responses containing non-object areas or missing, null, numeric, or blank IDs are rejected before they can become selectable targets.
 

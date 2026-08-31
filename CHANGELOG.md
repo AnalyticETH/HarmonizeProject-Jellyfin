@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.430] - 2026-08-31
+
+### Jellyfin configuration serializer compatibility
+- **Runtime configuration safety**: certificate pins now use an XML-serializable adapter while retaining the credential-free case-insensitive dictionary used by the runtime and API, so Jellyfin can instantiate the plugin without disabling it.
+- **Fail-closed pin migration**: blank hosts are discarded and conflicting case/whitespace aliases retain an invalid marker that forces certificate resolution to reject the target instead of silently choosing one entry.
+- **Regression coverage**: plugin configuration XML round-trip, comparer preservation, blank-entry handling, and conflicting-pin rejection are covered by security tests.
+
 ## [1.5.429] - 2026-08-31
 
 ### Fail-closed malformed entertainment-area identifiers
