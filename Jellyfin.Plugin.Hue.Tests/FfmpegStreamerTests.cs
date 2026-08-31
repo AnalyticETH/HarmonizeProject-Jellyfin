@@ -149,6 +149,23 @@ public sealed class FfmpegStreamerTests
         Assert.Contains("unsafe value", exception.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(61)]
+    public void BuildFfmpegArguments_RejectsOutOfRangeTargetFps(int fps)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => FfmpegStreamer.BuildFfmpegArguments(
+            "/media/Movie.mkv",
+            fps,
+            useGpu: false,
+            customFlags: "",
+            seekPositionSeconds: 0,
+            frameWidth: 160,
+            frameHeight: 90,
+            scalingMode: PluginConfiguration.VideoScalingModeStretch,
+            deinterlaceMode: PluginConfiguration.VideoDeinterlaceModeOff));
+    }
+
     [Fact]
     public void BuildAudioFfmpegArguments_RejectsUnsafeCustomFlags()
     {
@@ -203,6 +220,25 @@ public sealed class FfmpegStreamerTests
     }
 
     [Fact]
+    public void BuildFfmpegArguments_PreservesSubsecondSeek()
+    {
+        var arguments = FfmpegStreamer.BuildFfmpegArguments(
+            "/media/Movie.mkv",
+            fps: 20,
+            useGpu: false,
+            customFlags: "",
+            seekPositionSeconds: 0.5,
+            frameWidth: 160,
+            frameHeight: 90,
+            scalingMode: PluginConfiguration.VideoScalingModeStretch,
+            deinterlaceMode: PluginConfiguration.VideoDeinterlaceModeOff);
+
+        var seekIndex = Array.IndexOf(arguments.ToArray(), "-ss");
+        Assert.True(seekIndex >= 0);
+        Assert.Equal("0.500", arguments[seekIndex + 1]);
+    }
+
+    [Fact]
     public void BuildAudioFfmpegArguments_UsesSafePcmTokensAndSeek()
     {
         var arguments = FfmpegStreamer.BuildAudioFfmpegArguments(
@@ -227,6 +263,58 @@ public sealed class FfmpegStreamerTests
                 "pipe:1"
             },
             arguments);
+    }
+
+    [Fact]
+    public void BuildAudioFfmpegArguments_PreservesSubsecondSeek()
+    {
+        var arguments = FfmpegStreamer.BuildAudioFfmpegArguments(
+            "/media/Music/Track.flac",
+            useGpu: false,
+            customFlags: "",
+            seekPositionSeconds: 0.5);
+
+        var seekIndex = Array.IndexOf(arguments.ToArray(), "-ss");
+        Assert.True(seekIndex >= 0);
+        Assert.Equal("0.500", arguments[seekIndex + 1]);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(61)]
+    public void StartFfmpeg_RejectsInvalidTargetFpsWithoutLaunching(int fps)
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        using var temporaryDirectory = new TemporaryDirectory();
+        var markerPath = Path.Combine(temporaryDirectory.Path, "started.marker");
+        var scriptPath = Path.Combine(temporaryDirectory.Path, "fake-ffmpeg.sh");
+        var mediaPath = Path.Combine(temporaryDirectory.Path, "input.mkv");
+        File.WriteAllText(
+            scriptPath,
+            $"#!/bin/sh\nprintf started > '{markerPath}'\nprintf x\n");
+        File.SetUnixFileMode(
+            scriptPath,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+            UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        File.WriteAllBytes(mediaPath, Array.Empty<byte>());
+
+        var streamer = new FfmpegStreamer(Mock.Of<ILogger<FfmpegStreamer>>());
+        try
+        {
+            Assert.Null(streamer.StartFfmpeg(
+                mediaPath,
+                fps,
+                useGpu: false,
+                ffmpegPath: scriptPath));
+            Assert.False(File.Exists(markerPath));
+        }
+        finally
+        {
+            streamer.Stop();
+        }
     }
 
     [Theory]

@@ -504,7 +504,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.441 (Current)
+### Version 1.5.442 (Current)
+
+- **Sub-second seek recovery**: Video and audio FFmpeg restarts preserve any positive playback position, including seeks below one second, instead of silently restarting from the beginning.
+
+- **Frame-rate validation**: FFmpeg capture rejects non-positive or above-supported target FPS before process launch, preventing malformed capture commands.
+
+- **Regression coverage**: Argument-contract and Linux launch-guard tests cover sub-second seeks and invalid FPS.
 
 - **Adaptive FFmpeg health monitoring**: capture health checks now poll at the configured stall budget (capped at ten seconds), so short 1-5 second budgets are observed promptly instead of waiting on a fixed ten-second interval.
 

@@ -37,6 +37,8 @@ namespace Jellyfin.Plugin.Hue.Video
         private const int DefaultStallTimeoutSeconds = 5;
         private const int MinStallTimeoutSeconds = 1;
         private const int MaxStallTimeoutSeconds = 60;
+        private const int MinTargetFps = 1;
+        private const int MaxTargetFps = 60;
         private const int MaxCustomFlagTextLength = 768;
         internal const int MaximumStandardErrorLineChars = 8 * 1024;
         private const int StandardErrorReadBufferSize = 4096;
@@ -330,6 +332,9 @@ namespace Jellyfin.Plugin.Hue.Video
             if (string.IsNullOrWhiteSpace(videoPath))
                 throw new ArgumentException("A video path is required.", nameof(videoPath));
 
+            if (fps < MinTargetFps || fps > MaxTargetFps)
+                throw new ArgumentOutOfRangeException(nameof(fps), $"FFmpeg target FPS must be between {MinTargetFps} and {MaxTargetFps}.");
+
             var arguments = new List<string>();
             if (useGpu)
             {
@@ -338,7 +343,7 @@ namespace Jellyfin.Plugin.Hue.Video
             }
 
             arguments.AddRange(ParseSafeCustomArguments(customFlags));
-            if (seekPositionSeconds > 1.0)
+            if (seekPositionSeconds > 0)
             {
                 arguments.Add("-ss");
                 arguments.Add(seekPositionSeconds.ToString("F3", CultureInfo.InvariantCulture));
@@ -389,7 +394,7 @@ namespace Jellyfin.Plugin.Hue.Video
             }
 
             arguments.AddRange(ParseSafeCustomArguments(customFlags));
-            if (seekPositionSeconds > 1.0)
+            if (seekPositionSeconds > 0)
             {
                 arguments.Add("-ss");
                 arguments.Add(seekPositionSeconds.ToString("F3", CultureInfo.InvariantCulture));
@@ -548,6 +553,16 @@ namespace Jellyfin.Plugin.Hue.Video
                 seekPositionSeconds = 0;
             }
 
+            if (fps < MinTargetFps || fps > MaxTargetFps)
+            {
+                _logger.LogError(
+                    "FFmpeg target FPS must be between {0} and {1}: {2}",
+                    MinTargetFps,
+                    MaxTargetFps,
+                    fps);
+                return null;
+            }
+
             if (frameWidth <= 0 || frameHeight <= 0)
             {
                 _logger.LogError("FFmpeg output dimensions must be positive: {0}x{1}", frameWidth, frameHeight);
@@ -582,6 +597,11 @@ namespace Jellyfin.Plugin.Hue.Video
                 catch (FormatException ex)
                 {
                     _logger.LogError(ex, "Invalid FFmpeg custom flags; refusing to start the process.");
+                    return null;
+                }
+                catch (ArgumentOutOfRangeException ex)
+                {
+                    _logger.LogError(ex, "Invalid FFmpeg video output parameters; refusing to start the process.");
                     return null;
                 }
 

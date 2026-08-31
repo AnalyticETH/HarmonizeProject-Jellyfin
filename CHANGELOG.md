@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.442] - 2026-08-31
+
+### Precise FFmpeg recovery and bounded capture arguments
+- **Sub-second seek recovery**: Video and audio FFmpeg restarts now preserve any positive playback position, including seeks below one second, instead of silently restarting from the beginning.
+- **Frame-rate validation**: FFmpeg capture rejects non-positive or above-supported target FPS before process launch, preventing malformed capture commands.
+- **Regression coverage**: Argument-contract and Linux launch-guard tests cover sub-second seeks and invalid FPS.
+
 ## [1.5.441] - 2026-08-31
 
 ### FFmpeg audio capture lifecycle
