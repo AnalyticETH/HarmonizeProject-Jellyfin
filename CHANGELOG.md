@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.436] - 2026-08-31
+
+### Malformed Hue state-shape safety
+- **Registration response safety**: Hue bridge registration now accepts credentials only from object-shaped success responses with string username and client-key fields, so malformed scalar responses fail closed without an exception path.
+- **Light-state response safety**: Hue light capture now requires object-shaped `on` and `dimming` resources, boolean power state, and finite numeric brightness before conversion, preserving partial-capture failure semantics for malformed bridge data.
+- **Regression coverage**: registration and light-state tests cover scalar, null, wrong-type, and malformed required response shapes without accepting or logging credential-shaped data.
+
 ## [1.5.435] - 2026-08-31
 
 ### Malformed Hue response safety and accessible mapping actions

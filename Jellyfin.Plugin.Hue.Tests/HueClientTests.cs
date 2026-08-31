@@ -1346,6 +1346,58 @@ public class HueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task GetLightStatesWithResult_RejectsMalformedRequiredStateShapes()
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-1""}}] },
+                { ""channel_id"": 1, ""members"": [{""service"": {""rid"": ""light-2""}}] },
+                { ""channel_id"": 2, ""members"": [{""service"": {""rid"": ""light-3""}}] }
+            ]
+        }");
+        _httpHandlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+            {
+                var lightId = request.RequestUri!.Segments[^1].Trim('/');
+                var body = lightId switch
+                {
+                    "light-1" => @"{""data"":[{""on"":null,""dimming"":{""brightness"":50}}]}",
+                    "light-2" => @"{""data"":[{""on"":{""on"":""true""},""dimming"":{""brightness"":50}}]}",
+                    _ => @"{""data"":[{""on"":{""on"":true},""dimming"":{""brightness"":""50""}}]}"
+                };
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body, Encoding.UTF8, "application/json")
+                };
+            });
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            doc.RootElement);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(3, result.AttemptedCount);
+        Assert.Empty(result.States);
+        Assert.Equal(3, result.FailedCount);
+        var logText = string.Join(
+            "\n",
+            _loggerMock.Invocations.Select(invocation =>
+                string.Join(" ", invocation.Arguments.Select(argument => argument?.ToString() ?? string.Empty))));
+        Assert.DoesNotContain("JsonException", logText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task GetLightStatesWithResult_RetriesTransientFailureAndReportsSuccess()
     {
         using var doc = JsonDocument.Parse(@"{
@@ -2242,6 +2294,24 @@ public class HueClientTests : IDisposable
 
         // Assert
         Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task RegisterWithBridge_MalformedScalarResponseReturnsNull()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, "[null]");
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.RegisterWithBridge("192.168.1.100");
+
+        Assert.Null(result);
+        var logText = string.Join(
+            "\n",
+            _loggerMock.Invocations.Select(invocation =>
+                string.Join(" ", invocation.Arguments.Select(argument => argument?.ToString() ?? string.Empty))));
+        Assert.Contains("Registration failed: Hue bridge returned an unsuccessful response.", logText, StringComparison.Ordinal);
+        Assert.DoesNotContain("InvalidOperationException", logText, StringComparison.Ordinal);
     }
 
     [Fact]

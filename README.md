@@ -504,7 +504,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.435 (Current)
+### Version 1.5.436 (Current)
+
+- **Registration response safety**: Hue bridge registration now accepts credentials only from object-shaped success responses with string username and client-key fields, so malformed scalar responses fail closed without an exception path.
+
+- **Light-state response safety**: Hue light capture now requires object-shaped `on` and `dimming` resources, boolean power state, and finite numeric brightness before conversion, preserving partial-capture failure semantics for malformed bridge data.
+
+- **Regression coverage**: registration and light-state tests cover scalar, null, wrong-type, and malformed required response shapes without accepting or logging credential-shaped data.
+
+### Version 1.5.435
 
 - **Malformed entertainment-response safety**: Hue entertainment configuration, channel, and member parsing now rejects non-object JSON elements before property access, preserving sanitized credential-free failures instead of surfacing server errors.
 

@@ -500,9 +500,13 @@ namespace Jellyfin.Plugin.Hue.Hue
                     if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
                     {
                         var first = doc.RootElement[0];
-                        if (first.TryGetProperty("success", out var success) &&
+                        if (first.ValueKind == JsonValueKind.Object &&
+                            first.TryGetProperty("success", out var success) &&
+                            success.ValueKind == JsonValueKind.Object &&
                             success.TryGetProperty("username", out var username) &&
-                            success.TryGetProperty("clientkey", out var clientKey))
+                            username.ValueKind == JsonValueKind.String &&
+                            success.TryGetProperty("clientkey", out var clientKey) &&
+                            clientKey.ValueKind == JsonValueKind.String)
                         {
                             var usernameValue = username.GetString() ?? string.Empty;
                             var clientKeyValue = clientKey.GetString() ?? string.Empty;
@@ -1459,15 +1463,21 @@ namespace Jellyfin.Plugin.Hue.Hue
                         }
 
                         if (!light.TryGetProperty("on", out var on) ||
+                            on.ValueKind != JsonValueKind.Object ||
                             !on.TryGetProperty("on", out var onValue) ||
+                            (onValue.ValueKind != JsonValueKind.True && onValue.ValueKind != JsonValueKind.False) ||
                             !light.TryGetProperty("dimming", out var dimming) ||
-                            !dimming.TryGetProperty("brightness", out var brightnessValue))
+                            dimming.ValueKind != JsonValueKind.Object ||
+                            !dimming.TryGetProperty("brightness", out var brightnessValue) ||
+                            brightnessValue.ValueKind != JsonValueKind.Number ||
+                            !brightnessValue.TryGetDouble(out var brightnessNumber) ||
+                            !double.IsFinite(brightnessNumber))
                         {
                             throw new InvalidOperationException("Hue light response did not contain required state fields.");
                         }
 
                         var isOn = onValue.GetBoolean();
-                        var brightness = Math.Clamp((int)brightnessValue.GetDouble(), 0, 100);
+                        var brightness = Math.Clamp((int)brightnessNumber, 0, 100);
 
                         double x = 0;
                         double y = 0;
