@@ -504,7 +504,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.444 (Current)
+### Version 1.5.445 (Current)
+
+- **iCalendar export safety**: credential-free calendar events now saturate `DTEND` at `DateTime.MaxValue` when a valid cue starts on the final representable instant instead of throwing during export.
+
+- **Metadata hygiene**: the release manifest changelog is normalized so each current-release entry is emitted exactly once.
+
+- **Regression coverage**: API tests cover maximum-date iCalendar serialization without exceptions.
+
+### Version 1.5.444
 
 - **Conflict-preview safety**: restorative windows now saturate at `DateTime.MaxValue` when a valid occurrence lands on the final representable instant, so conflict diagnostics remain available instead of throwing.
 

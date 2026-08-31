@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.445] - 2026-08-31
+
+### Calendar boundary safety
+- **iCalendar export safety**: credential-free calendar events now saturate `DTEND` at `DateTime.MaxValue` when a valid cue starts on the final representable instant instead of throwing during export.
+- **Metadata hygiene**: the release manifest changelog is normalized so each current-release entry is emitted exactly once.
+- **Regression coverage**: API tests cover maximum-date iCalendar serialization without exceptions.
+
 ## [1.5.444] - 2026-08-31
 
 ### Scheduler boundary saturation

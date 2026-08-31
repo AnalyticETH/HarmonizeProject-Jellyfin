@@ -12110,6 +12110,35 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SceneScheduleCalendar_MaximumDateDurationSaturatesInsteadOfThrowing()
+    {
+        var occurrence = new HueSceneScheduleOccurrenceResult
+        {
+            ScheduleId = "maximum-date-calendar",
+            ScheduleName = "Maximum date calendar",
+            PresetName = "Maximum date scene",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            TimeZoneDisplayName = TimeZoneInfo.Utc.DisplayName,
+            UtcTime = DateTime.MaxValue,
+            LocalTime = DateTime.MaxValue,
+            DurationSeconds = 30
+        };
+
+        var exception = Record.Exception(() =>
+        {
+            var calendar = HueApiController.BuildSceneScheduleCalendar(
+                new[] { occurrence },
+                DateTime.SpecifyKind(new DateTime(2026, 8, 31, 22, 0, 0), DateTimeKind.Utc),
+                horizonDays: 1);
+
+            Assert.Contains("DTSTART:99991231T235959Z\r\n", calendar, StringComparison.Ordinal);
+            Assert.Contains("DTEND:99991231T235959Z\r\n", calendar, StringComparison.Ordinal);
+        });
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
     public void GetSceneScheduleCalendar_FoldsMultibyteMetadataAtUtf8Boundaries()
     {
         var cueTime = DateTime.Now.AddMinutes(10).ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);

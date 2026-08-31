@@ -5207,7 +5207,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 .ToArray();
         }
 
-        private static string BuildSceneScheduleCalendar(
+        internal static string BuildSceneScheduleCalendar(
             IReadOnlyList<HueSceneScheduleOccurrenceResult> occurrences,
             DateTime generatedAtUtc,
             int horizonDays)
@@ -5234,7 +5234,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 AppendIcsLine(builder, "UID", BuildIcsUid(occurrence.ScheduleId, utcStart));
                 AppendIcsLine(builder, "DTSTAMP", FormatIcsUtc(generatedAtUtc));
                 AppendIcsLine(builder, "DTSTART", FormatIcsUtc(utcStart));
-                AppendIcsLine(builder, "DTEND", FormatIcsUtc(utcStart.AddSeconds(durationSeconds)));
+                // A valid occurrence may be on the final representable UTC date.
+                // Saturate the calendar window rather than allowing a credential-free
+                // export to throw while calculating DTEND.
+                AppendIcsLine(builder, "DTEND", FormatIcsUtc(AddSecondsSaturating(utcStart, durationSeconds)));
                 AppendIcsLine(builder, "SUMMARY", occurrence.ScheduleName);
                 AppendIcsLine(
                     builder,
@@ -5279,6 +5282,18 @@ namespace Jellyfin.Plugin.Hue.Api
 
             AppendIcsLine(builder, "END", "VCALENDAR");
             return builder.ToString();
+        }
+
+        private static DateTime AddSecondsSaturating(DateTime value, int seconds)
+        {
+            try
+            {
+                return value.AddSeconds(seconds);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return seconds >= 0 ? DateTime.MaxValue : DateTime.MinValue;
+            }
         }
 
         private static string FormatSceneScheduleTiming(HueSceneScheduleOccurrenceResult occurrence)
