@@ -504,7 +504,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.436 (Current)
+### Version 1.5.437 (Current)
+
+- **Entertainment configuration response safety**: Hue entertainment-configuration responses now require an object-shaped root before reading `data`, so scalar bridge responses fail closed through the normal sanitized invalid-response path instead of generating an exception log.
+
+- **Regression coverage**: scalar, null, and string top-level response fixtures verify that malformed bridge payloads do not produce an exception-path log.
+
+### Version 1.5.436
 
 - **Registration response safety**: Hue bridge registration now accepts credentials only from object-shaped success responses with string username and client-key fields, so malformed scalar responses fail closed without an exception path.
 

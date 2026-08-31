@@ -805,6 +805,26 @@ public class HueClientTests : IDisposable
         Assert.Null(result);
     }
 
+    [Theory]
+    [InlineData("null")]
+    [InlineData("42")]
+    [InlineData("\"scalar\"")]
+    public async Task GetEntertainmentConfiguration_ScalarTopLevelResponseFailsClosedWithoutExceptionLog(string responseJson)
+    {
+        SetupHttpResponse(HttpStatusCode.OK, responseJson);
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "test-app-key", "area-1");
+
+        Assert.Null(result);
+        var logText = string.Join(
+            "\n",
+            _loggerMock.Invocations.Select(invocation =>
+                string.Join(" ", invocation.Arguments.Select(argument => argument?.ToString() ?? string.Empty))));
+        Assert.DoesNotContain("Unable to load entertainment configuration", logText, StringComparison.Ordinal);
+        Assert.DoesNotContain("InvalidOperationException", logText, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task GetEntertainmentConfiguration_InvalidJson_ReturnsNull()
     {

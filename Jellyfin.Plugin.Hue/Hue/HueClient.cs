@@ -571,7 +571,8 @@ namespace Jellyfin.Plugin.Hue.Hue
                     // itself. If ids are present, select the requested resource explicitly;
                     // using a different area's channel layout could route playback to the
                     // wrong target while still appearing to start successfully.
-                    if (!doc.RootElement.TryGetProperty("data", out var data) ||
+                    if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+                        !doc.RootElement.TryGetProperty("data", out var data) ||
                         data.ValueKind != JsonValueKind.Array ||
                         data.GetArrayLength() == 0)
                     {

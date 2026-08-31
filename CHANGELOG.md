@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.437] - 2026-08-31
+
+### Entertainment configuration response safety
+- **Top-level shape validation**: Hue entertainment-configuration responses now require an object-shaped root before reading `data`, so scalar bridge responses fail closed through the normal sanitized invalid-response path instead of generating an exception log.
+- **Regression coverage**: scalar, null, and string top-level response fixtures verify that malformed bridge payloads do not produce an exception-path log.
+
 ## [1.5.436] - 2026-08-31
 
 ### Malformed Hue state-shape safety
