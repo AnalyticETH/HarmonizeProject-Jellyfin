@@ -496,7 +496,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.430 (Current)
+### Version 1.5.431 (Current)
+
+- **Route-aware bridge linking**: nested playback-device routes can link their own Hue bridge from the administrator editor, with route-local credentials and area refreshes that never overwrite the parent mapping.
+
+- **Import credential clearing**: clearing a replacement key after validation removes the stale in-memory value while blank fields continue to preserve matching server-side credentials.
+
+- **Service-readable release archives**: canonical ZIP entries are non-executable `0644`, allowing Jellyfin to discover plugin metadata under a different service account.
+
+- **Regression coverage**: route-link, import-clearing, release-permission, and existing full-suite contracts cover the new paths.
 
 - **Jellyfin configuration serializer compatibility**: certificate pins persist through an XML-safe adapter while the runtime/API retain their credential-free case-insensitive dictionary, preventing plugin startup from being disabled by Jellyfin's serializer.
 

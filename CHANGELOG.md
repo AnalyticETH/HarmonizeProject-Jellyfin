@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.431] - 2026-08-31
+
+### Route-aware bridge linking and service-readable release packages
+- **Route-specific bridge linking**: nested playback-device routes can now link their own Hue bridge from the administrator editor without overwriting the parent mapping credentials or areas.
+- **Credential clearing safety**: clearing a replacement key after validation now removes the stale in-memory value while preserving the documented server-side matching-key behavior.
+- **Service-readable release archives**: canonical plugin ZIP entries now use non-executable `0644` permissions so Jellyfin service accounts can read installed metadata and assemblies.
+- **Regression coverage**: route-link registration, import credential clearing, and release-entry permissions are covered by browser and packaging contracts.
+
 ## [1.5.430] - 2026-08-31
 
 ### Jellyfin configuration serializer compatibility

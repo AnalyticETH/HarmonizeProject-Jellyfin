@@ -2810,6 +2810,75 @@ async function testRegistrationLifecycleGuards() {
     assert.equal(mappingTargetHarness.requests.length, 0, "editing the mapping bridge while trust is pending cannot start registration");
 }
 
+async function testRouteSpecificMappingRegistration() {
+    const harness = makeHarness();
+    const { page, api, requests, dashboard } = harness;
+    const userId = "12345678-1234-1234-1234-1234567890ab";
+    const mappingState = api.getMappingEditingState(page);
+    mappingState.userId = userId;
+    mappingState.mappingId = "mapping-route-link";
+    page.querySelector("#mappingUserSelect").value = userId;
+    page.querySelector("#mappingDeviceTargets").value = JSON.stringify([
+        {
+            DeviceId: "living-room-tv",
+            DeviceName: "Living room TV",
+            HueBridgeIp: "192.168.1.70",
+            EntertainmentAreaId: "route-area",
+            HasAppKey: false,
+            HasClientKey: false
+        }
+    ]);
+    page.querySelector("#mappingDeviceRouteSelect").value = "living-room-tv";
+    api.populateMappingDeviceRouteEditor("living-room-tv", page);
+    page.querySelector("#mappingDeviceRouteBridge").value = "192.168.1.70";
+    page.querySelector("#mappingDeviceRouteAppKey").value = "";
+    page.querySelector("#mappingDeviceRouteClientKey").value = "";
+
+    let confirm;
+    dashboard.confirm = (_message, _title, callback) => { confirm = callback; };
+    api.ensureBridgeCertificate = () => Promise.resolve(true);
+    let routeAreasReloaded = 0;
+    api.loadMappingDeviceRouteAreas = currentPage => {
+        assert.equal(currentPage, page, "route linking refreshes route areas on the owning page");
+        routeAreasReloaded += 1;
+    };
+
+    api.registerMappingBridge(page);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(typeof confirm, "function", "route linking still requires the physical bridge confirmation");
+    confirm(true);
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(requests.length, 1, "route linking starts one registration request");
+    assert.equal(requests[0].options.url, "HueSync/Register", "route linking uses the existing registration endpoint");
+    assert.deepEqual(
+        JSON.parse(requests[0].options.data),
+        { IpAddress: "192.168.1.70" },
+        "route linking registers the selected route bridge"
+    );
+    requests[0].resolve({ username: "route-app-key", clientKey: "route-client-key" });
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(page.querySelector("#mappingDeviceRouteAppKey").value, "route-app-key", "route linking fills the route app key field");
+    assert.equal(page.querySelector("#mappingDeviceRouteClientKey").value, "route-client-key", "route linking fills the route client key field");
+    assert.equal(page.querySelector("#mappingAppKey").value, "", "route linking does not overwrite the outer mapping app key");
+    assert.equal(page.querySelector("#mappingClientKey").value, "", "route linking does not overwrite the outer mapping client key");
+    assert.equal(routeAreasReloaded, 1, "route linking refreshes route entertainment areas");
+    assert.equal(
+        page.querySelector("#mappingDeviceRouteEditorStatus").textContent,
+        "Route bridge linked successfully. Save or update the route to persist these credentials.",
+        "route linking reports the route-specific persistence reminder"
+    );
+    const cachedCredentials = api.getMappingDeviceRouteCredentials("living-room-tv", "192.168.1.70", userId, "mapping-route-link", page);
+    assert.equal(cachedCredentials.appKey, "route-app-key", "route linking stores the staged route app key in the page-local cache");
+    assert.equal(cachedCredentials.clientKey, "route-client-key", "route linking stores the staged route client key in the page-local cache");
+    assert.equal(
+        page.querySelector("#mappingLinkBridgeBtn").getAttribute("aria-label"),
+        "Link the selected playback device route bridge",
+        "route selection updates the shared link button affordance"
+    );
+}
+
 async function testMappingRegistrationSiblingPagehideGuard() {
     const harness = makeHarness();
     const { page, makePage, api, requests, dashboard } = harness;
@@ -6766,6 +6835,77 @@ async function testBridgeCertificatePinRenderingAndForgetLifecycle() {
     );
 }
 
+async function testConfigurationImportCredentialClearingRebuildsRequestValues() {
+    const harness = makeHarness();
+    const { page, api } = harness;
+    const originalQuerySelector = page.querySelector.bind(page);
+    const globalApp = { value: "" };
+    const globalClient = { value: "" };
+    const mappingApp = { value: "" };
+    const mappingClient = { value: "" };
+    const deviceApp = { value: "" };
+    const deviceClient = { value: "" };
+    for (const [input, scope, key] of [
+        [globalApp, "global", "app"],
+        [globalClient, "global", "client"],
+        [mappingApp, "mapping", "app"],
+        [mappingClient, "mapping", "client"],
+        [deviceApp, "device", "app"],
+        [deviceClient, "device", "client"]
+    ]) {
+        input.getAttribute = name => name === "data-hue-import-key" ? key :
+            name === "data-hue-import-scope" ? scope :
+                name === "data-hue-import-index" && scope !== "global" ? "0" :
+                    name === "data-hue-import-device-index" && scope === "device" ? "0" : null;
+    }
+    page.querySelector = selector => {
+        if (selector === '[data-hue-import-scope="global"][data-hue-import-key="app"]') return globalApp;
+        if (selector === '[data-hue-import-scope="global"][data-hue-import-key="client"]') return globalClient;
+        return originalQuerySelector(selector);
+    };
+    page.querySelectorAll = selector => {
+        if (selector === '[data-hue-import-scope="mapping"]') return [mappingApp, mappingClient];
+        if (selector === '[data-hue-import-scope="device"]') return [deviceApp, deviceClient];
+        return [];
+    };
+    page._hueImportDocument = {
+        Configuration: { HueBridgeIp: "global-bridge" },
+        UserMappings: [{
+            UserId: "user-1",
+            SyncEnabled: true,
+            HueBridgeIp: "mapping-bridge",
+            DeviceTargets: [{ DeviceId: "tv-1", DeviceName: "Living Room TV", HueBridgeIp: "device-bridge" }],
+            DeviceTargetCredentials: [{ DeviceId: "tv-1" }]
+        }]
+    };
+
+    globalApp.value = "global-app-replacement";
+    globalClient.value = "global-client-replacement";
+    mappingApp.value = "mapping-app-replacement";
+    mappingClient.value = "mapping-client-replacement";
+    deviceApp.value = "device-app-replacement";
+    deviceClient.value = "device-client-replacement";
+    assert.equal(api.applyConfigurationImportCredentials(page), true, "credential fields apply to the import document");
+    const read = (source, name) => api.readConfigurationValue(source, name, undefined);
+    assert.equal(read(page._hueImportDocument.Configuration, "HueAppKey"), "global-app-replacement", "global App Key is applied");
+    assert.equal(read(page._hueImportDocument.UserMappings[0], "HueAppKey"), "mapping-app-replacement", "mapping App Key is applied");
+    assert.equal(read(page._hueImportDocument.UserMappings[0].DeviceTargetCredentials[0], "HueAppKey"), "device-app-replacement", "device-route App Key is applied");
+
+    globalApp.value = "";
+    globalClient.value = "";
+    mappingApp.value = "";
+    mappingClient.value = "";
+    deviceApp.value = "";
+    deviceClient.value = "";
+    assert.equal(api.applyConfigurationImportCredentials(page), true, "cleared credential fields reapply to the import document");
+    assert.equal(read(page._hueImportDocument.Configuration, "HueAppKey"), "", "cleared global App Key is removed from the next request");
+    assert.equal(read(page._hueImportDocument.Configuration, "HueClientKey"), "", "cleared global Client Key is removed from the next request");
+    assert.equal(read(page._hueImportDocument.UserMappings[0], "HueAppKey"), "", "cleared mapping App Key is removed from the next request");
+    assert.equal(read(page._hueImportDocument.UserMappings[0], "HueClientKey"), "", "cleared mapping Client Key is removed from the next request");
+    assert.equal(read(page._hueImportDocument.UserMappings[0].DeviceTargetCredentials[0], "HueAppKey"), "", "cleared device-route App Key is removed from the next request");
+    assert.equal(read(page._hueImportDocument.UserMappings[0].DeviceTargetCredentials[0], "HueClientKey"), "", "cleared device-route Client Key is removed from the next request");
+}
+
 for (const testCase of exportCases) {
     await testSuccessfulExport(testCase);
     await testStaleQuerySuppressesExport(testCase);
@@ -6785,6 +6925,7 @@ await testUserMappingBulkDeleteLifecycleGuards();
 await testUserMappingBulkEnabledLifecycleGuards();
 await testConfigurationImportValidationLifecycleGuards();
 await testConfigurationImportFileLifecycleGuards();
+await testConfigurationImportCredentialClearingRebuildsRequestValues();
 await testMappingDeviceRouteCredentialScope();
 await testStoredDeviceRouteCredentialFlags();
 await testCredentialPreflightPagehideGuard();
@@ -6796,6 +6937,7 @@ await testCredentialPreflightTargetMutationGuard();
 await testCredentialLifecyclePreflightPagehideGuard();
 await testConnectionLifecycleGuards();
 await testRegistrationLifecycleGuards();
+await testRouteSpecificMappingRegistration();
 await testMappingRegistrationSiblingPagehideGuard();
 testMappingPlaybackDeviceCacheReadOwnershipGuard();
 await testMappingDeviceRouteChannelIsolation();

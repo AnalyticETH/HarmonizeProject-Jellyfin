@@ -25,8 +25,10 @@ EXPECTED_FILES = (
 FIXED_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 COMPRESSION_LEVEL = 9
 # Python's ZipFile otherwise fills this with the process's default file mode.
-# Keep one fixed, harmless read/write mode across host platforms.
-FIXED_EXTERNAL_ATTR = 0o600 << 16
+# Keep one fixed, non-executable, service-readable mode across host platforms.
+# Jellyfin commonly runs as a different service account than the operator who
+# extracts the archive, so 0600 would make plugin discovery fail on install.
+FIXED_EXTERNAL_ATTR = 0o644 << 16
 # mkstemp creates the archive with a private mode. Make the completed release
 # artifact readable by the operator even when the helper runs as a container
 # root over a mounted checkout.
@@ -189,6 +191,10 @@ def run_self_test() -> None:
         entries = inspect_archive(first_archive)
         if any(entry.date_time != FIXED_TIMESTAMP for entry in entries):
             raise AssertionError("Canonical release archive timestamp check failed")
+        if any(entry.external_attr != (0o644 << 16) for entry in entries):
+            raise AssertionError(
+                "Canonical release archive entries must be readable by the Jellyfin service account"
+            )
         print(
             "Deterministic release package self-test passed "
             f"(sha256={first_hash}, entries={','.join(EXPECTED_FILES)})"

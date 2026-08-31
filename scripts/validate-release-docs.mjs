@@ -181,12 +181,13 @@ const requiredPackagerMarkers = [
   "COMPRESSION_LEVEL = 9",
   "FIXED_OUTPUT_MODE = 0o644",
   "info.create_system = 0",
-  "FIXED_EXTERNAL_ATTR = 0o600 << 16",
+  "FIXED_EXTERNAL_ATTR = 0o644 << 16",
   "info.external_attr = FIXED_EXTERNAL_ATTR",
   "zipfile.ZIP_DEFLATED",
   "def run_self_test()",
   "first_hash != second_hash",
   "entry.date_time != FIXED_TIMESTAMP",
+  "entry.external_attr != (0o644 << 16)",
   "os.chmod(output_path, FIXED_OUTPUT_MODE)",
 ];
 for (const marker of requiredPackagerMarkers) {

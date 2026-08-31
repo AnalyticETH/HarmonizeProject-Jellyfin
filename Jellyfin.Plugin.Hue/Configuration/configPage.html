@@ -2506,6 +2506,67 @@
                         mappingId: mappingState.mappingId || ''
                     };
                 },
+                getMappingRegistrationTarget: function (page) {
+                    page = HueConfigurationPage.getMappingConfigurationPage(page);
+                    var mappingState = HueConfigurationPage.getMappingEditingState(page);
+                    var selectedRoute = HueConfigurationPage.getSelectedMappingDeviceRoute(page);
+                    var routeTarget = HueConfigurationPage.getMappingDeviceRouteTarget(page);
+                    var routeStatusEl = HueConfigurationPage.getMappingPageElement(page, 'mappingDeviceRouteEditorStatus');
+                    var bridgeStatusEl = HueConfigurationPage.getMappingPageElement(page, 'mappingBridgeStatus');
+
+                    if (selectedRoute && routeTarget && routeTarget.deviceId &&
+                        selectedRoute.deviceId === routeTarget.deviceId) {
+                        routeTarget.mappingId = mappingState.mappingId || '';
+                        return {
+                            kind: 'deviceRoute',
+                            target: routeTarget,
+                            statusElement: routeStatusEl || bridgeStatusEl,
+                            appKeyElement: HueConfigurationPage.getMappingPageElement(page, 'mappingDeviceRouteAppKey'),
+                            clientKeyElement: HueConfigurationPage.getMappingPageElement(page, 'mappingDeviceRouteClientKey')
+                        };
+                    }
+
+                    var mappingBridgeIpEl = HueConfigurationPage.getMappingPageElement(page, 'mappingBridgeIp');
+                    var mappingAppKeyEl = HueConfigurationPage.getMappingPageElement(page, 'mappingAppKey');
+                    var mappingClientKeyEl = HueConfigurationPage.getMappingPageElement(page, 'mappingClientKey');
+                    var mappingAreaSelect = HueConfigurationPage.getMappingPageElement(page, 'mappingAreaSelect');
+                    var mappingUserSelect = HueConfigurationPage.getMappingPageElement(page, 'mappingUserSelect');
+                    var areaId = mappingAreaSelect ? mappingAreaSelect.value : '';
+                    if (areaId === 'manual') {
+                        areaId = HueConfigurationPage.getMappingDeviceRouteEditorValue('mappingAreaManual', page);
+                    }
+                    return {
+                        kind: 'mapping',
+                        target: {
+                            bridgeIp: mappingBridgeIpEl ? mappingBridgeIpEl.value.trim() : '',
+                            appKey: mappingAppKeyEl ? mappingAppKeyEl.value.trim() : '',
+                            clientKey: mappingClientKeyEl ? mappingClientKeyEl.value.trim() : '',
+                            areaId: areaId,
+                            userId: mappingUserSelect ? String(mappingUserSelect.value || '').trim() : '',
+                            deviceId: '',
+                            mappingId: mappingState.mappingId || ''
+                        },
+                        statusElement: bridgeStatusEl,
+                        appKeyElement: mappingAppKeyEl,
+                        clientKeyElement: mappingClientKeyEl
+                    };
+                },
+                updateMappingLinkBridgeButton: function (page) {
+                    page = HueConfigurationPage.getMappingConfigurationPage(page);
+                    var button = HueConfigurationPage.getMappingPageElement(page, 'mappingLinkBridgeBtn');
+                    if (!button) return;
+                    var label = button.querySelector ? button.querySelector('span') : null;
+                    var selectedRoute = HueConfigurationPage.getSelectedMappingDeviceRoute(page);
+                    var routeTarget = HueConfigurationPage.getMappingDeviceRouteTarget(page);
+                    var isRouteSelectionActive = !!(selectedRoute && routeTarget && routeTarget.deviceId &&
+                        selectedRoute.deviceId === routeTarget.deviceId);
+                    if (label) {
+                        label.textContent = isRouteSelectionActive ? 'Link Route Bridge' : 'Link Bridge';
+                    }
+                    button.setAttribute('aria-label', isRouteSelectionActive
+                        ? 'Link the selected playback device route bridge'
+                        : 'Link the user mapping bridge');
+                },
                 setMappingDeviceRouteEditorValue: function (id, value, page) {
                     var element = HueConfigurationPage.getMappingPageElement(page, id);
                     if (element) element.value = value == null ? '' : String(value);
@@ -2567,6 +2628,7 @@
                     });
                     HueConfigurationPage.populateMappingDeviceRouteAreas('', '', page);
                     HueConfigurationPage.setMappingDeviceRouteEditorStatus(message || 'Select a configured or discovered device route to edit it.', '', page);
+                    HueConfigurationPage.updateMappingLinkBridgeButton(page);
                 },
                 populateMappingDeviceRouteEditor: function (selectedDeviceId, page) {
                     page = HueConfigurationPage.getMappingConfigurationPage(page);
@@ -2612,6 +2674,7 @@
                             'Editing a discovered route. Add bridge, keys, and area details, then save the route.',
                         route ? '' : '',
                         page);
+                    HueConfigurationPage.updateMappingLinkBridgeButton(page);
                 },
                 writeMappingDeviceTargets: function (routes, page) {
                     var element = HueConfigurationPage.getMappingPageElement(page, 'mappingDeviceTargets');
@@ -4670,8 +4733,12 @@
                     var globalClient = page.querySelector('[data-hue-import-scope="global"][data-hue-import-key="client"]');
                     var globalAppValue = globalApp ? globalApp.value.trim() : '';
                     var globalClientValue = globalClient ? globalClient.value.trim() : '';
-                    HueConfigurationPage.writeConfigurationValue(configuration, 'HueAppKey', globalAppValue || HueConfigurationPage.readConfigurationValue(configuration, 'HueAppKey', ''));
-                    HueConfigurationPage.writeConfigurationValue(configuration, 'HueClientKey', globalClientValue || HueConfigurationPage.readConfigurationValue(configuration, 'HueClientKey', ''));
+                    // The import document is reused across validation and submit. Always
+                    // write the current field value, including blank, so clearing a
+                    // replacement key cannot accidentally retain a value from an
+                    // earlier validation pass in the in-memory request.
+                    HueConfigurationPage.writeConfigurationValue(configuration, 'HueAppKey', globalAppValue);
+                    HueConfigurationPage.writeConfigurationValue(configuration, 'HueClientKey', globalClientValue);
 
                     var mappings = HueConfigurationPage.readConfigurationValue(importDocument, 'UserMappings', []) || [];
                     page.querySelectorAll('[data-hue-import-scope="mapping"]').forEach(function (input) {
@@ -4679,8 +4746,8 @@
                         if (isNaN(index) || !mappings[index]) return;
                         var key = input.getAttribute('data-hue-import-key');
                         var value = input.value.trim();
-                        if (key === 'app') HueConfigurationPage.writeConfigurationValue(mappings[index], 'HueAppKey', value || HueConfigurationPage.readConfigurationValue(mappings[index], 'HueAppKey', ''));
-                        if (key === 'client') HueConfigurationPage.writeConfigurationValue(mappings[index], 'HueClientKey', value || HueConfigurationPage.readConfigurationValue(mappings[index], 'HueClientKey', ''));
+                        if (key === 'app') HueConfigurationPage.writeConfigurationValue(mappings[index], 'HueAppKey', value);
+                        if (key === 'client') HueConfigurationPage.writeConfigurationValue(mappings[index], 'HueClientKey', value);
                     });
                     page.querySelectorAll('[data-hue-import-scope="device"]').forEach(function (input) {
                         var mappingIndex = parseInt(input.getAttribute('data-hue-import-index'), 10);
@@ -4689,7 +4756,6 @@
                         var targets = HueConfigurationPage.readConfigurationValue(mappings[mappingIndex], 'DeviceTargets', []) || [];
                         if (!Array.isArray(targets) || !targets[deviceIndex]) return;
                         var value = input.value.trim();
-                        if (!value) return;
                         var target = targets[deviceIndex];
                         var deviceId = String(HueConfigurationPage.readConfigurationValue(target, 'DeviceId', '') || '').trim();
                         if (!deviceId) return;
@@ -4698,13 +4764,14 @@
                         var replacement = credentials.find(function (candidate) {
                             return String(HueConfigurationPage.readConfigurationValue(candidate, 'DeviceId', '') || '').trim() === deviceId;
                         });
-                        if (!replacement) {
+                        if (!replacement && value) {
                             replacement = {
                                 DeviceId: deviceId,
                                 DeviceName: String(HueConfigurationPage.readConfigurationValue(target, 'DeviceName', '') || '').trim()
                             };
                             credentials.push(replacement);
                         }
+                        if (!replacement) return;
                         var key = input.getAttribute('data-hue-import-key');
                         if (key === 'app') HueConfigurationPage.writeConfigurationValue(replacement, 'HueAppKey', value);
                         if (key === 'client') HueConfigurationPage.writeConfigurationValue(replacement, 'HueClientKey', value);
@@ -15507,26 +15574,31 @@
                 registerMappingBridge: function (page) {
                     page = HueConfigurationPage.getMappingConfigurationPage(page);
                     var mappingState = HueConfigurationPage.getMappingEditingState(page);
-                    var bridgeIpEl = HueConfigurationPage.getMappingPageElement(page, 'mappingBridgeIp');
-                    var ip = bridgeIpEl ? bridgeIpEl.value.trim() : '';
-                    var statusEl = HueConfigurationPage.getMappingPageElement(page, 'mappingBridgeStatus');
+                    var registrationTarget = HueConfigurationPage.getMappingRegistrationTarget(page);
+                    var target = registrationTarget.target;
+                    var ip = target && target.bridgeIp ? target.bridgeIp.trim() : '';
+                    var statusEl = registrationTarget.statusElement;
                     var button = HueConfigurationPage.getMappingPageElement(page, 'mappingLinkBridgeBtn');
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
-                    var userSelect = page && page.querySelector ? page.querySelector('#mappingUserSelect') : null;
-                    var registrationUserId = userSelect ? String(userSelect.value || '').trim() : '';
+                    var registrationUserId = target ? String(target.userId || '').trim() : '';
+                    var registrationDeviceId = target ? String(target.deviceId || '').trim() : '';
                     var registrationMappingId = String(mappingState.mappingId || '').trim();
                     var isCurrentRegistrationTarget = function () {
-                        var currentUserSelect = page && page.querySelector ? page.querySelector('#mappingUserSelect') : null;
-                        var currentBridgeInput = HueConfigurationPage.getMappingPageElement(page, 'mappingBridgeIp');
-                        return !!currentBridgeInput && HueConfigurationPage.isSameBridgeTarget(currentBridgeInput.value, ip) &&
+                        var currentTarget = HueConfigurationPage.getMappingRegistrationTarget(page);
+                        return currentTarget.kind === registrationTarget.kind &&
+                            HueConfigurationPage.getMappingTargetFingerprint(currentTarget.target) ===
+                                HueConfigurationPage.getMappingTargetFingerprint(target) &&
+                            String(HueConfigurationPage.getMappingEditingState(page).mappingId || '').trim() === registrationMappingId &&
+                            String((currentTarget.target && currentTarget.target.deviceId) || '').trim() === registrationDeviceId &&
                             HueConfigurationPage.areSameJellyfinUserId(
-                                currentUserSelect ? currentUserSelect.value : '',
-                                registrationUserId) &&
-                            String(mappingState.mappingId || '').trim() === registrationMappingId;
+                                currentTarget.target ? currentTarget.target.userId : '',
+                                registrationUserId);
                     };
 
                     if (!ip) {
-                        Dashboard.alert("Please enter a bridge address first.");
+                        Dashboard.alert(registrationTarget.kind === 'deviceRoute'
+                            ? "Please enter the selected route bridge address first."
+                            : "Please enter a bridge address first.");
                         return;
                     }
                     // Link-button registration is a physical bridge-wide operation,
@@ -15555,8 +15627,11 @@
                         }
                         if (button) button.disabled = true;
                         if (statusEl) {
-                            statusEl.textContent = "Linking...";
+                            statusEl.textContent = registrationTarget.kind === 'deviceRoute'
+                                ? "Linking the selected route bridge..."
+                                : "Linking...";
                             statusEl.style.background = "#3f51b5";
+                            statusEl.style.color = registrationTarget.kind === 'deviceRoute' ? "#fff" : statusEl.style.color;
                         }
 
                         var request;
@@ -15587,27 +15662,48 @@
                             var clientKey = response.clientKey || response.ClientKey || "";
 
                             if (appKey && clientKey) {
-                                var appKeyEl = HueConfigurationPage.getMappingPageElement(page, 'mappingAppKey');
-                                var clientKeyEl = HueConfigurationPage.getMappingPageElement(page, 'mappingClientKey');
+                                var appKeyEl = registrationTarget.appKeyElement;
+                                var clientKeyEl = registrationTarget.clientKeyElement;
                                 if (appKeyEl) appKeyEl.value = appKey;
                                 if (clientKeyEl) clientKeyEl.value = clientKey;
-                                if (statusEl) {
-                                    statusEl.textContent = "Bridge linked successfully!";
-                                    statusEl.style.background = "#4caf50";
+                                if (registrationTarget.kind === 'deviceRoute') {
+                                    HueConfigurationPage.rememberMappingDeviceRouteCredentials(
+                                        target.deviceId,
+                                        appKey,
+                                        clientKey,
+                                        target.bridgeIp,
+                                        target.userId,
+                                        target.mappingId,
+                                        page);
                                 }
-                                HueConfigurationPage.loadMappingAreas(undefined, page);
+                                if (statusEl) {
+                                    statusEl.textContent = registrationTarget.kind === 'deviceRoute'
+                                        ? "Route bridge linked successfully. Save or update the route to persist these credentials."
+                                        : "Bridge linked successfully!";
+                                    statusEl.style.background = "#4caf50";
+                                    statusEl.style.color = registrationTarget.kind === 'deviceRoute' ? "#fff" : statusEl.style.color;
+                                }
+                                if (registrationTarget.kind === 'deviceRoute') {
+                                    HueConfigurationPage.loadMappingDeviceRouteAreas(page);
+                                } else {
+                                    HueConfigurationPage.loadMappingAreas(undefined, page);
+                                }
                             } else {
                                 if (statusEl) {
                                     statusEl.textContent = "Registration returned but keys were empty.";
                                     statusEl.style.background = "#d9534f";
+                                    statusEl.style.color = registrationTarget.kind === 'deviceRoute' ? "#fff" : statusEl.style.color;
                                 }
                             }
                         }).catch(function () {
                             if (!isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
                                 HueConfigurationPage._hueMappingRegistrationRequest !== request) return;
                             if (statusEl) {
-                                statusEl.textContent = "Registration failed. Verify the bridge address and link-button prompt, then try again.";
+                                statusEl.textContent = registrationTarget.kind === 'deviceRoute'
+                                    ? "Route registration failed. Verify the route bridge address and link-button prompt, then try again."
+                                    : "Registration failed. Verify the bridge address and link-button prompt, then try again.";
                                 statusEl.style.background = "#d9534f";
+                                statusEl.style.color = registrationTarget.kind === 'deviceRoute' ? "#fff" : statusEl.style.color;
                             }
                         }).finally(function () {
                             if (HueConfigurationPage._hueMappingRegistrationRequest === request) {
@@ -15622,6 +15718,7 @@
                         if (statusEl) {
                             statusEl.textContent = err && err.message ? err.message : "Certificate verification failed. Review and trust the fingerprint before linking.";
                             statusEl.style.background = "#d9534f";
+                            statusEl.style.color = registrationTarget.kind === 'deviceRoute' ? "#fff" : statusEl.style.color;
                         }
                     });
                 },

@@ -841,8 +841,10 @@ const requiredScript = [
     'isMappingPlaybackDevicesOwner: function',
     'getMappingConfigurationPage: function',
     'getMappingPageElement: function',
+    'getMappingRegistrationTarget: function (page)',
     'getMappingDeviceRouteTarget: function (page)',
     'getSelectedMappingDeviceRoute: function (page)',
+    'updateMappingLinkBridgeButton: function (page)',
     'loadMappingDeviceRouteAreas(this.closest(\'.page\'))',
     'loadMappingDeviceRouteChannels(this.closest(\'.page\'))',
     'upsertMappingDeviceRoute(this.closest(\'.page\'))',
@@ -1037,8 +1039,11 @@ for (const [functionName, markers] of [
     ["registerBridge", ["_hueRegistrationPreflight", "isPageLifecycleCurrent", "isCurrentRegistrationTarget"]],
     ["registerMappingBridge", [
         "_hueMappingRegistrationPreflight",
+        "getMappingRegistrationTarget(page)",
         "var preflight = { page: page, generation: pageGeneration, canceled: false }",
         "request._hueMappingRegistrationPage = page",
+        "rememberMappingDeviceRouteCredentials",
+        "loadMappingDeviceRouteAreas(page)",
         "isPageLifecycleCurrent",
         "isCurrentRegistrationTarget"
     ]]
@@ -1967,6 +1972,27 @@ for (const contract of [
         !functionBody.includes("if (!isCurrent()) return;") ||
         !functionBody.includes("HueConfigurationPage.loadSceneSchedules(page)")) {
         throw new Error(`${file} ${functionName} must fail closed until import preflight succeeds and its page remains current`);
+    }
+}
+
+{
+    const functionName = "applyConfigurationImportCredentials";
+    const start = scriptMatch[1].indexOf(`\n                ${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "writeConfigurationValue(configuration, 'HueAppKey', globalAppValue);",
+        "writeConfigurationValue(configuration, 'HueClientKey', globalClientValue);",
+        "writeConfigurationValue(mappings[index], 'HueAppKey', value);",
+        "writeConfigurationValue(mappings[index], 'HueClientKey', value);",
+        "if (!replacement && value)",
+        "if (!replacement) return;",
+        "writeConfigurationValue(replacement, 'HueAppKey', value);",
+        "writeConfigurationValue(replacement, 'HueClientKey', value);"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} must rebuild blank replacement fields instead of retaining prior credentials: ${marker}`);
+        }
     }
 }
 
