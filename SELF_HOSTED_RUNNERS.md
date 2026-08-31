@@ -7,17 +7,27 @@ separate build state from release authority.
 | Purpose | Runner label | Service account | Writable state |
 | --- | --- | --- | --- |
 | Build, tests, formatting, package audit, Gitleaks, Semgrep, packaging, Linux release-helper validation | `harmonizeproject-jellyfin` | `harmonize-runner` | `/var/lib/harmonize-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache |
+| Disposable Jellyfin runtime smoke verification for the canonical ZIP (provisioned and online on the Jellyfin host) | `harmonizeproject-jellyfin-runtime` | `harmonize-runtime-runner` | `/var/lib/harmonize-runtime-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache/rootless-Docker state |
 | GitHub Release publication only | `harmonizeproject-jellyfin-release` | `harmonize-release-runner` | `/var/lib/harmonize-release-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache |
 | Dependabot update jobs | `dependabot` (with GitHub's default `self-hosted`, `Linux`, and `X64` labels) | `harmonize-dependabot-runner` | `/var/lib/harmonize-dependabot-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache/rootless-Docker state |
 
-All three identities are locked system users with `nologin`, no sudo, privileged Docker
-access, LXD, or supplementary groups, and no access to the interactive user's home or
+All four identities are locked system users with `nologin`, no sudo, no privileged Docker
+access, no LXD access, and no supplementary groups, and no access to the interactive user's home or
 GitHub CLI credentials. The build and release identities have no Docker daemon or socket
-access; only the isolated Dependabot identity uses the rootless socket described below.
+access. The runtime-smoke and Dependabot identities use separate rootless Docker sockets
+with dedicated writable state; neither socket is exposed to the build or release runners.
 Their root-owned runner installations are read-only inside systemd;
 credentials are `0440` and work/home/cache directories are `0700`. The services use
 `ProtectSystem=strict`, `ProtectHome`, private devices and temporary directories,
 namespace and SUID/SGID restrictions, an empty capability set, and bounded resources.
+
+The runtime-smoke identity is intentionally separate because the trusted workflow now
+boots the published `jellyfin-plugin-hue-release.zip` inside an official pinned Jellyfin
+container before publication. Provision it only with the minimum rootless-Docker access
+required to pull `jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123`
+and run a bounded disposable container on localhost. Keep its runner installation
+root-owned and read-only, bind only its own socket into the service, and keep it isolated
+from the release runner's GitHub credentials.
 
 The Dependabot identity is intentionally separate because Dependabot update jobs execute
 untrusted package-manager and build code. Its runner installation is also root-owned and
@@ -40,8 +50,8 @@ and scheduled security workflows expose no pull-request or non-main push trigger
 job has a `github.ref == 'refs/heads/main'` guard as defense in depth. Pull-request and non-main code
 must not be routed to any persistent identity. The release label is reserved for the single
 `contents:write` job. Every job also has a bounded `timeout-minutes` budget (20 minutes for
-build/test, 15 minutes for quality, security, and packaging, and 10 minutes for release
-publication; 20 minutes for the Linux release-helper validation) so a stalled network operation or tool cannot
+build/test, runtime smoke, and the Linux release-helper validation; 15 minutes for quality,
+security, and packaging; and 10 minutes for release publication) so a stalled network operation or tool cannot
 hold a persistent runner forever.
 
 The blocking security workflow uses an event-scoped concurrency key:
@@ -117,7 +127,7 @@ This keeps the runner-boundary invariant enforceable when workflows change.
 ## Version maintenance
 
 Automatic in-place updates are disabled because the application directories are
-root-owned. `harmonize-runner-version-check.timer` checks all three installed versions against
+root-owned. `harmonize-runner-version-check.timer` checks every installed runner version against
 the latest official `actions/runner` release every day. A mismatch leaves the oneshot
 service failed and records every installed version in the system journal:
 
@@ -127,11 +137,11 @@ journalctl -u harmonize-runner-version-check.service
 systemctl list-timers harmonize-runner-version-check.timer
 ```
 
-Before GitHub's 30-day update deadline, an administrator must confirm all three runners are
+Before GitHub's 30-day update deadline, an administrator must confirm every installed runner is
 idle, download the official Linux x64 archive, verify the SHA-256 digest published by the
-GitHub Releases API, stop all three services, extract the verified archive over each
+GitHub Releases API, stop every runner service, extract the verified archive over each
 installation without replacing `.runner` or `.credentials*`, restore the documented
-ownership/modes, and restart and re-verify all three services. Never place a registration,
+ownership/modes, and restart and re-verify each service. Never place a registration,
 removal, repository, or personal access token in this repository or a command transcript.
 
 ## Verification
@@ -141,12 +151,19 @@ labels, and live workflow execution:
 
 ```bash
 systemctl is-enabled actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin.service
+systemctl is-enabled actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-runtime.service
 systemctl is-enabled actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-release.service
 systemctl is-enabled actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-dependabot.service
 systemd-analyze security actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin.service
+systemd-analyze security actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-runtime.service
 systemd-analyze security actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-release.service
 systemd-analyze security actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-dependabot.service
 gh api repos/AnalyticETH/HarmonizeProject-Jellyfin/actions/runners
+sudo -u harmonize-runtime-runner env \
+  HOME=/var/lib/harmonize-runtime-runner/home \
+  XDG_RUNTIME_DIR=/run/user/RUNTIME_UID \
+  DOCKER_HOST=unix:///run/user/RUNTIME_UID/docker.sock \
+  docker info
 sudo -u harmonize-dependabot-runner env \
   HOME=/var/lib/harmonize-dependabot-runner/home \
   XDG_RUNTIME_DIR=/run/user/980 \

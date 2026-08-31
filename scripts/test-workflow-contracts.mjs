@@ -212,7 +212,7 @@ runNegativeFixture(
     ),
   ),
   ["inventory", "trusted"],
-  /must use runner/,
+  /must use runner|missing trusted-workflow marker/,
 );
 
 runNegativeFixture(
@@ -226,7 +226,21 @@ runNegativeFixture(
     ),
   ),
   ["inventory", "trusted"],
-  /must use runner/,
+  /must use runner|missing trusted-workflow marker/,
+);
+
+runNegativeFixture(
+  "dotnet-ci.yml",
+  fixtureRoot => mutateWorkflow(
+    fixtureRoot,
+    "dotnet-ci.yml",
+    workflow => workflow.replace(
+      'runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-runtime"]',
+      'runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]',
+    ),
+  ),
+  ["inventory", "trusted"],
+  /must use runner|missing trusted-workflow marker/,
 );
 
 console.log("Workflow security contract negative tests passed");

@@ -6788,6 +6788,28 @@ public sealed class HueSceneAutomationServiceTests
         Assert.DoesNotContain("global-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("mapping-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("device-app-secret", serialized, StringComparison.Ordinal);
+
+        configuration.ScenePlaylists[0].TargetRoutes = new List<HueSceneScheduleTargetRoute>
+        {
+            new() { UserId = " user-device ", DeviceId = " device-panel " }
+        };
+        streamTester.Invocations.Clear();
+        var savedRouteResult = await service.RunPlaylistPreviewAsync(configuration.ScenePlaylists[0]);
+
+        Assert.True(savedRouteResult.Succeeded);
+        Assert.Equal(("192.168.1.102", "device-app-secret", "device-client-secret", "device-area"),
+            Assert.Single(streamTester.Invocations));
+        var savedRoute = Assert.Single(savedRouteResult.TargetRoutes);
+        Assert.Equal("user-device", savedRoute.UserId);
+        Assert.Equal("device-panel", savedRoute.DeviceId);
+
+        configuration.UserMappings[0].DeviceTargets.Clear();
+        streamTester.Invocations.Clear();
+        var unavailableRouteResult = await service.RunPlaylistPreviewAsync(configuration.ScenePlaylists[0]);
+
+        Assert.False(unavailableRouteResult.Succeeded);
+        Assert.Contains("device route that does not exist", unavailableRouteResult.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(streamTester.Invocations);
     }
 
     [Fact]

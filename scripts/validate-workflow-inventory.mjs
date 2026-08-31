@@ -9,6 +9,7 @@ const expectedWorkflows = new Set([
   "security-scan.yml",
 ]);
 const trustedBuildRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]';
+const trustedRuntimeRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-runtime"]';
 const trustedReleaseRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]';
 const allowedActionRepositories = new Set([
   "actions/checkout",
@@ -237,7 +238,9 @@ for (const name of workflowFiles) {
     if (name === "dotnet-ci.yml" && !isReusableWorkflowJob(job)) {
       const expectedRunner = job.name === "create-github-release"
         ? trustedReleaseRunner
-        : trustedBuildRunner;
+        : job.name === "runtime-smoke"
+          ? trustedRuntimeRunner
+          : trustedBuildRunner;
       if (runsOnValues.length !== 1 || runsOnValues[0] !== expectedRunner) {
         throw new Error(`${name} job ${job.name} must use runner ${expectedRunner}`);
       }

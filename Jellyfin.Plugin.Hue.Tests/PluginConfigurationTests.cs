@@ -1028,6 +1028,93 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void ValidateScenePlaylists_AllowsPersistedDeviceRoutesAndRejectsUnavailableOrDuplicateRoutes()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new() { DeviceId = "Living-Room-TV", HueBridgeIp = "192.168.1.101", HueAppKey = "upper-app", HueClientKey = "upper-client", EntertainmentAreaId = "upper-area" },
+                        new() { DeviceId = "living-room-tv", HueBridgeIp = "192.168.1.102", HueAppKey = "lower-app", HueClientKey = "lower-client", EntertainmentAreaId = "lower-area" }
+                    }
+                },
+                new() { UserId = "disabled-user", SyncEnabled = false }
+            },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Id = "device-playlist",
+                    Name = "Device playlist",
+                    PresetNames = new List<string> { "Welcome" },
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = " USER-1 ", DeviceId = " Living-Room-TV " },
+                        new() { UserId = "user-1", DeviceId = "living-room-tv" }
+                    }
+                }
+            }
+        };
+
+        Assert.Empty(config.ValidateScenePlaylists());
+
+        config.ScenePlaylists[0].TargetRoutes.Add(
+            new HueSceneScheduleTargetRoute { UserId = "user-1", DeviceId = "Living-Room-TV" });
+        Assert.Contains(config.ValidateScenePlaylists(), error =>
+            error.Contains("selects device route user-1/Living-Room-TV more than once", StringComparison.Ordinal));
+
+        config.ScenePlaylists[0].TargetRoutes = new List<HueSceneScheduleTargetRoute>
+        {
+            new() { UserId = "user-1", DeviceId = "missing-device" }
+        };
+        Assert.Contains(config.ValidateScenePlaylists(), error =>
+            error.Contains("device route that does not exist", StringComparison.Ordinal));
+
+        config.ScenePlaylists[0].TargetRoutes = new List<HueSceneScheduleTargetRoute>
+        {
+            new() { UserId = "disabled-user", DeviceId = "Living-Room-TV" }
+        };
+        Assert.Contains(config.ValidateScenePlaylists(), error =>
+            error.Contains("disabled device-route user mapping", StringComparison.Ordinal));
+
+        config.ScenePlaylists[0].TargetRoutes = new List<HueSceneScheduleTargetRoute>
+        {
+            new() { UserId = "user-1", DeviceId = "Living-Room-TV" }
+        };
+        config.UserMappings[0].DeviceTargets[0].HueClientKey = string.Empty;
+        Assert.Contains(config.ValidateScenePlaylists(), error =>
+            error.Contains("requires a Hue Client Key", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ValidateScenePlaylists_RejectsNullPersistedDeviceRoute()
+    {
+        var config = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Name = "Malformed playlist",
+                    PresetNames = new List<string> { "Welcome" },
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute> { null! }
+                }
+            }
+        };
+
+        Assert.Contains(config.ValidateScenePlaylists(), error =>
+            error.Contains("selected device route 1 requires both a user mapping ID and device ID", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateColorPresets_RejectsTooManyScenes()
     {
         var config = new PluginConfiguration

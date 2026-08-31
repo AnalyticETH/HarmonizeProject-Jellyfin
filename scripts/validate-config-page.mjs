@@ -910,6 +910,28 @@ for (const forbidden of [
     if (!scopeBody.includes("document.querySelector('#mappingDiscoverDevicesBtn').addEventListener")) {
         throw new Error(`${file} mapping controls must remain inside the page-scoped listener registration block`);
     }
+    if (!scopeBody.includes('HueConfigurationPage.bindSectionNavigation(sectionNavigationPage);')) {
+        throw new Error(`${file} section navigation must bind against the current page-scoped root`);
+    }
+    const sectionNavigationStart = scriptMatch[1].indexOf("bindSectionNavigation: function (page)");
+    const sectionNavigationEnd = scriptMatch[1].indexOf("\n                },", sectionNavigationStart);
+    const sectionNavigationBody = sectionNavigationStart >= 0 && sectionNavigationEnd > sectionNavigationStart
+        ? scriptMatch[1].slice(sectionNavigationStart, sectionNavigationEnd)
+        : "";
+    for (const marker of [
+        "var sectionNav = page.querySelector('#configurationSectionNav')",
+        "page.querySelector('#' + targetId)",
+        "target.focus({ preventScroll: true })",
+        "target.scrollIntoView({ behavior: 'smooth', block: 'start' })"
+    ]) {
+        if (!sectionNavigationBody.includes(marker)) {
+            throw new Error(`${file} section navigation is missing page-scoped focus/scroll behavior: ${marker}`);
+        }
+    }
+    if (!scopeBody.includes("sectionNavigationPage.querySelector('#configurationSectionNav')") ||
+        !scopeBody.includes("sectionNavigation.closest('.pluginConfigurationPage')")) {
+        throw new Error(`${file} section navigation registration must resolve its owning configuration page`);
+    }
 }
 
 {
@@ -2153,6 +2175,8 @@ for (const [functionName, markers] of [
         "var playlists = Array.isArray(responses[0]) ? responses[0] : null;",
         "if (!Array.isArray(playlists) || !Array.isArray(presets) || !Array.isArray(mappings) ||",
         "!HueConfigurationPage.isSceneScheduleMappingMetadataValid(mappings)",
+        "page._hueScenePlaylistMappings = mappings",
+        "page._hueScenePlaylistUnavailableTargetRoutes = []",
         "var deviceReady = HueConfigurationPage.isConfiguredDeviceRouteReady(deviceTarget)",
         "deviceOption.disabled = !enabled || !deviceReady",
         "(deviceReady ? \"\" : \" (unavailable)\")"
@@ -2164,6 +2188,35 @@ for (const [functionName, markers] of [
     for (const marker of markers) {
         if (!functionBody.includes(marker)) {
             throw new Error(`${file} ${functionName} is missing fail-closed preview target metadata contract: ${marker}`);
+        }
+    }
+}
+
+for (const [functionName, markers] of [
+    ["applyScenePlaylist", [
+        "playlist.targetRoutes !== undefined ? playlist.targetRoutes : (playlist.TargetRoutes || [])",
+        "HueConfigurationPage.isScenePlaylistDeviceRouteAvailable(page, route)",
+        "page._hueScenePlaylistUnavailableTargetRoutes = unavailableTargetRoutes",
+        "This playlist references an unavailable or disabled device route."
+    ]],
+    ["getScenePlaylistTargetSelection", [
+        "HueConfigurationPage.parseCurrentLightDeviceTarget(value)",
+        "HueConfigurationPage.isScenePlaylistDeviceRouteAvailable(page, normalizedRoute)",
+        "page._hueScenePlaylistUnavailableTargetRoutes",
+        "targetRoutes: all ? [] : targetRoutes",
+        "valid: !error"
+    ]],
+    ["saveScenePlaylist", [
+        "if (!targetSelection.valid)",
+        "targetRoutes: targetSelection.targetRoutes"
+    ]]
+]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of markers) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} is missing saved-playlist device-route contract: ${marker}`);
         }
     }
 }

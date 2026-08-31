@@ -2527,12 +2527,24 @@ public sealed class HueSceneAutomationService : BackgroundService
         string? scheduleId = null)
     {
         var normalizedTargetRoutesOverride = NormalizeTargetRoutes(targetRoutesOverride);
+        var savedTargetRoutes = GetPlaylistTargetRoutes(playlist);
+        var normalizedTargetUserIdsOverride = targetUserIdsOverride?
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(PluginConfiguration.NormalizeJellyfinUserId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var hasTargetOverride = includeDefaultTargetOverride ||
+            (normalizedTargetUserIdsOverride?.Count > 0) ||
+            normalizedTargetRoutesOverride.Count > 0;
+        var effectiveTargetRoutes = hasTargetOverride
+            ? normalizedTargetRoutesOverride
+            : savedTargetRoutes;
         var config = Plugin.Instance?.Configuration;
         if (config == null && (resolvedTargetsOverride == null || resolvedPresetsOverride == null))
-            return PlaylistFailure(playlist, "Scene playlist configuration is unavailable.", normalizedTargetRoutesOverride);
+            return PlaylistFailure(playlist, "Scene playlist configuration is unavailable.", effectiveTargetRoutes);
 
         if (playlist == null)
-            return PlaylistFailure(null, "The scene playlist is unavailable.", normalizedTargetRoutesOverride);
+            return PlaylistFailure(null, "The scene playlist is unavailable.", effectiveTargetRoutes);
 
         IReadOnlyList<HueColorPreset> resolvedPresets;
         if (resolvedPresetsOverride != null)
@@ -2543,7 +2555,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 return PlaylistFailure(
                     playlist,
                     string.Join(" ", detachedValidationErrors),
-                    normalizedTargetRoutesOverride);
+                    effectiveTargetRoutes);
             }
 
             resolvedPresets = resolvedPresetsOverride.ToArray();
@@ -2552,7 +2564,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         {
             var validationErrors = PluginConfiguration.ValidateScenePlaylist(playlist, config!);
             if (validationErrors.Count > 0)
-                return PlaylistFailure(playlist, string.Join(" ", validationErrors), normalizedTargetRoutesOverride);
+                return PlaylistFailure(playlist, string.Join(" ", validationErrors), effectiveTargetRoutes);
 
             var presets = (playlist.PresetNames ?? new List<string>())
                 .Select(name => config!.ColorPresets?.FirstOrDefault(candidate =>
@@ -2563,18 +2575,10 @@ public sealed class HueSceneAutomationService : BackgroundService
                 return PlaylistFailure(
                     playlist,
                     "The scene playlist references a saved scene that no longer exists.",
-                    normalizedTargetRoutesOverride);
+                    effectiveTargetRoutes);
             resolvedPresets = presets.Select(preset => preset!).ToArray();
         }
 
-        var normalizedTargetUserIdsOverride = targetUserIdsOverride?
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Select(PluginConfiguration.NormalizeJellyfinUserId)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        var hasTargetOverride = includeDefaultTargetOverride ||
-            (normalizedTargetUserIdsOverride?.Count > 0) ||
-            normalizedTargetRoutesOverride.Count > 0;
         var effectiveTargetUserIds = hasTargetOverride
             ? normalizedTargetUserIdsOverride ?? new List<string>()
             : (playlist.TargetUserIds ?? new List<string>())
@@ -2588,13 +2592,19 @@ public sealed class HueSceneAutomationService : BackgroundService
             Id = scheduleId?.Trim() ?? "scene-playlist-preview",
             Name = playlist.Name?.Trim() ?? string.Empty,
             PresetName = resolvedPresets[0].Name?.Trim() ?? string.Empty,
-            TargetUserId = hasTargetOverride || effectiveIncludeDefaultTarget || effectiveTargetUserIds.Count > 0
+            TargetUserId = hasTargetOverride || effectiveIncludeDefaultTarget || effectiveTargetUserIds.Count > 0 || effectiveTargetRoutes.Count > 0
                 ? string.Empty
                 : playlist.TargetAllEnabledMappings ? string.Empty : PluginConfiguration.NormalizeJellyfinUserId(playlist.TargetUserId),
             TargetUserIds = effectiveTargetUserIds,
+            TargetRoutes = effectiveTargetRoutes.Select(route => new HueSceneScheduleTargetRoute
+            {
+                UserId = route.UserId,
+                DeviceId = route.DeviceId ?? string.Empty
+            }).ToList(),
             IncludeDefaultTarget = effectiveIncludeDefaultTarget,
             TargetAllEnabledMappings = !hasTargetOverride && !effectiveIncludeDefaultTarget &&
                 effectiveTargetUserIds.Count == 0 &&
+                effectiveTargetRoutes.Count == 0 &&
                 playlist.TargetAllEnabledMappings
         };
         IReadOnlyList<HueSceneAutomationTargetDescription> resolvedTargets;
@@ -2608,7 +2618,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 return PlaylistFailure(
                     playlist,
                     "The playlist target snapshot is unavailable.",
-                    normalizedTargetRoutesOverride);
+                    effectiveTargetRoutes);
             }
         }
         else if (!TryResolveTargets(
@@ -2616,9 +2626,9 @@ public sealed class HueSceneAutomationService : BackgroundService
                      targetSchedule,
                      out resolvedTargets,
                      out var targetError,
-                     normalizedTargetRoutesOverride))
+                     effectiveTargetRoutes))
         {
-            return PlaylistFailure(playlist, targetError, normalizedTargetRoutesOverride);
+            return PlaylistFailure(playlist, targetError, effectiveTargetRoutes);
         }
 
         var repeatCount = Math.Clamp(
@@ -2638,7 +2648,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 config,
                 playlist,
                 targetSchedule,
-                normalizedTargetRoutesOverride,
+                effectiveTargetRoutes,
                 resolvedTargets,
                 resolvedPresets,
                 plannedSteps,
@@ -2687,7 +2697,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 plannedStep.Green,
                 plannedStep.Blue,
                 plannedStep.Effect,
-                normalizedTargetRoutesOverride,
+                effectiveTargetRoutes,
                 resolvedTargetsOverride: resolvedTargets,
                 durableCleanup: durableCleanup).ConfigureAwait(false);
             steps.Add(new HueScenePlaylistStepResult
@@ -2765,12 +2775,12 @@ public sealed class HueSceneAutomationService : BackgroundService
             PlaylistName = playlist.Name?.Trim() ?? string.Empty,
             RepeatCount = repeatCount,
             PlaybackOrder = playbackOrder,
-            TargetLabel = ResolveTargetLabel(config, targetSchedule, normalizedTargetRoutesOverride, resolvedTargets),
+            TargetLabel = ResolveTargetLabel(config, targetSchedule, effectiveTargetRoutes, resolvedTargets),
             TargetAllEnabledMappings = targetSchedule.TargetAllEnabledMappings,
             TargetUserIds = targetSchedule.TargetUserIds?.Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(PluginConfiguration.NormalizeJellyfinUserId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 ?? Array.Empty<string>(),
-            TargetRoutes = normalizedTargetRoutesOverride,
+            TargetRoutes = effectiveTargetRoutes,
             IncludeDefaultTarget = targetSchedule.IncludeDefaultTarget,
             Succeeded = steps.Count == totalStepCount && succeededCount == totalStepCount,
             Message = message,
@@ -4253,6 +4263,19 @@ public sealed class HueSceneAutomationService : BackgroundService
     private static IReadOnlyList<HueSceneAutomationTargetRoute> GetScheduleTargetRoutes(HueSceneSchedule? schedule)
     {
         return schedule?.TargetRoutes?
+            .Select(route => route == null
+                ? new HueSceneAutomationTargetRoute()
+                : new HueSceneAutomationTargetRoute
+                {
+                    UserId = PluginConfiguration.NormalizeJellyfinUserId(route.UserId),
+                    DeviceId = string.IsNullOrWhiteSpace(route.DeviceId) ? null : route.DeviceId.Trim()
+                })
+            .ToArray() ?? Array.Empty<HueSceneAutomationTargetRoute>();
+    }
+
+    private static IReadOnlyList<HueSceneAutomationTargetRoute> GetPlaylistTargetRoutes(HueScenePlaylist? playlist)
+    {
+        return playlist?.TargetRoutes?
             .Select(route => route == null
                 ? new HueSceneAutomationTargetRoute()
                 : new HueSceneAutomationTargetRoute

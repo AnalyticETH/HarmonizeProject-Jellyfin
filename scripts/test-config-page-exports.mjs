@@ -462,6 +462,64 @@ function testMappingDeviceDiscoveryPageOwnershipContract() {
     );
 }
 
+function makeRetainedSectionNavigationPage() {
+    const target = makeElement("fieldset");
+    const link = makeElement("a");
+    const sectionNav = makeElement("nav");
+    link.setAttribute("href", "#runtimeStatusSection");
+    sectionNav.querySelectorAll = selector => selector === 'a[href^="#"]' ? [link] : [];
+    return {
+        target,
+        link,
+        querySelector(selector) {
+            if (selector === "#configurationSectionNav") return sectionNav;
+            if (selector === "#runtimeStatusSection") return target;
+            return null;
+        }
+    };
+}
+
+function testSectionNavigationRetainedPageScope() {
+    const harness = makeHarness();
+    const { api } = harness;
+    const hiddenPage = makeRetainedSectionNavigationPage();
+    const visiblePage = makeRetainedSectionNavigationPage();
+    let hiddenFocusCount = 0;
+    let hiddenScrollCount = 0;
+    let visibleFocusCount = 0;
+    let visibleScrollCount = 0;
+    let visibleFocusOptions;
+    let visibleScrollOptions;
+    hiddenPage.target.focus = () => { hiddenFocusCount += 1; };
+    hiddenPage.target.scrollIntoView = () => { hiddenScrollCount += 1; };
+    visiblePage.target.focus = options => {
+        visibleFocusCount += 1;
+        visibleFocusOptions = options;
+    };
+    visiblePage.target.scrollIntoView = options => {
+        visibleScrollCount += 1;
+        visibleScrollOptions = options;
+    };
+
+    api.bindSectionNavigation(hiddenPage);
+    api.bindSectionNavigation(visiblePage);
+    let prevented = false;
+    visiblePage.link.listeners.click({
+        preventDefault() {
+            prevented = true;
+        }
+    });
+
+    assert.equal(prevented, true, "section navigation prevents the browser's global fragment lookup");
+    assert.equal(hiddenFocusCount, 0, "a retained hidden page's matching section is not focused");
+    assert.equal(hiddenScrollCount, 0, "a retained hidden page's matching section is not scrolled");
+    assert.equal(visibleFocusCount, 1, "the clicked page's section receives focus");
+    assert.equal(visibleFocusOptions.preventScroll, true, "section focus avoids a duplicate native jump");
+    assert.equal(visibleScrollCount, 1, "the clicked page's section is scrolled into view");
+    assert.equal(visibleScrollOptions.behavior, "smooth", "section navigation uses smooth scrolling");
+    assert.equal(visibleScrollOptions.block, "start", "section navigation aligns the target at the top");
+}
+
 function assertExportPayload(testCase, download) {
     assert.equal(download.fileName, testCase.fileName, `${testCase.method} file name`);
     assert.ok(download.blob, `${testCase.method} creates a blob`);
@@ -4521,9 +4579,12 @@ async function testColorPresetDependenciesLifecycleGuards() {
 function configureScenePlaylistSaveHarness(harness) {
     const { page, api } = harness;
     api.getScenePlaylistTargetSelection = () => ({
+        valid: true,
+        error: "",
         targetAllEnabledMappings: false,
         includeDefaultTarget: false,
         targetUserIds: [],
+        targetRoutes: [],
         targetUserId: ""
     });
     page._hueScenePlaylistId = "playlist-1";
@@ -4546,6 +4607,15 @@ async function testScenePlaylistSaveLifecycleGuards() {
     const staleState = configureScenePlaylistSaveHarness(staleHarness);
     const stalePage = staleHarness.page;
     const staleApi = staleHarness.api;
+    staleApi.getScenePlaylistTargetSelection = () => ({
+        valid: true,
+        error: "",
+        targetAllEnabledMappings: false,
+        includeDefaultTarget: false,
+        targetUserIds: [],
+        targetRoutes: [{ userId: "user-device", deviceId: "Living-Room-TV" }],
+        targetUserId: ""
+    });
     staleApi.loadScenePlaylists = () => {
         staleState.playlistLoads += 1;
         return Promise.resolve();
@@ -4563,6 +4633,11 @@ async function testScenePlaylistSaveLifecycleGuards() {
     assert.equal(staleHarness.requests.length, 1, "scene playlist save starts one request");
     assert.equal(staleHarness.requests[0].options.type, "POST", "scene playlist save uses POST");
     assert.equal(staleHarness.requests[0].options.url, "HueSync/ScenePlaylists", "scene playlist save targets the playlist endpoint");
+    assert.deepEqual(
+        JSON.parse(staleHarness.requests[0].options.data).targetRoutes,
+        [{ userId: "user-device", deviceId: "Living-Room-TV" }],
+        "scene playlist save carries the exact credential-free device route"
+    );
     assert.equal(stalePage._hueScenePlaylistSaving, true, "scene playlist save marks itself busy");
     assert.equal(staleState.button.disabled, true, "scene playlist save disables its button");
     assert.ok(stalePage._huePageRequests.scenePlaylistSave, "scene playlist save is tracked by the page lifecycle");
@@ -4611,6 +4686,46 @@ async function testScenePlaylistSaveLifecycleGuards() {
     assert.equal(currentPage._hueScenePlaylistSaving, false, "current scene playlist save clears busy state");
     assert.equal(currentState.button.disabled, false, "current scene playlist save re-enables its button");
     assert.equal(currentState.buttonUpdates, 1, "current scene playlist save refreshes current-page controls");
+}
+
+function testScenePlaylistSavedDeviceRouteSelection() {
+    const harness = makeHarness();
+    const { page, api } = harness;
+    const select = page.querySelector("#scenePlaylistTarget");
+    const encodedRoute = api.encodeCurrentLightDeviceTarget("user-device", "Living-Room-TV");
+    const routeOption = { value: encodedRoute, selected: true, disabled: false };
+    select.options = [routeOption];
+    select.selectedOptions = [routeOption];
+    page._hueScenePlaylistMappings = [
+        {
+            userId: "user-device",
+            syncEnabled: true,
+            deviceTargets: [
+                {
+                    deviceId: "Living-Room-TV",
+                    hueBridgeIp: "192.168.1.102",
+                    entertainmentAreaId: "device-area",
+                    hasAppKey: true,
+                    hasClientKey: true
+                }
+            ]
+        }
+    ];
+    page._hueScenePlaylistUnavailableTargetRoutes = [];
+
+    const selection = api.getScenePlaylistTargetSelection(page);
+    assert.equal(selection.valid, true, "available saved-playlist device route is valid");
+    assert.equal(selection.targetRoutes.length, 1, "saved-playlist selection emits one device route");
+    assert.equal(selection.targetRoutes[0].userId, "user-device", "saved-playlist route preserves its user mapping ID");
+    assert.equal(selection.targetRoutes[0].deviceId, "Living-Room-TV", "saved-playlist route preserves the case-sensitive device ID");
+    assert.equal(selection.targetUserId, "", "device-route selection does not emit a legacy user target");
+
+    page._hueScenePlaylistUnavailableTargetRoutes = [
+        { userId: "user-device", deviceId: "Removed-TV" }
+    ];
+    const unavailable = api.getScenePlaylistTargetSelection(page);
+    assert.equal(unavailable.valid, false, "unavailable persisted playlist route fails closed");
+    assert.match(unavailable.error, /unavailable or disabled/i, "unavailable persisted playlist route explains the save blocker");
 }
 
 function configureScenePlaylistDeleteHarness(harness) {
@@ -5017,9 +5132,12 @@ function scenePlaylistDirectMutationControlSelectors() {
 function configureScenePlaylistMutationHarness(harness, operation) {
     const { page, api } = harness;
     api.getScenePlaylistTargetSelection = () => ({
+        valid: true,
+        error: "",
         targetAllEnabledMappings: false,
         includeDefaultTarget: false,
         targetUserIds: [],
+        targetRoutes: [],
         targetUserId: ""
     });
     const select = page.querySelector("#scenePlaylistSelect");
@@ -6915,6 +7033,7 @@ for (const testCase of exportCases) {
 }
 
 testMappingDeviceDiscoveryPageOwnershipContract();
+testSectionNavigationRetainedPageScope();
 await testEditMappingLifecycleGuards();
 await testRetainedMappingPageStateIsolation();
 await testUserMappingSaveLifecycleGuards();
@@ -6958,6 +7077,7 @@ await testColorPresetBulkErrorDetailsAndRetry();
 await testColorPresetRenameLifecycleGuards();
 await testColorPresetDependenciesLifecycleGuards();
 await testScenePlaylistSaveLifecycleGuards();
+testScenePlaylistSavedDeviceRouteSelection();
 await testScenePlaylistDeleteLifecycleGuards();
 await testScenePlaylistIndividualMutationLifecycleGuards();
 await testScenePlaylistDependenciesLifecycleGuards();

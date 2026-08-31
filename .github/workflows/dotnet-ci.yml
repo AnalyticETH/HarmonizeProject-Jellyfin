@@ -17,6 +17,8 @@ concurrency:
 env:
   DOTNET_VERSION: '8.0.424'
   BUILD_CONFIGURATION: 'Release'
+  # Official Jellyfin 10.10.7 linux/amd64 image manifest digest.
+  JELLYFIN_RUNTIME_IMAGE: 'jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123'
   # The self-hosted runner uses the dedicated, least-privileged
   # `harmonize-runner` service account.
   DOTNET_INSTALL_DIR: /var/lib/harmonize-runner/home/.dotnet
@@ -414,11 +416,46 @@ jobs:
         cmp -s "$HELPER_MANIFEST" "$CANONICAL_PACKAGE_DIR/jellyfin-plugin-hue-release.manifest.json"
         echo "Linux release helper produced a verified ${VERSION} package and matching release manifest."
 
+  runtime-smoke:
+    name: Runtime Smoke
+    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-runtime"]
+    needs: create-release-package
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+
+    - name: Validate workflow inventory and runner boundaries
+      run: node scripts/validate-workflow-inventory.mjs
+
+    - name: Validate deterministic release package
+      run: node scripts/validate-release-package.mjs
+
+    - name: Download canonical release package
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        name: release-package
+        path: ${{ runner.temp }}/trusted-runtime-smoke
+
+    - name: Verify Jellyfin runtime smoke gate
+      run: |
+        set -euo pipefail
+        python3 scripts/verify-jellyfin-runtime-smoke.py \
+          --archive "$RUNNER_TEMP/trusted-runtime-smoke/jellyfin-plugin-hue-release.zip" \
+          --image "$JELLYFIN_RUNTIME_IMAGE" \
+          --startup-timeout-seconds 150 \
+          --http-timeout-seconds 3 \
+          --poll-interval-seconds 2
+
   create-github-release:
     name: Create GitHub Release
     # Keep the contents:write token off the persistent build/test identity.
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]
-    needs: [create-release-package, validate-release-helper]
+    needs: [create-release-package, validate-release-helper, runtime-smoke]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 10
     permissions:

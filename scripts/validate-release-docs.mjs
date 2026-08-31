@@ -8,6 +8,7 @@ const releasePowerShell = fs.readFileSync("build-release.ps1", "utf8");
 const releasePackager = fs.readFileSync("scripts/create-deterministic-release-zip.py", "utf8");
 const releaseManifest = fs.readFileSync("scripts/create-release-manifest.py", "utf8");
 const releasePackageValidator = fs.readFileSync("scripts/validate-release-package.mjs", "utf8");
+const runtimeSmokeVerifier = fs.readFileSync("scripts/verify-jellyfin-runtime-smoke.py", "utf8");
 const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
 const meta = JSON.parse(fs.readFileSync("meta.json", "utf8"));
 
@@ -101,6 +102,12 @@ const requiredWorkflowMarkers = [
   "--output jellyfin-plugin-hue-release.manifest.json",
   "path: ${{ runner.temp }}/trusted-release-package",
   "CANONICAL_PACKAGE_DIR=\"$RUNNER_TEMP/trusted-release-package\"",
+  "# Official Jellyfin 10.10.7 linux/amd64 image manifest digest.",
+  "JELLYFIN_RUNTIME_IMAGE: 'jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123'",
+  "runtime-smoke:",
+  "path: ${{ runner.temp }}/trusted-runtime-smoke",
+  "scripts/verify-jellyfin-runtime-smoke.py",
+  "--archive \"$RUNNER_TEMP/trusted-runtime-smoke/jellyfin-plugin-hue-release.zip\"",
   '"BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "',
 ];
 
@@ -199,12 +206,39 @@ for (const marker of requiredPackagerMarkers) {
 for (const marker of [
   "create-deterministic-release-zip.py",
   "create-release-manifest.py",
+  "verify-jellyfin-runtime-smoke.py",
   "--self-test",
   "Release package determinism contract passed",
   "Release manifest determinism contract passed",
+  "Jellyfin runtime smoke contract passed",
 ]) {
   if (!releasePackageValidator.includes(marker)) {
     throw new Error(`Release package validator is missing marker: ${marker}`);
+  }
+}
+
+for (const marker of [
+  "EXPECTED_ARCHIVE_ENTRIES = (",
+  '# Official Jellyfin 10.10.7 linux/amd64 image manifest digest.',
+  'DEFAULT_IMAGE = "jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123"',
+  "RUNTIME_MANIFEST_MODE = 0o666",
+  'REQUIRED_LOG_MARKERS = (',
+  'FORBIDDEN_LOG_MARKERS = (',
+  '"Loaded plugin: Philips Hue Sync"',
+  '"Plugin /config/plugins/HueSync has been disabled"',
+  "docker\", \"run\", \"-d\"",
+  "\"--read-only\"",
+  "\"--cap-drop=ALL\"",
+  "\"--security-opt\", \"no-new-privileges\"",
+  "\"--user\", \"1000:1000\"",
+  "fetch_health(",
+  "wait_for_runtime(",
+  "cleanup_container(",
+  "def run_self_test()",
+  "Jellyfin runtime smoke verifier self-test passed",
+]) {
+  if (!runtimeSmokeVerifier.includes(marker)) {
+    throw new Error(`Runtime smoke verifier is missing contract marker: ${marker}`);
   }
 }
 

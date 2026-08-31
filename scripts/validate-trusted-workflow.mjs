@@ -4,6 +4,7 @@ const ciPath = ".github/workflows/dotnet-ci.yml";
 const securityPath = ".github/workflows/security-scan.yml";
 const MAX_TIMEOUT_MINUTES = 30;
 const trustedBuildRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]';
+const trustedRuntimeRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-runtime"]';
 const trustedReleaseRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]';
 const ci = fs.readFileSync(ciPath, "utf8");
 const security = fs.readFileSync(securityPath, "utf8");
@@ -158,8 +159,11 @@ for (const marker of [
   "on:\n  push:\n    branches: [ main ]",
   "workflow_dispatch:",
   "runs-on: [\"self-hosted\", \"Linux\", \"X64\", \"harmonizeproject-jellyfin\"]",
+  "runs-on: [\"self-hosted\", \"Linux\", \"X64\", \"harmonizeproject-jellyfin-runtime\"]",
   "runs-on: [\"self-hosted\", \"Linux\", \"X64\", \"harmonizeproject-jellyfin-release\"]",
   "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
+  "# Official Jellyfin 10.10.7 linux/amd64 image manifest digest.",
+  "JELLYFIN_RUNTIME_IMAGE: 'jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123'",
   "uses: ./.github/workflows/security-scan.yml",
   "Validate pinned .NET SDK parity",
   "node scripts/validate-dotnet-sdk.mjs",
@@ -186,6 +190,16 @@ for (const marker of [
   "CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}",
   "fail_ci_if_error: true",
   "validate-release-helper:",
+  "runtime-smoke:",
+  "name: Runtime Smoke",
+  "Validate deterministic release package",
+  "path: ${{ runner.temp }}/trusted-runtime-smoke",
+  "python3 scripts/verify-jellyfin-runtime-smoke.py",
+  "--archive \"$RUNNER_TEMP/trusted-runtime-smoke/jellyfin-plugin-hue-release.zip\"",
+  "--image \"$JELLYFIN_RUNTIME_IMAGE\"",
+  "--startup-timeout-seconds 150",
+  "--http-timeout-seconds 3",
+  "--poll-interval-seconds 2",
   "Run documented Linux release helper",
   "chmod +x ./build-release.sh",
   "./build-release.sh",
@@ -195,7 +209,7 @@ for (const marker of [
   "node scripts/validate-workflow-inventory.mjs",
   "Test workflow security contracts",
   "node scripts/test-workflow-contracts.mjs",
-  "needs: [create-release-package, validate-release-helper]",
+  "needs: [create-release-package, validate-release-helper, runtime-smoke]",
   "local_zip_digest=",
   "local_checksum_digest=",
   "local_manifest_digest=",
@@ -251,8 +265,8 @@ for (const marker of [
 }
 
 const selfHostedJobCount = (ci.match(/runs-on: \["self-hosted"/g) || []).length;
-if (selfHostedJobCount !== 5) {
-  throw new Error(`${ciPath} must keep exactly five self-hosted jobs (found ${selfHostedJobCount})`);
+if (selfHostedJobCount !== 6) {
+  throw new Error(`${ciPath} must keep exactly six self-hosted jobs (found ${selfHostedJobCount})`);
 }
 const mainGuardCount = (ci.match(/if: github\.ref == 'refs\/heads\/main'/g) || []).length;
 if (mainGuardCount !== 3) {
@@ -284,7 +298,9 @@ for (const job of ciJobs) {
   if (isReusableWorkflowJob(job)) continue;
   const expectedRunner = job.name === "create-github-release"
     ? trustedReleaseRunner
-    : trustedBuildRunner;
+    : job.name === "runtime-smoke"
+      ? trustedRuntimeRunner
+      : trustedBuildRunner;
   const runsOnValues = getRunsOnValues(job);
   if (runsOnValues.length !== 1 || runsOnValues[0] !== expectedRunner) {
     throw new Error(`${ciPath} job ${job.name} must use runner ${expectedRunner}`);

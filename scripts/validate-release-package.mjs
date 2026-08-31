@@ -3,11 +3,15 @@ import fs from "node:fs";
 
 const helper = "scripts/create-deterministic-release-zip.py";
 const manifestHelper = "scripts/create-release-manifest.py";
+const runtimeSmokeHelper = "scripts/verify-jellyfin-runtime-smoke.py";
 if (!fs.existsSync(helper)) {
   throw new Error(`Deterministic release packager is missing: ${helper}`);
 }
 if (!fs.existsSync(manifestHelper)) {
   throw new Error(`Deterministic release manifest generator is missing: ${manifestHelper}`);
+}
+if (!fs.existsSync(runtimeSmokeHelper)) {
+  throw new Error(`Jellyfin runtime smoke verifier is missing: ${runtimeSmokeHelper}`);
 }
 
 const candidates = process.platform === "win32" ? ["python", "python3"] : ["python3", "python"];
@@ -64,3 +68,30 @@ if (manifestResult.status !== 0) {
 
 process.stdout.write(manifestResult.stdout);
 console.log("Release manifest determinism contract passed");
+
+let runtimeResult;
+let runtimeSelected;
+for (const candidate of candidates) {
+  runtimeResult = spawnSync(candidate, [runtimeSmokeHelper, "--self-test"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (!runtimeResult.error || runtimeResult.error.code !== "ENOENT") {
+    runtimeSelected = candidate;
+    break;
+  }
+}
+
+if (!runtimeSelected) {
+  throw new Error(`Python 3 is required to validate ${runtimeSmokeHelper}`);
+}
+if (runtimeResult.error) {
+  throw new Error(`${runtimeSelected} could not run ${runtimeSmokeHelper}: ${runtimeResult.error.message}`);
+}
+if (runtimeResult.status !== 0) {
+  const output = `${runtimeResult.stdout || ""}${runtimeResult.stderr || ""}`.trim();
+  throw new Error(`${runtimeSmokeHelper} self-test failed (${runtimeResult.status}): ${output}`);
+}
+
+process.stdout.write(runtimeResult.stdout);
+console.log("Jellyfin runtime smoke contract passed");

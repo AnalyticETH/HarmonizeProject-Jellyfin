@@ -510,7 +510,7 @@
                             <button is="emby-button" type="button" class="raised" id="renameScenePlaylistBtn" disabled><span>Rename Playlist</span></button>
                         </div>
                         <div id="scenePlaylistItems" style="margin-top: 0.75em;"></div>
-                            <div id="scenePlaylistStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;">Select saved scenes, set optional per-step RGB channel, effect, brightness, effect speed, fade-in, fade-out, fade curve, and hold overrides (blank fields and Inherited scene values preserve the scene; 0 seconds inherits each scene's duration), choose Saved order or Stable daily shuffle, choose one or more targets, then save the playlist. Default and all-target modes are exclusive; selected mappings may optionally include the default bridge. Use Rename Playlist to migrate every scheduled-cue reference atomically before continuing to edit the renamed playlist.</div>
+                            <div id="scenePlaylistStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;">Select saved scenes, set optional per-step RGB channel, effect, brightness, effect speed, fade-in, fade-out, fade curve, and hold overrides (blank fields and Inherited scene values preserve the scene; 0 seconds inherits each scene's duration), choose Saved order or Stable daily shuffle, choose one or more mapping or playback-device targets, then save the playlist. Device routes store IDs only and resolve current server-side credentials when run. Default and all-target modes are exclusive; selected mappings and device routes may optionally include the default bridge. Use Rename Playlist to migrate every scheduled-cue reference atomically before continuing to edit the renamed playlist.</div>
                     </fieldset>
 
                     <fieldset class="verticalSection" id="scheduledSceneCuesSection" tabindex="-1">
@@ -1804,6 +1804,30 @@
 
             var HueConfigurationPage = {
                 pluginId: "4e078f02-ec43-473e-85f1-98e86eb9a761",
+                bindSectionNavigation: function (page) {
+                    if (!page || typeof page.querySelector !== 'function') return;
+                    var sectionNav = page.querySelector('#configurationSectionNav');
+                    if (!sectionNav || typeof sectionNav.querySelectorAll !== 'function') return;
+                    Array.prototype.forEach.call(sectionNav.querySelectorAll('a[href^="#"]'), function (link) {
+                        if (!link || link._hueSectionNavigationBound || typeof link.addEventListener !== 'function') return;
+                        link._hueSectionNavigationBound = true;
+                        link.addEventListener('click', function (e) {
+                            var href = link.getAttribute('href') || '';
+                            var targetId = href.charAt(0) === '#' ? href.substring(1) : '';
+                            var target = targetId ? page.querySelector('#' + targetId) : null;
+                            if (!target) return;
+                            if (e && typeof e.preventDefault === 'function') e.preventDefault();
+                            if (typeof target.focus === 'function') target.focus({ preventScroll: true });
+                            if (typeof target.scrollIntoView === 'function') {
+                                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                            if (typeof window !== 'undefined' && window.history &&
+                                typeof window.history.replaceState === 'function') {
+                                window.history.replaceState(null, '', href);
+                            }
+                        });
+                    });
+                },
                 // Keep local restore work bounded to the same request ceiling enforced
                 // by HueSync/Configuration/Import. FileReader otherwise parses an
                 // arbitrarily large administrator-selected file before the server can
@@ -7029,6 +7053,8 @@
                         var duplicateTargetState = HueConfigurationPage.setTargetMappingDuplicateMetadata(page, mappings);
                         page._hueScenePlaylists = playlists;
                         page._hueScenePlaylistPresets = presets;
+                        page._hueScenePlaylistMappings = mappings;
+                        page._hueScenePlaylistUnavailableTargetRoutes = [];
                         playlistSelect.innerHTML = '<option value="">Choose a saved playlist...</option>';
                         playlists.forEach(function (playlist) {
                             if (!playlist) return;
@@ -7081,7 +7107,8 @@
                             {
                                 select: targetSelect,
                                 prefix: '<option value="__default_target__">Default bridge target</option><option value="__all_enabled_targets__">All enabled targets</option>',
-                                previousValues: []
+                                previousValues: [],
+                                includeDeviceRoutes: true
                             },
                             {
                                 select: previewTargetSelect,
@@ -7156,6 +7183,8 @@
                         console.error("Failed to load scene playlists:", err);
                         playlistSelect.innerHTML = '<option value="">Unable to load saved playlists</option>';
                         if (bulkSelect) bulkSelect.innerHTML = '';
+                        page._hueScenePlaylistMappings = [];
+                        page._hueScenePlaylistUnavailableTargetRoutes = [];
                         HueConfigurationPage.clearScenePlaylist(page, false);
                         HueConfigurationPage.setPreviewTargetMetadataState(page, "scenePlaylists", false, "Preview targets are unavailable because saved playlists or mappings could not be loaded. Reload this page before starting a preview.");
                         HueConfigurationPage.markPreviewTargetMetadataUnavailable(page);
@@ -7918,8 +7947,10 @@
                     var targetAll = playlist.targetAllEnabledMappings !== undefined ? playlist.targetAllEnabledMappings : playlist.TargetAllEnabledMappings;
                     var targetUserId = playlist.targetUserId !== undefined ? playlist.targetUserId : (playlist.TargetUserId || '');
                     var targetUserIds = playlist.targetUserIds !== undefined ? playlist.targetUserIds : (playlist.TargetUserIds || []);
+                    var targetRoutes = playlist.targetRoutes !== undefined ? playlist.targetRoutes : (playlist.TargetRoutes || []);
                     var includeDefaultTarget = playlist.includeDefaultTarget !== undefined ? playlist.includeDefaultTarget : playlist.IncludeDefaultTarget;
                     targetUserIds = Array.isArray(targetUserIds) ? targetUserIds : [];
+                    targetRoutes = Array.isArray(targetRoutes) ? targetRoutes : [];
                     var stepDurations = playlist.stepDurationSeconds !== undefined ? playlist.stepDurationSeconds : (playlist.StepDurationSeconds || []);
                     stepDurations = Array.isArray(stepDurations) ? stepDurations : [];
                     stepDurations = presetNames.map(function (_, index) {
@@ -8019,24 +8050,70 @@
                         playbackOrderSelect.value = String(playbackOrder).toLowerCase() === 'shuffle' ? 'Shuffle' : 'Sequential';
                     }
                     var targetSelect = page.querySelector('#scenePlaylistTarget');
+                    var unavailableTargetRoutes = [];
                     if (targetSelect) {
                         Array.prototype.forEach.call(targetSelect.options || [], function (option) {
                             option.selected = false;
                         });
-                        var selectedValues = targetAll
-                            ? ['__all_enabled_targets__']
-                            : includeDefaultTarget || targetUserIds.length
-                                ? (includeDefaultTarget ? ['__default_target__'] : []).concat(targetUserIds)
-                                : [targetUserId || '__default_target__'];
-                        Array.prototype.forEach.call(targetSelect.options || [], function (option) {
-                            option.selected = selectedValues.indexOf(option.value) >= 0;
-                        });
+                        if (targetAll) {
+                            var allOption = targetSelect.querySelector('option[value="__all_enabled_targets__"]');
+                            if (allOption) allOption.selected = true;
+                            if (targetRoutes.length) unavailableTargetRoutes = targetRoutes.slice();
+                        } else if (includeDefaultTarget || targetUserIds.length || targetRoutes.length) {
+                            if (includeDefaultTarget) {
+                                var defaultOption = targetSelect.querySelector('option[value="__default_target__"]');
+                                if (defaultOption) defaultOption.selected = true;
+                            }
+                            targetUserIds.forEach(function (userId) {
+                                var normalizedUserId = HueConfigurationPage.normalizeJellyfinUserId(userId);
+                                var option = Array.prototype.find.call(targetSelect.options || [], function (candidate) {
+                                    return HueConfigurationPage.areSameJellyfinUserId(candidate && candidate.value, normalizedUserId);
+                                });
+                                if (option && !option.disabled) option.selected = true;
+                            });
+                            targetRoutes.forEach(function (routeValue) {
+                                var routeUserId = routeValue && (routeValue.userId !== undefined ? routeValue.userId : routeValue.UserId);
+                                var routeDeviceId = routeValue && (routeValue.deviceId !== undefined ? routeValue.deviceId : routeValue.DeviceId);
+                                var route = {
+                                    userId: HueConfigurationPage.normalizeJellyfinUserId(routeUserId),
+                                    deviceId: String(routeDeviceId || '').trim()
+                                };
+                                var routeOption = Array.prototype.find.call(targetSelect.options || [], function (candidate) {
+                                    var candidateRoute = HueConfigurationPage.parseCurrentLightDeviceTarget(candidate && candidate.value);
+                                    return candidateRoute &&
+                                        HueConfigurationPage.areSameJellyfinUserId(candidateRoute.userId, route.userId) &&
+                                        candidateRoute.deviceId.trim() === route.deviceId;
+                                });
+                                if (routeOption && !routeOption.disabled &&
+                                    HueConfigurationPage.isScenePlaylistDeviceRouteAvailable(page, route)) {
+                                    routeOption.selected = true;
+                                } else {
+                                    unavailableTargetRoutes.push(route);
+                                }
+                            });
+                        } else {
+                            var legacyOption = Array.prototype.find.call(targetSelect.options || [], function (candidate) {
+                                return HueConfigurationPage.areSameJellyfinUserId(candidate && candidate.value, targetUserId || '__default_target__');
+                            });
+                            if (legacyOption && !legacyOption.disabled) legacyOption.selected = true;
+                        }
+                        page._hueScenePlaylistUnavailableTargetRoutes = unavailableTargetRoutes;
+                        if (!unavailableTargetRoutes.length) {
+                            HueConfigurationPage.normalizeScenePlaylistTargetSelection(page);
+                        } else {
+                            var unavailableStatus = page.querySelector('#scenePlaylistStatus');
+                            if (unavailableStatus) {
+                                unavailableStatus.textContent = 'This playlist references an unavailable or disabled device route. Choose an available target before saving.';
+                                unavailableStatus.style.color = '#f0ad4e';
+                            }
+                        }
                     }
                     HueConfigurationPage.renderScenePlaylistItems(page);
                     HueConfigurationPage.updateScenePlaylistButtons(page);
                 },
                 clearScenePlaylist: function (page, clearSelect) {
                     page._hueScenePlaylistId = '';
+                    page._hueScenePlaylistUnavailableTargetRoutes = [];
                     page._hueScenePlaylistItems = [];
                     page._hueScenePlaylistDurations = [];
                     page._hueScenePlaylistBrightness = [];
@@ -8174,21 +8251,32 @@
                 normalizeScenePlaylistTargetSelection: function (page) {
                     var select = page && page.querySelector('#scenePlaylistTarget');
                     if (!select) return;
-                    var selected = Array.prototype.slice.call(select.selectedOptions || [])
-                        .map(function (option) { return option && option.value ? option.value : ''; })
-                        .filter(Boolean);
+                    var selectedOptions = Array.prototype.slice.call(select.selectedOptions || []);
+                    var selected = selectedOptions.map(function (option) { return option ? option.value || '' : ''; });
                     var all = selected.indexOf('__all_enabled_targets__') >= 0;
                     var defaultTarget = selected.indexOf('__default_target__') >= 0;
                     var mappingIds = selected.filter(function (value) {
-                        return value !== '__all_enabled_targets__' && value !== '__default_target__';
+                        return value && value !== '__all_enabled_targets__' && value !== '__default_target__' &&
+                            value.indexOf('__device_target__:') !== 0 &&
+                            !HueConfigurationPage.parseCurrentLightDeviceTarget(value);
                     });
+                    var deviceTargetValues = selected.filter(function (value) {
+                        return !!HueConfigurationPage.parseCurrentLightDeviceTarget(value);
+                    });
+                    var invalidDeviceTargetValues = selected.filter(function (value) {
+                        return value && value.indexOf('__device_target__:') === 0 &&
+                            !HueConfigurationPage.parseCurrentLightDeviceTarget(value);
+                    });
+                    var hasInvalidSelection = selectedOptions.some(function (option) {
+                        return !!(option && option.disabled);
+                    }) || invalidDeviceTargetValues.length > 0;
                     var normalized;
-                    if (all) {
+                    if (all && !hasInvalidSelection) {
                         normalized = ['__all_enabled_targets__'];
                     } else if (defaultTarget) {
-                        normalized = ['__default_target__'].concat(mappingIds);
-                    } else if (mappingIds.length) {
-                        normalized = mappingIds;
+                        normalized = ['__default_target__'].concat(mappingIds, deviceTargetValues, invalidDeviceTargetValues);
+                    } else if (mappingIds.length || deviceTargetValues.length || invalidDeviceTargetValues.length) {
+                        normalized = mappingIds.concat(deviceTargetValues, invalidDeviceTargetValues);
                     } else {
                         normalized = ['__default_target__'];
                     }
@@ -8266,19 +8354,84 @@
                 getScenePlaylistTargetSelection: function (page) {
                     HueConfigurationPage.normalizeScenePlaylistTargetSelection(page);
                     var select = page && page.querySelector('#scenePlaylistTarget');
-                    var selected = Array.prototype.slice.call(select && select.selectedOptions || [])
-                        .map(function (option) { return option && option.value ? option.value : ''; })
-                        .filter(Boolean);
+                    var selectedOptions = Array.prototype.slice.call(select && select.selectedOptions || []);
+                    var selected = selectedOptions.map(function (option) { return option ? option.value || '' : ''; });
                     var all = selected.indexOf('__all_enabled_targets__') >= 0;
                     var includeDefaultTarget = selected.indexOf('__default_target__') >= 0;
+                    var targetUserIds = [];
+                    var targetRoutes = [];
+                    var invalidRoute = false;
+                    var unavailableRoute = false;
+                    var disabledTarget = selectedOptions.some(function (option) {
+                        return !!(option && option.disabled);
+                    });
+                    selectedOptions.forEach(function (option) {
+                        var value = option ? option.value || '' : '';
+                        if (!value || value === '__default_target__' || value === '__all_enabled_targets__') return;
+                        var route = HueConfigurationPage.parseCurrentLightDeviceTarget(value);
+                        if (route) {
+                            var normalizedRoute = {
+                                userId: HueConfigurationPage.normalizeJellyfinUserId(route.userId),
+                                deviceId: String(route.deviceId || '').trim()
+                            };
+                            if (!HueConfigurationPage.isScenePlaylistDeviceRouteAvailable(page, normalizedRoute)) {
+                                unavailableRoute = true;
+                            } else {
+                                targetRoutes.push(normalizedRoute);
+                            }
+                            return;
+                        }
+                        if (value.indexOf('__device_target__:') === 0) {
+                            invalidRoute = true;
+                            return;
+                        }
+                        targetUserIds.push(HueConfigurationPage.normalizeJellyfinUserId(value));
+                    });
+                    var unavailablePersistedRoutes = page && Array.isArray(page._hueScenePlaylistUnavailableTargetRoutes) &&
+                        page._hueScenePlaylistUnavailableTargetRoutes.length > 0;
+                    var error = '';
+                    if (unavailablePersistedRoutes || unavailableRoute) {
+                        error = 'One or more selected playlist device routes are unavailable or disabled. Choose an available route before saving.';
+                    } else if (invalidRoute) {
+                        error = 'Selected playlist device routes are malformed. Choose an available route before saving.';
+                    } else if (disabledTarget) {
+                        error = 'Selected playlist targets are disabled. Choose enabled targets before saving.';
+                    } else if (all && (includeDefaultTarget || targetUserIds.length || targetRoutes.length)) {
+                        error = 'All enabled targets cannot be combined with another target selection.';
+                    }
+                    var legacyTargetUserId = all || includeDefaultTarget || targetRoutes.length > 0 || targetUserIds.length !== 1
+                        ? ''
+                        : targetUserIds[0];
                     return {
+                        valid: !error,
+                        error: error,
                         targetAllEnabledMappings: all,
                         includeDefaultTarget: !all && includeDefaultTarget,
-                        targetUserIds: all ? [] : selected.filter(function (value) {
-                            return value !== '__default_target__';
-                        }),
-                        targetUserId: all || includeDefaultTarget || selected.length !== 1 ? '' : selected[0]
+                        targetUserIds: all || legacyTargetUserId ? [] : targetUserIds,
+                        targetRoutes: all ? [] : targetRoutes,
+                        targetUserId: legacyTargetUserId
                     };
+                },
+                isScenePlaylistDeviceRouteAvailable: function (page, route) {
+                    var userId = route && String(route.userId || '').trim();
+                    var deviceId = route && String(route.deviceId || '').trim();
+                    if (!userId || !deviceId) return false;
+                    var mappings = page && Array.isArray(page._hueScenePlaylistMappings)
+                        ? page._hueScenePlaylistMappings
+                        : [];
+                    var mapping = mappings.find(function (candidate) {
+                        var candidateUserId = candidate && (candidate.userId !== undefined ? candidate.userId : candidate.UserId);
+                        return HueConfigurationPage.areSameJellyfinUserId(candidateUserId, userId);
+                    });
+                    if (!mapping) return false;
+                    var enabled = mapping.syncEnabled !== undefined ? mapping.syncEnabled !== false : mapping.SyncEnabled !== false;
+                    if (!enabled) return false;
+                    var deviceTargets = mapping.deviceTargets !== undefined ? mapping.deviceTargets : mapping.DeviceTargets;
+                    return (Array.isArray(deviceTargets) ? deviceTargets : []).some(function (candidate) {
+                        var candidateDeviceId = candidate && (candidate.deviceId !== undefined ? candidate.deviceId : candidate.DeviceId);
+                        return String(candidateDeviceId || '').trim() === deviceId &&
+                            HueConfigurationPage.isConfiguredDeviceRouteReady(candidate);
+                    });
                 },
                 normalizeSceneScheduleTargetSelection: function (page) {
                     var select = page && page.querySelector('#sceneScheduleTarget');
@@ -8685,6 +8838,10 @@
                         Dashboard.alert("Playback order must be Saved order or Stable daily shuffle.");
                         return;
                     }
+                    if (!targetSelection.valid) {
+                        Dashboard.alert(targetSelection.error || "Choose an available playlist target before saving.");
+                        return;
+                    }
                     var button = page.querySelector('#saveScenePlaylistBtn');
                     var mutation = HueConfigurationPage.beginScenePlaylistMutation(
                         page,
@@ -8721,6 +8878,7 @@
                                 playbackOrder: playbackOrder,
                                 targetUserId: targetSelection.targetUserId,
                                 targetUserIds: targetSelection.targetUserIds,
+                                targetRoutes: targetSelection.targetRoutes,
                                 includeDefaultTarget: targetSelection.includeDefaultTarget,
                                 targetAllEnabledMappings: targetSelection.targetAllEnabledMappings
                             }),
@@ -16822,6 +16980,16 @@
             // compatibility with hosts that evaluate this template detached
             // from its page element.
             (function (document) {
+            var sectionNavigationPage = document;
+            var sectionNavigation = sectionNavigationPage &&
+                typeof sectionNavigationPage.querySelector === 'function'
+                ? sectionNavigationPage.querySelector('#configurationSectionNav')
+                : null;
+            if (sectionNavigation && typeof sectionNavigation.closest === 'function') {
+                sectionNavigationPage = sectionNavigation.closest('.pluginConfigurationPage') || sectionNavigationPage;
+            }
+            HueConfigurationPage.bindSectionNavigation(sectionNavigationPage);
+
             document.querySelector('.huePluginConfigurationForm').addEventListener('submit', function (e) {
                 e.preventDefault();
                 HueConfigurationPage.saveConfiguration(this.closest('.page'));
@@ -16959,7 +17127,9 @@
             });
 
             document.querySelector('#scenePlaylistTarget').addEventListener('change', function () {
-                HueConfigurationPage.normalizeScenePlaylistTargetSelection(this.closest('.page'));
+                var page = this.closest('.page');
+                if (page) page._hueScenePlaylistUnavailableTargetRoutes = [];
+                HueConfigurationPage.normalizeScenePlaylistTargetSelection(page);
             });
 
             document.querySelector('#scenePlaylistPreviewTarget').addEventListener('change', function () {

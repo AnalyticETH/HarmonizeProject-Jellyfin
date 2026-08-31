@@ -111,6 +111,14 @@ for (const endpoint of previewEndpoints) {
     }
 }
 
+for (const endpoint of ["GET /HueSync/ScenePlaylists", "POST /HueSync/ScenePlaylists"]) {
+    const row = readme.split("\n").find(line => line.startsWith("|") && line.includes(`| \`${endpoint}\` |`));
+    if (!row || !row.includes("targetRoutes") || !row.includes("userId") || !row.includes("deviceId") ||
+        !row.includes("credential")) {
+        throw new Error(`README.md saved-playlist contract is missing credential-free device-route fields: ${endpoint}`);
+    }
+}
+
 const captureCurrentColorRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Preview/CaptureCurrentColor` |"));
 if (!captureCurrentColorRow ||
     !captureCurrentColorRow.includes("credential-free") ||
@@ -229,6 +237,8 @@ if (!configurationImportRow ||
 
 for (const marker of [
     "public List<HueCurrentLightColorTargetRoute>? TargetRoutes",
+    "public IReadOnlyList<HueSceneScheduleTargetRoute> TargetRoutes",
+    "public List<HueSceneScheduleTargetRoute>? TargetRoutes",
     "public sealed class HueSavedColorPresetPreviewRequest",
     "public sealed class HueScenePlaylistPreviewRequest",
     "public sealed class HueScenePlaylistBulkPreviewRequest",
@@ -236,6 +246,16 @@ for (const marker of [
 ]) {
     if (!controller.includes(marker)) {
         throw new Error(`Hue API preview route support is missing source marker: ${marker}`);
+    }
+}
+
+for (const marker of [
+    "public List<HueSceneScheduleTargetRoute> TargetRoutes { get; set; }",
+    "GetPlaylistTargetRoutes(playlist)",
+    "PlaylistReferencesUserMapping"
+]) {
+    if (!pluginConfiguration.includes(marker) && !automationService.includes(marker) && !controller.includes(marker)) {
+        throw new Error(`Saved-playlist route support is missing source marker: ${marker}`);
     }
 }
 

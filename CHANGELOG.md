@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.432] - 2026-08-31
+
+### Saved-playlist playback-device routes
+- **Room-specific saved playlists**: saved playlists can now retain credential-free Jellyfin user/device route pairs and resolve the current nested Hue target, channel profile, and credentials whenever they run.
+- **Fail-closed route lifecycle**: missing, disabled, incomplete, ambiguous, duplicate, or case-mismatched device routes block playlist saves and runs; mapping disable/delete and device removal guards include playlist route dependencies.
+- **Portable route metadata**: playlist API results, partial updates, duplication, configuration export/import, runtime telemetry, and the administrator editor preserve exact route IDs without serializing bridge credentials.
+- **Regression coverage**: configuration, API, runtime, browser, and static documentation contracts cover saved-route validation, resolution, portability, dependency protection, payloads, and unavailable-route handling.
+
+### Retained-page navigation isolation
+- **Page-scoped section links**: retained configuration pages now resolve section anchors within their own visible page, focus and smoothly scroll the selected section, and avoid moving a hidden sibling page.
+- **Regression coverage**: the browser harness exercises two retained pages and verifies focus, scroll, history, and default-action ownership.
+
+### Trusted runtime release verification
+- **Pinned disposable runtime gate**: trusted `main` release publication now boots the canonical plugin ZIP inside the official Jellyfin 10.10.7 linux/amd64 image pinned by digest on the dedicated runtime runner before publication.
+- **Least-privileged runtime boundary**: disposable Jellyfin verification uses a separate self-hosted identity and rootless Docker socket, isolated from build/test and contents-write release credentials.
+- **Regression coverage**: workflow, package, runtime, and runbook validators require the pinned image, dedicated runner label, writable disposable manifest semantics, verifier self-test, and release ordering.
+
 ## [1.5.431] - 2026-08-31
 
 ### Route-aware bridge linking and service-readable release packages

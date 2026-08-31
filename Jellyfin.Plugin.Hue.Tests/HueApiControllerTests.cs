@@ -6415,6 +6415,105 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ScenePlaylists_DeviceRouteRoundTripsPreservesOnPartialUpdateAndDuplicates()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome", DurationSeconds = 1 } },
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    UserName = "Living Room",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "Living-Room-TV",
+                            DeviceName = "Living Room TV",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "device-app-secret",
+                            HueClientKey = "device-client-secret",
+                            EntertainmentAreaId = "device-area"
+                        }
+                    }
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var saved = controller.SaveScenePlaylist(new HueScenePlaylistRequest
+        {
+            Name = "Device sequence",
+            PresetNames = new List<string> { "Welcome" },
+            TargetRoutes = new List<HueSceneScheduleTargetRoute>
+            {
+                new() { UserId = " user-device ", DeviceId = " Living-Room-TV " }
+            }
+        });
+
+        var savedResult = Assert.IsType<HueScenePlaylistResult>(Assert.IsType<OkObjectResult>(saved.Result).Value);
+        var savedRoute = Assert.Single(savedResult.TargetRoutes);
+        Assert.Equal("user-device", savedRoute.UserId);
+        Assert.Equal("Living-Room-TV", savedRoute.DeviceId);
+        Assert.Equal("user-device / Living-Room-TV", savedResult.TargetLabel);
+        Assert.Equal(string.Empty, savedResult.TargetUserId);
+        Assert.DoesNotContain("device-app-secret", JsonSerializer.Serialize(savedResult), StringComparison.Ordinal);
+
+        var listed = Assert.Single(Assert.IsAssignableFrom<IEnumerable<HueScenePlaylistResult>>(
+            Assert.IsType<OkObjectResult>(controller.GetScenePlaylists().Result).Value));
+        Assert.Equal("Living-Room-TV", Assert.Single(listed.TargetRoutes).DeviceId);
+
+        var updated = controller.SaveScenePlaylist(new HueScenePlaylistRequest
+        {
+            Id = savedResult.Id,
+            Name = "Device sequence updated",
+            PresetNames = new List<string> { "Welcome" }
+        });
+        var updatedResult = Assert.IsType<HueScenePlaylistResult>(Assert.IsType<OkObjectResult>(updated.Result).Value);
+        Assert.Equal("Living-Room-TV", Assert.Single(updatedResult.TargetRoutes).DeviceId);
+
+        var duplicate = controller.DuplicateScenePlaylist(updatedResult.Name);
+        var duplicateResult = Assert.IsType<HueScenePlaylistResult>(Assert.IsType<OkObjectResult>(duplicate.Result).Value);
+        Assert.Equal("Living-Room-TV", Assert.Single(duplicateResult.TargetRoutes).DeviceId);
+        Assert.Equal(2, configuration.ScenePlaylists.Count);
+    }
+
+    [Fact]
+    public void SaveScenePlaylist_RejectsNullDeviceRouteWithoutMutation()
+    {
+        var existingPlaylist = new HueScenePlaylist
+        {
+            Id = "playlist-null-route",
+            Name = "Existing playlist",
+            PresetNames = new List<string> { "Welcome" }
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset> { new() { Name = "Welcome" } },
+            ScenePlaylists = new List<HueScenePlaylist> { existingPlaylist }
+        });
+
+        var action = CreateController().SaveScenePlaylist(new HueScenePlaylistRequest
+        {
+            Id = existingPlaylist.Id,
+            Name = "Updated playlist",
+            PresetNames = new List<string> { "Welcome" },
+            TargetRoutes = new List<HueSceneScheduleTargetRoute> { null! }
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains(
+            "Scene playlist 1 selected device route 1 requires both a user mapping ID and device ID",
+            JsonSerializer.Serialize(response.Value),
+            StringComparison.Ordinal);
+        Assert.Same(existingPlaylist, Assert.Single(configuration.ScenePlaylists));
+        Assert.Equal("Existing playlist", configuration.ScenePlaylists[0].Name);
+    }
+
+    [Fact]
     public void ScenePlaylistRename_MigratesCueReferencesAndReferencedDeleteIsRejected()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
@@ -14444,7 +14543,7 @@ public sealed class HueApiControllerTests : IDisposable
             $"Imported scene playlist 1 step transition overrides may contain no more than {PluginConfiguration.MaxScenePlaylistItems} items.",
             $"Imported scene playlist 1 step fade-out overrides may contain no more than {PluginConfiguration.MaxScenePlaylistItems} items.",
             $"Imported scene playlist 1 step transition curves may contain no more than {PluginConfiguration.MaxScenePlaylistItems} items.",
-            $"Imported scene playlist 1 target user IDs may contain no more than {PluginConfiguration.MaxSceneScheduleTargetMappings} items.");
+            $"Imported scene playlist 1 target selection may contain no more than {PluginConfiguration.MaxSceneScheduleTargetMappings} target routes.");
     }
 
     [Fact]
@@ -14884,7 +14983,23 @@ public sealed class HueApiControllerTests : IDisposable
             EntertainmentAreaId = "area-1",
             UserMappings = new List<UserBridgeMapping>
             {
-                new() { UserId = "user-1", UserName = "Viewer", SyncEnabled = true }
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Viewer",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "source-device-app-secret",
+                            HueClientKey = "source-device-client-secret",
+                            EntertainmentAreaId = "source-device-area"
+                        }
+                    }
+                }
             },
             ColorPresets = new List<HueColorPreset>
             {
@@ -14911,6 +15026,10 @@ public sealed class HueApiControllerTests : IDisposable
                     RepeatCount = 2,
                     PlaybackOrder = PluginConfiguration.ScenePlaylistOrderShuffle,
                     TargetUserIds = new List<string> { "user-1" },
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = "user-1", DeviceId = "living-room-tv" }
+                    },
                     IncludeDefaultTarget = true
                 }
             }
@@ -14932,12 +15051,17 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(2, exportedPlaylist.RepeatCount);
         Assert.Equal(PluginConfiguration.ScenePlaylistOrderShuffle, exportedPlaylist.PlaybackOrder);
         Assert.Equal(new[] { "user-1" }, exportedPlaylist.TargetUserIds);
+        var exportedRoute = Assert.Single(exportedPlaylist.TargetRoutes);
+        Assert.Equal("user-1", exportedRoute.UserId);
+        Assert.Equal("living-room-tv", exportedRoute.DeviceId);
         Assert.True(exportedPlaylist.IncludeDefaultTarget);
         Assert.False(exportedPlaylist.TargetAllEnabledMappings);
         Assert.Equal(14, exportedPlaylist.TotalDurationSeconds);
         var serialized = JsonSerializer.Serialize(exported);
         Assert.DoesNotContain("source-app-secret", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("source-client-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("source-device-app-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("source-device-client-secret", serialized, StringComparison.Ordinal);
 
         var destination = InstallConfiguration(new PluginConfiguration
         {
@@ -14947,7 +15071,23 @@ public sealed class HueApiControllerTests : IDisposable
             EntertainmentAreaId = "destination-area",
             UserMappings = new List<UserBridgeMapping>
             {
-                new() { UserId = "user-1", UserName = "Viewer", SyncEnabled = true }
+                new()
+                {
+                    UserId = "user-1",
+                    UserName = "Viewer",
+                    SyncEnabled = true,
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-tv",
+                            HueBridgeIp = "192.168.1.103",
+                            HueAppKey = "destination-device-app-secret",
+                            HueClientKey = "destination-device-client-secret",
+                            EntertainmentAreaId = "destination-device-area"
+                        }
+                    }
+                }
             }
         });
         var action = ImportWithValidation(destination, new HueConfigurationImportRequest
@@ -14980,6 +15120,11 @@ public sealed class HueApiControllerTests : IDisposable
                     RepeatCount = exportedPlaylist.RepeatCount,
                     PlaybackOrder = exportedPlaylist.PlaybackOrder,
                     TargetUserIds = exportedPlaylist.TargetUserIds.ToList(),
+                    TargetRoutes = exportedPlaylist.TargetRoutes.Select(route => new HueSceneScheduleTargetRoute
+                    {
+                        UserId = route.UserId,
+                        DeviceId = route.DeviceId
+                    }).ToList(),
                     IncludeDefaultTarget = exportedPlaylist.IncludeDefaultTarget
                 }
             }
@@ -15007,11 +15152,16 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(2, imported.RepeatCount);
         Assert.Equal(PluginConfiguration.ScenePlaylistOrderShuffle, imported.PlaybackOrder);
         Assert.Equal(new[] { "user-1" }, imported.TargetUserIds);
+        var importedRoute = Assert.Single(imported.TargetRoutes);
+        Assert.Equal("user-1", importedRoute.UserId);
+        Assert.Equal("living-room-tv", importedRoute.DeviceId);
+        Assert.Equal("destination-device-app-secret", destination.UserMappings[0].DeviceTargets[0].HueAppKey);
         Assert.True(imported.IncludeDefaultTarget);
         Assert.False(imported.TargetAllEnabledMappings);
         var serializedResult = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("destination-app-secret", serializedResult, StringComparison.Ordinal);
         Assert.DoesNotContain("destination-client-secret", serializedResult, StringComparison.Ordinal);
+        Assert.DoesNotContain("destination-device-app-secret", serializedResult, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -17691,13 +17841,33 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
-    public void UserMappingLifecycle_RejectsSavedPlaylistTargetDependency()
+    public void UserMappingLifecycle_ProtectsSavedPlaylistDeviceRouteDependency()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
         {
             UserMappings = new List<UserBridgeMapping>
             {
-                new() { UserId = "user-playlist", UserName = "Playlist room", SyncEnabled = true }
+                new()
+                {
+                    UserId = "user-playlist",
+                    UserName = "Playlist room",
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.101",
+                    HueAppKey = "mapping-app-secret",
+                    HueClientKey = "mapping-client-secret",
+                    EntertainmentAreaId = "mapping-area",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "playlist-panel",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "panel-app-secret",
+                            HueClientKey = "panel-client-secret",
+                            EntertainmentAreaId = "panel-area"
+                        }
+                    }
+                }
             },
             ScenePlaylists = new List<HueScenePlaylist>
             {
@@ -17706,7 +17876,10 @@ public sealed class HueApiControllerTests : IDisposable
                     Id = "playlist-dependent",
                     Name = "Dependent playlist",
                     PresetNames = new List<string> { "Welcome" },
-                    TargetUserIds = new List<string> { "user-playlist" }
+                    TargetRoutes = new List<HueSceneScheduleTargetRoute>
+                    {
+                        new() { UserId = "user-playlist", DeviceId = "playlist-panel" }
+                    }
                 }
             }
         });
@@ -17728,6 +17901,19 @@ public sealed class HueApiControllerTests : IDisposable
         var deleteResponse = Assert.IsType<ConflictObjectResult>(delete);
         Assert.Contains("saved playlist", deleteResponse.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Single(configuration.UserMappings);
+
+        var removeDevice = controller.SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = "user-playlist",
+            UserName = "Playlist room",
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.101",
+            EntertainmentAreaId = "mapping-area",
+            DeviceTargets = new List<UserDeviceBridgeTarget>()
+        });
+        var removeDeviceResponse = Assert.IsType<ConflictObjectResult>(removeDevice);
+        Assert.Contains("saved playlist", removeDeviceResponse.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("playlist-panel", Assert.Single(configuration.UserMappings[0].DeviceTargets).DeviceId);
     }
 
     [Fact]

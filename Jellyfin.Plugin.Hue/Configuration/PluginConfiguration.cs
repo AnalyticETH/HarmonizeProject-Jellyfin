@@ -265,6 +265,12 @@ namespace Jellyfin.Plugin.Hue.Configuration
         /// </summary>
         public List<string> TargetUserIds { get; set; } = new List<string>();
         /// <summary>
+        /// Optional exact playback-device routes nested under selected user mappings. Device
+        /// identifiers are case-sensitive Jellyfin values; this credential-free list is
+        /// resolved against the current mapping whenever the playlist runs.
+        /// </summary>
+        public List<HueSceneScheduleTargetRoute> TargetRoutes { get; set; } = new List<HueSceneScheduleTargetRoute>();
+        /// <summary>
         /// Includes the configured global bridge in an explicit selected-target playlist.
         /// </summary>
         public bool IncludeDefaultTarget { get; set; }
@@ -3347,8 +3353,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
 
             var targetUserId = playlist.TargetUserId?.Trim() ?? string.Empty;
             var targetUserIds = playlist.TargetUserIds ?? new List<string>();
-            if (targetUserIds.Count > MaxSceneScheduleTargetMappings)
-                errors.Add($"{label} may select no more than {MaxSceneScheduleTargetMappings} user mappings");
+            var targetRoutes = playlist.TargetRoutes ?? new List<HueSceneScheduleTargetRoute>();
+            if (targetUserIds.Count + targetRoutes.Count > MaxSceneScheduleTargetMappings)
+                errors.Add($"{label} may select no more than {MaxSceneScheduleTargetMappings} target routes");
 
             var seenTargetUserIds = new List<string>();
             for (var index = 0; index < targetUserIds.Count; index++)
@@ -3383,7 +3390,73 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 }
             }
 
-            var hasSelectedTargets = playlist.IncludeDefaultTarget || targetUserIds.Count > 0;
+            var seenTargetRoutes = new List<(string UserId, string DeviceId)>();
+            for (var index = 0; index < targetRoutes.Count; index++)
+            {
+                var route = targetRoutes[index];
+                var routeUserId = NormalizeJellyfinUserId(route?.UserId);
+                var routeDeviceId = route?.DeviceId?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(routeUserId) || string.IsNullOrWhiteSpace(routeDeviceId))
+                {
+                    errors.Add($"{label} selected device route {index + 1} requires both a user mapping ID and device ID");
+                    continue;
+                }
+
+                if (seenTargetRoutes.Any(existing =>
+                        AreSameJellyfinUserId(existing.UserId, routeUserId) &&
+                        string.Equals(existing.DeviceId, routeDeviceId, StringComparison.Ordinal)))
+                {
+                    errors.Add($"{label} selects device route {routeUserId}/{routeDeviceId} more than once");
+                    continue;
+                }
+                seenTargetRoutes.Add((routeUserId, routeDeviceId));
+
+                if (configuration != null)
+                {
+                    var matchingMappings = (configuration.UserMappings ?? new List<UserBridgeMapping>())
+                        .Where(candidate => candidate != null &&
+                            AreSameJellyfinUserId(candidate.UserId, routeUserId))
+                        .Cast<UserBridgeMapping>()
+                        .ToArray();
+                    if (matchingMappings.Length == 0)
+                    {
+                        errors.Add($"{label} references a device route whose user mapping does not exist: {routeUserId}");
+                    }
+                    else if (matchingMappings.Length > 1)
+                    {
+                        errors.Add($"{label} references a device route whose user mapping has multiple rows: {routeUserId}; resolve duplicate mappings before running scene automation");
+                    }
+                    else if (!matchingMappings[0].SyncEnabled)
+                    {
+                        errors.Add($"{label} references a disabled device-route user mapping: {routeUserId}");
+                    }
+                    else if (HasAmbiguousDeviceTarget(matchingMappings[0], routeDeviceId))
+                    {
+                        errors.Add($"{label} references a device route with duplicate device IDs: {routeUserId}/{routeDeviceId}; resolve duplicate device targets before running scene automation");
+                    }
+                    else
+                    {
+                        var matchingTarget = matchingMappings[0].DeviceTargets?.FirstOrDefault(target =>
+                            target != null &&
+                            string.Equals(target.DeviceId?.Trim(), routeDeviceId, StringComparison.Ordinal));
+                        if (matchingTarget == null)
+                        {
+                            errors.Add($"{label} references a device route that does not exist: {routeUserId}/{routeDeviceId}");
+                        }
+                        else
+                        {
+                            errors.AddRange(ValidateDeviceTargets(
+                                new UserBridgeMapping
+                                {
+                                    DeviceTargets = new List<UserDeviceBridgeTarget> { matchingTarget }
+                                },
+                                $"{label} selected device route {routeUserId}/{routeDeviceId}"));
+                        }
+                    }
+                }
+            }
+
+            var hasSelectedTargets = playlist.IncludeDefaultTarget || targetUserIds.Count > 0 || targetRoutes.Count > 0;
             if (playlist.TargetAllEnabledMappings && !string.IsNullOrWhiteSpace(targetUserId) && !hasSelectedTargets)
                 errors.Add($"{label} cannot select all enabled targets and a specific user mapping together");
             else if (playlist.TargetAllEnabledMappings && hasSelectedTargets)
