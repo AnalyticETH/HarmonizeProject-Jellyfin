@@ -1115,6 +1115,65 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void ConflictPreview_MaximumDateDurationSaturatesInsteadOfThrowing()
+    {
+        var configuration = new PluginConfiguration
+        {
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Maximum date scene", DurationSeconds = 30 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "maximum-date-conflict",
+                    Name = "Maximum date conflict",
+                    PresetName = "Maximum date scene",
+                    Enabled = true,
+                    RunDate = "9999-12-31",
+                    TimeOfDay = "23:59",
+                    TimeZoneId = TimeZoneInfo.Utc.Id
+                }
+            }
+        };
+
+        var exception = Record.Exception(() => HueSceneAutomationService.GetUpcomingConflicts(
+            configuration,
+            new DateTime(9999, 12, 31, 23, 0, 0, DateTimeKind.Utc),
+            maxConflicts: 10,
+            horizonDays: 1));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void MissedOccurrence_MinimumDateLookbackFailsClosedInsteadOfThrowing()
+    {
+        var schedule = new HueSceneSchedule
+        {
+            Id = "minimum-date-catch-up",
+            Enabled = true,
+            TimeOfDay = "00:00",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            DaysOfWeekMask = 0
+        };
+
+        var exception = Record.Exception(() =>
+        {
+            var missed = HueSceneAutomationService.GetMostRecentMissedOccurrence(
+                schedule,
+                DateTime.MinValue,
+                catchUpMinutes: 10);
+
+            Assert.Null(missed);
+        });
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
     public void TimeZoneAwareSchedule_UsesUtcInstantAndSelectedZoneWallClock()
     {
         var schedule = new HueSceneSchedule

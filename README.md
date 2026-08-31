@@ -504,7 +504,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.443 (Current)
+### Version 1.5.444 (Current)
+
+- **Conflict-preview safety**: restorative windows now saturate at `DateTime.MaxValue` when a valid occurrence lands on the final representable instant, so conflict diagnostics remain available instead of throwing.
+
+- **Catch-up and run-slot safety**: minimum-date catch-up lookbacks and stale run-slot pruning now fail closed at `DateTime.MinValue`, while deferred runtime expiry saturates at the maximum representable instant.
+
+- **Regression coverage**: scheduler tests cover maximum-date conflict previews and minimum-date catch-up recovery without exceptions.
+
+### Version 1.5.443
 
 - **Scheduler boundary safety**: schedule previews, due checks, and run-slot resolution fail closed when adjacent-date probing reaches the minimum or maximum representable calendar date instead of throwing from `DateTime` arithmetic.
 

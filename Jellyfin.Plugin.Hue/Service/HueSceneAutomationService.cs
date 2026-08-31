@@ -1974,9 +1974,16 @@ public sealed class HueSceneAutomationService : BackgroundService
                          isPlaylist ? PluginConfiguration.ColorPresetTransitionCurveLinear : GetEffectiveTransitionCurve(preset)))
             {
                 var startUtc = DateTime.SpecifyKind(occurrence.UtcTime, DateTimeKind.Utc);
-                var endUtc = startUtc.AddSeconds(Math.Max(
-                    PluginConfiguration.MinPreviewDurationSeconds,
-                    occurrence.DurationSeconds));
+                // A valid occurrence can still land on the final representable
+                // instant (for example a one-time cue on 9999-12-31).  Its
+                // restorative window cannot be represented past DateTime.MaxValue;
+                // saturate the end instead of allowing a preview/API request to
+                // throw and take down the scheduler surface.
+                var endUtc = AddSecondsSaturating(
+                    startUtc,
+                    Math.Max(
+                        PluginConfiguration.MinPreviewDurationSeconds,
+                        occurrence.DurationSeconds));
                 windows.Add(new HueSceneScheduleConflictWindow(
                     occurrence,
                     endUtc,
@@ -3591,6 +3598,30 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
     }
 
+    private static DateTime AddSecondsSaturating(DateTime value, double seconds)
+    {
+        try
+        {
+            return value.AddSeconds(seconds);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return seconds >= 0 ? DateTime.MaxValue : DateTime.MinValue;
+        }
+    }
+
+    private static DateTime AddMinutesSaturating(DateTime value, double minutes)
+    {
+        try
+        {
+            return value.AddMinutes(minutes);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return minutes >= 0 ? DateTime.MaxValue : DateTime.MinValue;
+        }
+    }
+
     private static bool IsScheduleRecurrenceDate(
         HueSceneSchedule schedule,
         string recurrence,
@@ -3892,9 +3923,11 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (!TryGetScheduleLocalNow(schedule, serverLocalNow, out _, out var serverUtcNow))
             return null;
 
-        var lookbackUtc = serverUtcNow.AddMinutes(-Math.Min(
-            catchUpMinutes,
-            PluginConfiguration.MaxSceneAutomationCatchUpMinutes));
+        var lookbackUtc = AddMinutesSaturating(
+            serverUtcNow,
+            -Math.Min(
+                catchUpMinutes,
+                PluginConfiguration.MaxSceneAutomationCatchUpMinutes));
         var lookbackServerLocal = TimeZoneInfo.ConvertTimeFromUtc(lookbackUtc, TimeZoneInfo.Local);
         var candidateSchedule = CloneSchedule(schedule);
         candidateSchedule.SkipNextOccurrence = false;
@@ -3905,7 +3938,9 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         // Include the preceding base solar date because a permitted offset can move
         // its actual local occurrence into the current calendar date.
-        var occurrenceSearchLocal = lookbackServerLocal.AddDays(-1);
+        var occurrenceSearchLocal = TryAddDays(lookbackServerLocal, -1, out var precedingLocalDate)
+            ? precedingLocalDate
+            : DateTime.MinValue;
         return GetUpcomingOccurrences(
                 candidateSchedule,
                 occurrenceSearchLocal,
@@ -8030,7 +8065,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         var effectiveDeferredAtUtc = deferredAtUtc.HasValue
             ? NormalizeUtcInstant(deferredAtUtc.Value)
             : ConvertServerLocalNowToUtc(deferredAtLocal);
-        var deferredUntilUtc = effectiveDeferredAtUtc.AddMinutes(deferMinutes);
+        var deferredUntilUtc = AddMinutesSaturating(effectiveDeferredAtUtc, deferMinutes);
         var deferredUntilLocal = TimeZoneInfo.ConvertTimeFromUtc(
             deferredUntilUtc,
             TimeZoneInfo.Local);
@@ -8618,7 +8653,9 @@ public sealed class HueSceneAutomationService : BackgroundService
     {
         lock (_runSlotLock)
         {
-            var staleBefore = slot.AddDays(-2);
+            var staleBefore = TryAddDays(slot, -2, out var staleBeforeDate)
+                ? staleBeforeDate
+                : DateTime.MinValue;
             foreach (var stale in _lastRunSlots
                          .Where(entry => entry.Value < staleBefore)
                          .Select(entry => entry.Key)

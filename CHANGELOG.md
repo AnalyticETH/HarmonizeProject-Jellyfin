@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.444] - 2026-08-31
+
+### Scheduler boundary saturation
+- **Conflict-preview safety**: restorative windows now saturate at `DateTime.MaxValue` when a valid occurrence lands on the final representable instant, so conflict diagnostics remain available instead of throwing.
+- **Catch-up and run-slot safety**: minimum-date catch-up lookbacks and stale run-slot pruning now fail closed at `DateTime.MinValue`, while deferred runtime expiry saturates at the maximum representable instant.
+- **Regression coverage**: scheduler tests cover maximum-date conflict previews and minimum-date catch-up recovery without exceptions.
+
 ## [1.5.443] - 2026-08-31
 
 ### Scheduler boundary safety
