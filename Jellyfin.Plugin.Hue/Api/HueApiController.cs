@@ -9741,9 +9741,16 @@ namespace Jellyfin.Plugin.Hue.Api
                         deviceTarget.ChannelIdsOverride = replacement.ChannelIdsOverride.Trim();
                 }
 
-                var existingDeviceTarget = existing?.DeviceTargets?.FirstOrDefault(candidate =>
-                    candidate != null &&
-                    string.Equals(candidate.DeviceId?.Trim(), deviceTarget.DeviceId?.Trim(), StringComparison.Ordinal));
+                // A legacy mapping can contain duplicate device IDs even though new
+                // imports reject them. Do not preserve credentials from an arbitrary
+                // existing route; an administrator must provide explicit replacement
+                // keys for an ambiguous device target.
+                var existingDeviceTarget = existing != null &&
+                    !PluginConfiguration.HasAmbiguousDeviceTarget(existing, deviceTarget.DeviceId)
+                    ? existing.DeviceTargets?.FirstOrDefault(candidate =>
+                        candidate != null &&
+                        string.Equals(candidate.DeviceId?.Trim(), deviceTarget.DeviceId?.Trim(), StringComparison.Ordinal))
+                    : null;
                 if (existingDeviceTarget != null &&
                     IsSameBridgeTarget(deviceTarget.HueBridgeIp, existingDeviceTarget.HueBridgeIp))
                 {
@@ -10830,6 +10837,12 @@ namespace Jellyfin.Plugin.Hue.Api
             foreach (var target in mapping.DeviceTargets)
             {
                 if (target == null)
+                    continue;
+
+                // Do not preserve from an arbitrary legacy route when duplicate
+                // device IDs make the existing credentials ambiguous. Explicit keys
+                // on the submitted target remain intact and will be validated below.
+                if (PluginConfiguration.HasAmbiguousDeviceTarget(existingMapping, target.DeviceId))
                     continue;
 
                 var existingTarget = existingMapping.DeviceTargets.FirstOrDefault(candidate =>

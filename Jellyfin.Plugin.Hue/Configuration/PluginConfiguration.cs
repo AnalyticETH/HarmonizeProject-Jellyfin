@@ -2006,6 +2006,13 @@ namespace Jellyfin.Plugin.Hue.Configuration
             if (HasAmbiguousUserMapping(userId))
                 return (string.Empty, string.Empty, string.Empty, string.Empty);
 
+            // A legacy or hand-edited mapping can contain duplicate device IDs even
+            // though normal saves reject them. Do not fall back to a user/global target
+            // for an explicitly requested ambiguous route: playback arbitration must
+            // fail closed rather than silently selecting a different Hue target.
+            if (HasAmbiguousDeviceTarget(FindUserMapping(userId), deviceId))
+                return (string.Empty, string.Empty, string.Empty, string.Empty);
+
             var deviceTarget = FindDeviceTargetForUser(userId, deviceId);
             if (deviceTarget != null)
             {
@@ -2461,6 +2468,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 return null;
 
             var mapping = FindUserMapping(userId);
+            if (HasAmbiguousDeviceTarget(mapping, normalizedDeviceId))
+                return null;
+
             return mapping?.DeviceTargets?.FirstOrDefault(target =>
                 target != null &&
                 string.Equals(target.DeviceId?.Trim(), normalizedDeviceId, StringComparison.Ordinal));

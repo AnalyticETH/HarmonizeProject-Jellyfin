@@ -3695,7 +3695,7 @@
                         // Diagnostic and generic preview operations release
                         // their loader through owner tokens above. Do not hide
                         // a newer retained-page operation's loader directly.
-                        if (!diagnosticLoadingOwner && !previewLoadingOwner) Dashboard.hideLoadingMsg();
+                        if (!diagnosticLoadingOwner && !previewLoadingOwner && !HueConfigurationPage._hueGlobalLoadingOwner) Dashboard.hideLoadingMsg();
                     }
                     page._hueSessionHistoryLoading = false;
                     page._hueSceneScheduleRuntimeStatusLoading = false;

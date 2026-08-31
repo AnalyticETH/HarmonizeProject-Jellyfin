@@ -1751,7 +1751,7 @@ for (const [functionName, requestKey, queryMarker] of [
         "var previewLoadingOwner = page._huePreviewLoadingOwner",
         "page._huePreviewLoadingOwner = null",
         "releasePreviewLoading(previewLoadingOwner)",
-        "if (!diagnosticLoadingOwner && !previewLoadingOwner) Dashboard.hideLoadingMsg();"
+        "if (!diagnosticLoadingOwner && !previewLoadingOwner && !HueConfigurationPage._hueGlobalLoadingOwner) Dashboard.hideLoadingMsg();"
     ]) {
         if (!functionBody.includes(marker)) {
             throw new Error(`${file} invalidatePageLifecycle is missing cleanup contract: ${marker}`);

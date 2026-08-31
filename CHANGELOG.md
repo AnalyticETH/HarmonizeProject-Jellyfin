@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.426] - 2026-08-31
+
+### Fail-closed legacy route credentials and retained-page loader cancellation
+- **Duplicate device-route playback arbitration**: concurrent playback now rejects duplicate nested device IDs before route lookup instead of falling back to another Hue target.
+- **Credential preservation safety**: imports and mapping edits no longer retain arbitrary App/Client keys from ambiguous legacy device routes; explicit replacement credentials are required.
+- **Preview cancellation ownership**: retained-page teardown cannot hide a newer page's loader when only an older preview cancellation remains pending.
+- **Regression coverage**: API, configuration, and browser lifecycle contracts cover duplicate routes, credential retention, and deferred preview-cancellation races.
+
 ## [1.5.425] - 2026-08-31
 
 ### Fail-closed credential route and loader arbitration

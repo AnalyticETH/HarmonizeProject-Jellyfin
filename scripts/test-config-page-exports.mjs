@@ -953,6 +953,61 @@ async function testNestedPreviewLoaderOwnershipAcrossCertificatePreflight() {
     assert.equal(loadingHides, 1, "nested preview/import overlap hides the loader exactly once");
 }
 
+async function testPreviewCancellationLoaderOwnershipAcrossRetainedPages() {
+    const harness = makeHarness();
+    const { page: hiddenPage, makePage, api, requests, dashboard } = harness;
+    const visiblePage = makePage();
+    hiddenPage._huePreviewTargetMetadataReady = true;
+    api.getPreviewValues = () => ({
+        red: 1,
+        green: 2,
+        blue: 3,
+        brightnessPercent: 80,
+        effectSpeedPercent: 100,
+        durationSeconds: 5,
+        effect: "Solid",
+        transitionSeconds: 0,
+        transitionOutSeconds: 0,
+        transitionCurve: "Linear"
+    });
+    api.applyConfigurationImportCredentials = () => true;
+    let loadingVisible = false;
+    let loadingHides = 0;
+    dashboard.showLoadingMsg = () => { loadingVisible = true; };
+    dashboard.hideLoadingMsg = () => {
+        loadingVisible = false;
+        loadingHides += 1;
+    };
+
+    api.previewAllEnabledTargets(hiddenPage);
+    const hiddenPreview = hiddenPage._huePreviewRequest;
+    api.cancelPreview(hiddenPage);
+    assert.equal(requests.length, 2, "retained preview cancellation starts a second deferred request");
+
+    requests[0].resolve({ succeeded: true, message: "preview completed before cancellation" });
+    await hiddenPreview;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(hiddenPage._huePreviewRequest, null, "settled preview releases its request before cancellation settles");
+    assert.ok(hiddenPage._huePreviewCancellationRequest, "the cancellation request remains pending after preview completion");
+
+    visiblePage._hueImportDocument = { Configuration: { HueBridgeIp: "visible-bridge" } };
+    const validation = api.validateConfigurationImport(visiblePage);
+    assert.equal(requests.length, 3, "newer retained page starts import validation while cancellation is pending");
+    assert.equal(loadingVisible, true, "newer import validation owns the global loader");
+    const loadingHidesBeforePagehide = loadingHides;
+
+    api.invalidatePageLifecycle(hiddenPage);
+    assert.equal(hiddenPage._huePreviewCancellationRequest, null, "pagehide clears the stale cancellation request");
+    assert.equal(loadingVisible, true, "stale preview-cancellation pagehide preserves the newer loader");
+    assert.equal(loadingHides, loadingHidesBeforePagehide, "stale preview-cancellation pagehide does not hide the newer loader");
+
+    requests[1].resolve({ canceled: true });
+    requests[2].resolve({ valid: true, canImport: true, configurationVersion: "preview-cancel-loader-version" });
+    await validation;
+    assert.equal(loadingVisible, false, "newer import validation releases its loader after cancellation cleanup");
+    assert.equal(loadingHides, loadingHidesBeforePagehide + 1, "preview-cancellation overlap hides the loader exactly once after the newer operation");
+}
+
 async function testGlobalLoaderOwnershipAcrossPageLifecycleOperations() {
     const userId = "12345678-1234-4234-8234-1234567890ab";
     const cases = [
@@ -6661,6 +6716,7 @@ await testGlobalLoaderOwnershipAcrossConfigurationImportSubmitAndExport();
 await testGlobalLoaderOwnershipAcrossDiagnosticsAndConfigurationImport();
 await testGlobalLoaderOwnershipAcrossPreviewAndConfigurationImport();
 await testNestedPreviewLoaderOwnershipAcrossCertificatePreflight();
+await testPreviewCancellationLoaderOwnershipAcrossRetainedPages();
 await testGlobalLoaderOwnershipAcrossPageLifecycleOperations();
 await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();

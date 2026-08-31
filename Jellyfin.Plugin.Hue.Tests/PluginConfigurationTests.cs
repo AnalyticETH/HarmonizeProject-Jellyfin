@@ -3820,6 +3820,59 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void DuplicateDeviceTargetsFailClosedForPlaybackResolution()
+    {
+        var userId = Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            HueBridgeIp = "10.0.0.1",
+            HueAppKey = "default-key",
+            HueClientKey = "default-client",
+            EntertainmentAreaId = "default-area",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = userId.ToString("D"),
+                    SyncEnabled = true,
+                    HueBridgeIp = "192.168.1.10",
+                    HueAppKey = "user-key",
+                    HueClientKey = "user-client",
+                    EntertainmentAreaId = "user-area",
+                    ChannelIdsOverride = "3",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "living-room-player",
+                            HueBridgeIp = "192.168.1.20",
+                            HueAppKey = "first-device-key",
+                            HueClientKey = "first-device-client",
+                            EntertainmentAreaId = "first-device-area",
+                            ChannelIdsOverride = "1"
+                        },
+                        new()
+                        {
+                            DeviceId = " living-room-player ",
+                            HueBridgeIp = "192.168.1.21",
+                            HueAppKey = "second-device-key",
+                            HueClientKey = "second-device-client",
+                            EntertainmentAreaId = "second-device-area",
+                            ChannelIdsOverride = "2"
+                        }
+                    }
+                }
+            }
+        };
+
+        var bridge = config.GetBridgeConfigForPlayback(userId, " living-room-player ");
+
+        Assert.Equal((string.Empty, string.Empty, string.Empty, string.Empty), bridge);
+        Assert.False(config.HasDeviceTargetForPlayback(userId, "living-room-player"));
+        Assert.Equal(new[] { 3 }, config.GetChannelIdsForPlayback(userId, "living-room-player"));
+    }
+
+    [Fact]
     public void GetBridgeConfigForPlayback_TreatsDeviceIdAsCaseSensitiveAndFallsBackToUser()
     {
         var userId = System.Guid.NewGuid();
