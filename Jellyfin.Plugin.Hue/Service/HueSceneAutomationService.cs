@@ -1754,7 +1754,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         var solarBaseLookbackDays = PluginConfiguration.IsSceneScheduleSolarTimeMode(normalizedTimeMode)
             ? 1
             : 0;
-        var firstCandidateDate = scheduleNow.Date.AddDays(-solarBaseLookbackDays);
+        if (!TryAddDays(scheduleNow.Date, -solarBaseLookbackDays, out var firstCandidateDate))
+            return occurrences;
         if (runDate.HasValue)
         {
             if (runDate.Value < firstCandidateDate)
@@ -1789,10 +1790,8 @@ public sealed class HueSceneAutomationService : BackgroundService
             // Legacy configurations can contain a boundary date such as
             // 9999-12-31. Do not let the look-ahead step overflow DateTime when a
             // pending skip marker asks for the following occurrence.
-            if (dayOffset > 0 && firstCandidateDate > DateTime.MaxValue.AddDays(-dayOffset))
+            if (!TryAddDays(firstCandidateDate, dayOffset, out var candidateDate))
                 break;
-
-            var candidateDate = firstCandidateDate.AddDays(dayOffset);
             if (endDate.HasValue && candidateDate > endDate.Value)
                 break;
             if (!IsScheduleDateAllowed(
@@ -3431,7 +3430,17 @@ public sealed class HueSceneAutomationService : BackgroundService
             return false;
 
         var parsedTime = TimeSpan.Parse(normalizedTime, System.Globalization.CultureInfo.InvariantCulture);
-        localTime = DateTime.SpecifyKind(scheduleDate.Date.Add(parsedTime), DateTimeKind.Unspecified);
+        try
+        {
+            // A valid calendar date can still be at DateTime.MaxValue. Adding a
+            // non-midnight time to 9999-12-31 must fail closed instead of throwing
+            // out of the scheduler or preview endpoint.
+            localTime = DateTime.SpecifyKind(scheduleDate.Date.Add(parsedTime), DateTimeKind.Unspecified);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
         if (timeZone.IsInvalidTime(localTime))
             return false;
 
@@ -3459,9 +3468,12 @@ public sealed class HueSceneAutomationService : BackgroundService
         utcTime = default;
         for (var dayOffset = -1; dayOffset <= 1; dayOffset++)
         {
+            if (!TryAddDays(localDate.Date, dayOffset, out var candidateDate))
+                continue;
+
             if (!TryGetScheduleOccurrenceTimes(
                     schedule,
-                    localDate.Date.AddDays(dayOffset),
+                    candidateDate,
                     timeZone,
                     out var candidateLocal,
                     out var candidateUtc) ||
@@ -3524,7 +3536,8 @@ public sealed class HueSceneAutomationService : BackgroundService
         // while matching the actual shifted local instant against the current minute.
         for (var dayOffset = -1; dayOffset <= 1; dayOffset++)
         {
-            var candidateDate = scheduleNow.Date.AddDays(dayOffset);
+            if (!TryAddDays(scheduleNow.Date, dayOffset, out var candidateDate))
+                continue;
             if (runDate.HasValue && candidateDate != runDate.Value)
                 continue;
             if (!IsScheduleDateAllowed(schedule, candidateDate) ||
@@ -3563,6 +3576,20 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     private static bool IsRunLimitReached(HueSceneSchedule? schedule)
         => schedule != null && schedule.MaxRuns > 0 && schedule.RunCount >= schedule.MaxRuns;
+
+    private static bool TryAddDays(DateTime value, int days, out DateTime result)
+    {
+        try
+        {
+            result = value.AddDays(days);
+            return true;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            result = default;
+            return false;
+        }
+    }
 
     private static bool IsScheduleRecurrenceDate(
         HueSceneSchedule schedule,

@@ -1066,6 +1066,55 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public void ScheduleBoundaryDatesFailClosedInsteadOfThrowing()
+    {
+        var maximumDateSchedule = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            RecurrenceInterval = 1,
+            StartDate = "9999-12-31",
+            DaysOfWeekMask = PluginConfiguration.AllSceneScheduleDaysMask
+        };
+        var maximumDateNow = new DateTime(9999, 12, 31, 23, 59, 0, DateTimeKind.Utc);
+
+        var maximumDateException = Record.Exception(() =>
+        {
+            Assert.Null(HueSceneAutomationService.GetNextRunUtc(maximumDateSchedule, maximumDateNow));
+            Assert.False(HueSceneAutomationService.IsDue(maximumDateSchedule, maximumDateNow));
+        });
+
+        Assert.Null(maximumDateException);
+
+        var minimumDateSolarSchedule = new HueSceneSchedule
+        {
+            Enabled = true,
+            TimeMode = PluginConfiguration.SceneScheduleTimeModeSunrise,
+            SolarLatitude = 0,
+            SolarLongitude = 0,
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+            RecurrenceInterval = 1,
+            StartDate = "0001-01-01",
+            DaysOfWeekMask = PluginConfiguration.AllSceneScheduleDaysMask
+        };
+
+        var minimumDateException = Record.Exception(() =>
+        {
+            var occurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+                minimumDateSolarSchedule,
+                DateTime.MinValue,
+                maxOccurrences: 1,
+                horizonDays: 1);
+            Assert.Empty(occurrences);
+        });
+
+        Assert.Null(minimumDateException);
+    }
+
+    [Fact]
     public void TimeZoneAwareSchedule_UsesUtcInstantAndSelectedZoneWallClock()
     {
         var schedule = new HueSceneSchedule

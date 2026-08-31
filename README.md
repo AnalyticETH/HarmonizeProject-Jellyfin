@@ -504,7 +504,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.442 (Current)
+### Version 1.5.443 (Current)
+
+- **Scheduler boundary safety**: schedule previews, due checks, and run-slot resolution fail closed when adjacent-date probing reaches the minimum or maximum representable calendar date instead of throwing from `DateTime` arithmetic.
+
+- **Maximum-date safety**: valid one-time and recurring cues on `9999-12-31` remain safe to inspect even after the final representable occurrence has elapsed.
+
+- **Regression coverage**: scheduler tests cover minimum-date solar lookback and maximum-date fixed-time evaluation without exceptions.
+
+### Version 1.5.442
 
 - **Sub-second seek recovery**: Video and audio FFmpeg restarts preserve any positive playback position, including seeks below one second, instead of silently restarting from the beginning.
 

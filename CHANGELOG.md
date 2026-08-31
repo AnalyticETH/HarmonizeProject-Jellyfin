@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.443] - 2026-08-31
+
+### Scheduler boundary safety
+- **Date-boundary hardening**: schedule previews, due checks, and run-slot resolution now fail closed when adjacent-date probing reaches the minimum or maximum representable calendar date instead of throwing from `DateTime` arithmetic.
+- **Maximum-date safety**: valid one-time and recurring cues on `9999-12-31` remain safe to inspect even after the final representable occurrence has elapsed.
+- **Regression coverage**: scheduler tests cover minimum-date solar lookback and maximum-date fixed-time evaluation without exceptions.
+
 ## [1.5.442] - 2026-08-31
 
 ### Precise FFmpeg recovery and bounded capture arguments
