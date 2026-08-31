@@ -3382,6 +3382,16 @@ async function testBridgeDiscoveryLifecycleGuards() {
             key: "mappingBridgeDiscovery",
             currentAddress: "192.168.1.30",
             staleAddress: "192.168.1.31"
+        },
+        {
+            method: "discoverMappingDeviceRouteBridge",
+            input: "#mappingDeviceRouteBridge",
+            button: "#mappingDiscoverDeviceRouteBridgeBtn",
+            status: "#mappingDeviceRouteEditorStatus",
+            loading: "_hueMappingDeviceRouteBridgeDiscoveryLoading",
+            key: "mappingDeviceRouteBridgeDiscovery",
+            currentAddress: "192.168.1.32",
+            staleAddress: "192.168.1.33"
         }
     ]) {
         const harness = makeHarness();
@@ -3439,6 +3449,49 @@ async function testBridgeDiscoveryLifecycleGuards() {
         assert.equal(loadingHides, 3, `stale ${testCase.method} hides its loading indicator`);
         assert.equal(page._huePageRequests[testCase.key], undefined, `stale ${testCase.method} removes request state`);
     }
+}
+
+async function testMappingDeviceRouteBridgeDiscoveryDoesNotCancelOuterSearch() {
+    const harness = makeHarness();
+    const { page, api, requests, dashboard } = harness;
+    const outerInput = page.querySelector("#mappingBridgeIp");
+    const routeInput = page.querySelector("#mappingDeviceRouteBridge");
+    const outerStatus = page.querySelector("#mappingBridgeStatus");
+    const routeStatus = page.querySelector("#mappingDeviceRouteEditorStatus");
+    outerInput.value = "outer-before";
+    routeInput.value = "route-before";
+    let loadingShows = 0;
+    let loadingHides = 0;
+    dashboard.showLoadingMsg = () => { loadingShows += 1; };
+    dashboard.hideLoadingMsg = () => { loadingHides += 1; };
+
+    const outerOperation = api.discoverMappingBridge(page);
+    assert.equal(requests.length, 1, "outer mapping discovery starts independently");
+    assert.equal(outerStatus.textContent, "Searching for a Hue Bridge...", "outer discovery reports its own progress");
+
+    const routeOperation = api.discoverMappingDeviceRouteBridge(page);
+    assert.equal(requests.length, 2, "route bridge discovery starts a separate request");
+    assert.equal(requests[0].promise.aborted, false, "route discovery does not abort outer mapping discovery");
+    assert.ok(page._huePageRequests.mappingBridgeDiscovery, "outer mapping discovery keeps its lifecycle record");
+    assert.ok(page._huePageRequests.mappingDeviceRouteBridgeDiscovery, "route discovery owns a distinct lifecycle record");
+    assert.equal(outerInput.value, "outer-before", "route discovery leaves outer bridge input unchanged while pending");
+    assert.equal(loadingShows, 1, "route discovery reuses the outer global loader instead of replacing it");
+
+    requests[1].resolve({ IpAddresses: ["route-bridge"] });
+    await routeOperation;
+    assert.equal(routeInput.value, "route-bridge", "route discovery applies its selected bridge to the route editor");
+    assert.equal(page.querySelector("#mappingDeviceRouteBridgeCandidates").children.length, 1, "route discovery renders route bridge suggestions");
+    assert.equal(outerInput.value, "outer-before", "route discovery cannot overwrite the outer mapping bridge input");
+    assert.equal(outerStatus.textContent, "Searching for a Hue Bridge...", "route discovery cannot overwrite the outer mapping status");
+    assert.equal(requests[0].promise.aborted, false, "outer mapping discovery remains active after route completion");
+    assert.equal(loadingHides, 0, "route completion does not hide the outer discovery loader");
+
+    requests[0].resolve({ IpAddresses: ["outer-bridge"] });
+    await outerOperation;
+    assert.equal(outerInput.value, "outer-bridge", "outer mapping discovery still applies its own result");
+    assert.equal(routeInput.value, "route-bridge", "outer mapping discovery cannot overwrite the route bridge input");
+    assert.equal(routeStatus.style.color, "#8bc34a", "route discovery reports success in the route editor status");
+    assert.equal(loadingHides, 1, "the outer discovery loader hides only after the outer request completes");
 }
 
 async function testConfigurationImportSubmitLifecycleGuards() {
@@ -7253,6 +7306,7 @@ await testGlobalLoaderOwnershipAcrossPreviewAndConfigurationImport();
 await testNestedPreviewLoaderOwnershipAcrossCertificatePreflight();
 await testPreviewCancellationLoaderOwnershipAcrossRetainedPages();
 await testGlobalLoaderOwnershipAcrossPageLifecycleOperations();
+await testMappingDeviceRouteBridgeDiscoveryDoesNotCancelOuterSearch();
 await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();

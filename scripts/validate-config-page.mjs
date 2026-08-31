@@ -200,7 +200,10 @@ const requiredMarkup = [
     'id="mappingDeviceRouteId" type="text" is="emby-input" aria-label="Device ID (case-sensitive)"',
     'id="mappingDeviceRouteName" type="text" is="emby-input" aria-label="Device name (optional)"',
     'id="mappingDeviceRouteBridge"',
-    'id="mappingDeviceRouteBridge" type="text" is="emby-input" aria-label="Route bridge address"',
+    'id="mappingDeviceRouteBridge" type="text" is="emby-input" list="mappingDeviceRouteBridgeCandidates" aria-label="Route bridge address"',
+    'id="mappingDeviceRouteBridge" type="text" is="emby-input" list="mappingDeviceRouteBridgeCandidates"',
+    'id="mappingDiscoverDeviceRouteBridgeBtn"',
+    'id="mappingDeviceRouteBridgeCandidates"',
     'id="mappingDeviceRouteAppKey"',
     'id="mappingDeviceRouteAppKey" type="password" is="emby-input" aria-label="Route App Key (new/replacement only)"',
     'id="mappingDeviceRouteClientKey"',
@@ -494,9 +497,12 @@ const requiredScript = [
     "getPageLifecycleRequest: function",
     "bridgeDiscovery",
     "mappingBridgeDiscovery",
+    "mappingDeviceRouteBridgeDiscovery",
     "page._hueBridgeDiscoveryLoading",
     "page._hueMappingBridgeDiscoveryLoading",
+    "page._hueMappingDeviceRouteBridgeDiscoveryLoading",
     "HueConfigurationPage.discoverMappingBridge(this.closest('.page'))",
+    "HueConfigurationPage.discoverMappingDeviceRouteBridge(this.closest('.page'))",
     "getBridgeCertificatePins: function",
     "renderBridgeCertificatePins: function",
     "forgetBridgeCertificatePin: function",
@@ -1391,6 +1397,7 @@ for (const [functionName, markers] of [
     for (const functionName of [
         "discoverBridge",
         "discoverMappingBridge",
+        "discoverMappingDeviceRouteBridge",
         "discoverMappingDevices",
         "registerBridge",
         "editUserMapping",
@@ -2399,7 +2406,8 @@ for (const [selector, keys] of [
 
 for (const [functionName, requestKey, loadingProperty, targetInputId] of [
     ["discoverBridge", "bridgeDiscovery", "_hueBridgeDiscoveryLoading", "hueBridgeIp"],
-    ["discoverMappingBridge", "mappingBridgeDiscovery", "_hueMappingBridgeDiscoveryLoading", "mappingBridgeIp"]
+    ["discoverMappingBridge", "mappingBridgeDiscovery", "_hueMappingBridgeDiscoveryLoading", "mappingBridgeIp"],
+    ["discoverMappingDeviceRouteBridge", "mappingDeviceRouteBridgeDiscovery", "_hueMappingDeviceRouteBridgeDiscoveryLoading", "mappingDeviceRouteBridge"]
 ]) {
     const start = scriptMatch[1].indexOf(`${functionName}: function`);
     const end = scriptMatch[1].indexOf("\n                },", start);
@@ -2418,6 +2426,33 @@ for (const [functionName, requestKey, loadingProperty, targetInputId] of [
         if (!functionBody.includes(marker)) {
             throw new Error(`${file} ${functionName} is missing lifecycle guard: ${marker}`);
         }
+    }
+}
+
+{
+    const routeStart = scriptMatch[1].indexOf("discoverMappingDeviceRouteBridge: function");
+    const routeEnd = scriptMatch[1].indexOf("\n                },", routeStart);
+    const routeBody = routeStart >= 0 && routeEnd > routeStart
+        ? scriptMatch[1].slice(routeStart, routeEnd)
+        : "";
+    for (const marker of [
+        "var routeTarget = HueConfigurationPage.getMappingDeviceRouteTarget(page);",
+        "'mappingDeviceRouteBridgeDiscovery'",
+        "page.querySelector('#mappingDeviceRouteBridge')",
+        "page.querySelector('#mappingDeviceRouteBridgeCandidates')",
+        "page.querySelector('#mappingDeviceRouteEditorStatus')",
+        "var hasGlobalLoadingOwner = !!HueConfigurationPage._hueGlobalLoadingOwner;",
+        "if (!hasGlobalLoadingOwner) Dashboard.showLoadingMsg();"
+    ]) {
+        if (!routeBody.includes(marker)) {
+            throw new Error(`${file} route bridge discovery must remain scoped to its own request and controls: ${marker}`);
+        }
+    }
+    if (routeBody.includes("'mappingBridgeDiscovery'") || routeBody.includes("#mappingBridgeIp")) {
+        throw new Error(`${file} route bridge discovery must not reuse outer mapping bridge state`);
+    }
+    if (!scriptMatch[1].includes("HueConfigurationPage.discoverMappingDeviceRouteBridge(this.closest('.page'))")) {
+        throw new Error(`${file} route bridge discovery button must resolve its owning page`);
     }
 }
 

@@ -1639,7 +1639,11 @@
                                         <input id="mappingDeviceRouteName" type="text" is="emby-input" aria-label="Device name (optional)" placeholder="Device name (optional)" style="flex: 1 1 220px;" />
                                     </div>
                                     <div style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: .5em;">
-                                        <input id="mappingDeviceRouteBridge" type="text" is="emby-input" aria-label="Route bridge address" placeholder="Route bridge address" style="flex: 1 1 220px;" />
+                                        <div style="display: flex; gap: .5em; align-items: center; flex: 1 1 320px;">
+                                            <input id="mappingDeviceRouteBridge" type="text" is="emby-input" list="mappingDeviceRouteBridgeCandidates" aria-label="Route bridge address" placeholder="Route bridge address" style="flex: 1 1 220px;" />
+                                            <button is="emby-button" type="button" class="raised" id="mappingDiscoverDeviceRouteBridgeBtn" aria-label="Discover bridge for this playback device route"><span>Discover Route Bridge</span></button>
+                                        </div>
+                                        <datalist id="mappingDeviceRouteBridgeCandidates"></datalist>
                                         <input id="mappingDeviceRouteAppKey" type="password" is="emby-input" aria-label="Route App Key (new/replacement only)" autocomplete="new-password" placeholder="Route App Key (new/replacement only)" style="flex: 1 1 220px;" />
                                         <input id="mappingDeviceRouteClientKey" type="password" is="emby-input" aria-label="Route Client Key (new/replacement only)" autocomplete="new-password" placeholder="Route Client Key (new/replacement only)" style="flex: 1 1 220px;" />
                                     </div>
@@ -3307,6 +3311,11 @@
                         var mappingPlaybackDevicesButton = page.querySelector && page.querySelector('#mappingDiscoverDevicesBtn');
                         if (mappingPlaybackDevicesButton) mappingPlaybackDevicesButton.disabled = false;
                     }
+                    if (key === 'mappingDeviceRouteBridgeDiscovery') {
+                        page._hueMappingDeviceRouteBridgeDiscoveryLoading = false;
+                        var mappingDeviceRouteBridgeDiscoveryButton = page.querySelector && page.querySelector('#mappingDiscoverDeviceRouteBridgeBtn');
+                        if (mappingDeviceRouteBridgeDiscoveryButton) mappingDeviceRouteBridgeDiscoveryButton.disabled = false;
+                    }
                     if (key === 'userMappingDependencies') {
                         page._hueUserMappingDependenciesRequest = null;
                     }
@@ -3544,6 +3553,7 @@
                     var pageLoadingOwners = [
                         page._hueBridgeDiscoveryLoadingOwner,
                         page._hueMappingBridgeDiscoveryLoadingOwner,
+                        page._hueMappingDeviceRouteBridgeDiscoveryLoadingOwner,
                         page._hueMappingPlaybackDevicesLoadingOwner,
                         page._hueRegistrationLoadingOwner,
                         page._hueUserMappingEditLoadingOwner,
@@ -3753,8 +3763,10 @@
                     // leave the discovery affordance/spinner wedged when its request
                     // settles after pagehide.
                     page._hueMappingPlaybackDevicesLoading = false;
+                    page._hueMappingDeviceRouteBridgeDiscoveryLoading = false;
                     page._hueBridgeDiscoveryLoadingOwner = null;
                     page._hueMappingBridgeDiscoveryLoadingOwner = null;
+                    page._hueMappingDeviceRouteBridgeDiscoveryLoadingOwner = null;
                     page._hueMappingPlaybackDevicesLoadingOwner = null;
                     page._hueRegistrationLoadingOwner = null;
                     page._hueUserMappingEditLoadingOwner = null;
@@ -15270,6 +15282,7 @@
                         '#mappingDeviceRouteId',
                         '#mappingDeviceRouteName',
                         '#mappingDeviceRouteBridge',
+                        '#mappingDiscoverDeviceRouteBridgeBtn',
                         '#mappingDeviceRouteAppKey',
                         '#mappingDeviceRouteClientKey',
                         '#mappingDeviceRouteAreaSelect',
@@ -15433,6 +15446,106 @@
                             delete page._huePageRequests.mappingBridgeDiscovery;
                             page._hueMappingBridgeDiscoveryLoading = false;
                             discoverBtn.disabled = false;
+                            HueConfigurationPage.releasePageLoading(loadingOwner);
+                        });
+                },
+
+                discoverMappingDeviceRouteBridge: function (page) {
+                    page = page || document.querySelector('.pluginConfigurationPage');
+                    var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    if (!page || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) {
+                        return Promise.resolve();
+                    }
+                    var ipInput = page.querySelector('#mappingDeviceRouteBridge');
+                    var discoverBtn = page.querySelector('#mappingDiscoverDeviceRouteBridgeBtn');
+                    var statusEl = page.querySelector('#mappingDeviceRouteEditorStatus');
+                    if (!ipInput || !discoverBtn) {
+                        return Promise.resolve();
+                    }
+
+                    var routeTarget = HueConfigurationPage.getMappingDeviceRouteTarget(page);
+                    var discoveryTarget = {
+                        bridgeIp: String(ipInput.value || '').trim(),
+                        userId: String(routeTarget.userId || '').trim(),
+                        deviceId: String(routeTarget.deviceId || '').trim(),
+                        mappingId: String(routeTarget.mappingId || '').trim()
+                    };
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'mappingDeviceRouteBridgeDiscovery');
+                    discoverBtn.disabled = true;
+                    page._hueMappingDeviceRouteBridgeDiscoveryLoading = true;
+                    HueConfigurationPage.setMappingDeviceRouteEditorStatus('Searching for a bridge for this playback device route...', '', page);
+
+                    // Discovery is independent from the outer mapping bridge search.
+                    // Keep its request and page controls isolated, and do not replace
+                    // an existing global loader owner when the outer search is active.
+                    var hasGlobalLoadingOwner = !!HueConfigurationPage._hueGlobalLoadingOwner;
+                    if (!hasGlobalLoadingOwner) Dashboard.showLoadingMsg();
+                    var request = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'mappingDeviceRouteBridgeDiscovery',
+                        ApiClient.getUrl("HueSync/DiscoverBridges"),
+                        null,
+                        discoveryTarget);
+                    var loadingOwner = null;
+                    if (!hasGlobalLoadingOwner) {
+                        loadingOwner = HueConfigurationPage.claimPageLoading(
+                            page,
+                            request,
+                            '_hueMappingDeviceRouteBridgeDiscoveryLoadingOwner');
+                        if (request._huePageRequestRecord) request._huePageRequestRecord.loadingOwner = loadingOwner;
+                    }
+                    var isCurrent = function () {
+                        var currentTarget = HueConfigurationPage.getMappingDeviceRouteTarget(page);
+                        return HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                            page,
+                            pageGeneration,
+                            request,
+                            {
+                                bridgeIp: String(currentTarget.bridgeIp || '').trim(),
+                                userId: String(currentTarget.userId || '').trim(),
+                                deviceId: String(currentTarget.deviceId || '').trim(),
+                                mappingId: String(currentTarget.mappingId || '').trim()
+                            });
+                    };
+
+                    return request
+                        .then(function (response) {
+                            if (!isCurrent()) return;
+                            var addresses = HueConfigurationPage.getBridgeDiscoveryAddresses(response);
+                            var ipAddress = addresses[0];
+                            if (!ipAddress) {
+                                throw new Error("No bridge address was returned.");
+                            }
+
+                            HueConfigurationPage.populateBridgeCandidates(
+                                ipInput,
+                                page.querySelector('#mappingDeviceRouteBridgeCandidates'),
+                                addresses);
+                            if (statusEl) {
+                                statusEl.textContent = addresses.length === 1
+                                    ? "Route bridge discovered at " + ipAddress + ". Add route credentials and load its areas."
+                                    : "Found " + addresses.length + " bridges; selected " + ipAddress + " for this route. Choose another from the address suggestions if needed.";
+                                statusEl.style.color = '#8bc34a';
+                            }
+                        })
+                        .catch(function (err) {
+                            if (!isCurrent()) return;
+                            console.error("Mapping device-route bridge discovery error:", err);
+                            HueConfigurationPage.setMappingDeviceRouteEditorStatus('No route bridge found. Verify the server can reach the local network.', 'error', page);
+                        })
+                        .finally(function () {
+                            var requestRecord = request && request._huePageRequestRecord;
+                            var tracked = page && page._huePageRequests &&
+                                page._huePageRequests.mappingDeviceRouteBridgeDiscovery === requestRecord;
+                            if (!tracked) {
+                                if (loadingOwner) HueConfigurationPage.releasePageLoading(loadingOwner);
+                                return;
+                            }
+                            delete page._huePageRequests.mappingDeviceRouteBridgeDiscovery;
+                            page._hueMappingDeviceRouteBridgeDiscoveryLoading = false;
+                            discoverBtn.disabled = false;
+                            if (!loadingOwner) page._hueMappingDeviceRouteBridgeDiscoveryLoadingOwner = null;
                             HueConfigurationPage.releasePageLoading(loadingOwner);
                         });
                 },
@@ -17507,6 +17620,10 @@
             // User mapping button event listeners
             document.querySelector('#mappingDiscoverBtn').addEventListener('click', function () {
                 HueConfigurationPage.discoverMappingBridge(this.closest('.page'));
+            });
+
+            document.querySelector('#mappingDiscoverDeviceRouteBridgeBtn').addEventListener('click', function () {
+                HueConfigurationPage.discoverMappingDeviceRouteBridge(this.closest('.page'));
             });
 
             document.querySelector('#mappingDiscoverDevicesBtn').addEventListener('click', function () {
