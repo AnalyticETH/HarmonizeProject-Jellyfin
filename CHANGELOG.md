@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.434] - 2026-08-31
+
+### Route-specific bridge discovery and accessible scheduler refresh
+- **Playback-device route bridge discovery**: the administrator route editor can now discover and suggest bridge addresses independently of the parent mapping bridge, with isolated cancellation and stale-result protection.
+- **Accessible scheduler refresh**: explicit scheduler refreshes announce loading, success, unavailable, and error states through a polite one-shot live region while background polling remains quiet.
+- **Regression coverage**: route-vs-parent discovery concurrency, retained-page teardown, target mutation, manual refresh announcements, and the existing configuration-page contracts are covered by automated tests and validators.
+
 ## [1.5.433] - 2026-08-31
 
 ### Retained-page lifecycle and bounded FFmpeg input hardening

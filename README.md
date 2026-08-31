@@ -504,7 +504,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.433 (Current)
+### Version 1.5.434 (Current)
+
+- **Playback-device route bridge discovery**: the administrator route editor can now discover and suggest bridge addresses independently of the parent mapping bridge, with isolated cancellation and stale-result protection.
+
+- **Accessible scheduler refresh**: explicit scheduler refreshes announce loading, success, unavailable, and error states through a polite one-shot live region while background polling remains quiet.
+
+- **Regression coverage**: route-vs-parent discovery concurrency, retained-page teardown, target mutation, manual refresh announcements, and the existing configuration-page contracts are covered by automated tests and validators.
+
+### Version 1.5.433
 
 - **Retained-page lifecycle hardening**: document-level `pageshow` and `pagehide` handlers are installed once, so Jellyfin retained-page re-evaluation cannot multiply polling, cancellation, or cleanup callbacks.
 
