@@ -504,7 +504,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.440 (Current)
+### Version 1.5.441 (Current)
+
+- **Adaptive FFmpeg health monitoring**: capture health checks now poll at the configured stall budget (capped at ten seconds), so short 1-5 second budgets are observed promptly instead of waiting on a fixed ten-second interval.
+
+- **Audio parameter safety**: invalid PCM sample-rate or channel-count requests fail closed without launching FFmpeg, preserving the existing bounded cleanup contract.
+
+- **Regression coverage**: Linux integration coverage starts a tokenized audio capture process, verifies PCM output, validates invalid-parameter rejection, and proves process cleanup.
 
 - **Audio-session recovery**: Startup recovery now restores already-playing unpaused audio sessions at Jellyfin's current position when the effective playback scope includes audio, matching existing video recovery.
 

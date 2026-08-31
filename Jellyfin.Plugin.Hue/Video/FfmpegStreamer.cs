@@ -112,6 +112,12 @@ namespace Jellyfin.Plugin.Hue.Video
         private static int NormalizeStallTimeout(int stallTimeoutSeconds) =>
             Math.Clamp(stallTimeoutSeconds, MinStallTimeoutSeconds, MaxStallTimeoutSeconds);
 
+        internal static TimeSpan GetHealthMonitorInterval(int stallTimeoutSeconds)
+        {
+            var normalizedTimeout = NormalizeStallTimeout(stallTimeoutSeconds);
+            return TimeSpan.FromSeconds(Math.Min(10, normalizedTimeout));
+        }
+
         /// <summary>
         /// Splits the administrator's additional FFmpeg flags into process arguments
         /// without invoking a shell. Quotes group values containing spaces and a
@@ -635,6 +641,11 @@ namespace Jellyfin.Plugin.Hue.Video
                     _logger.LogError(ex, "Invalid FFmpeg custom flags; refusing to start the audio process.");
                     return null;
                 }
+                catch (ArgumentOutOfRangeException ex)
+                {
+                    _logger.LogError(ex, "Invalid FFmpeg audio output parameters; refusing to start the audio process.");
+                    return null;
+                }
 
                 return StartProcess(arguments, audioPath, ffmpegPath);
             }
@@ -985,7 +996,8 @@ namespace Jellyfin.Plugin.Hue.Video
             {
                 while (!cancellationToken.IsCancellationRequested && !process.HasExited)
                 {
-                    await Task.Delay(10000, cancellationToken).ConfigureAwait(false);
+                    var stallTimeoutSeconds = NormalizeStallTimeout(StallTimeoutSeconds);
+                    await Task.Delay(GetHealthMonitorInterval(stallTimeoutSeconds), cancellationToken).ConfigureAwait(false);
                     DateTime startTime;
                     DateTime lastFrameTime;
                     lock (_stateLock)
@@ -995,11 +1007,11 @@ namespace Jellyfin.Plugin.Hue.Video
                     }
 
                     if (!cancellationToken.IsCancellationRequested &&
-                        !IsHealthy(process, startTime, lastFrameTime, NormalizeStallTimeout(StallTimeoutSeconds)))
+                        !IsHealthy(process, startTime, lastFrameTime, stallTimeoutSeconds))
                     {
                         _logger.LogWarning(
                             "FFmpeg appears stalled — no media samples in {0}+ seconds. Processed {1} samples total.",
-                            NormalizeStallTimeout(StallTimeoutSeconds),
+                            stallTimeoutSeconds,
                             FramesProcessed);
                     }
                 }

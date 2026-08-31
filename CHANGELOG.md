@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.441] - 2026-08-31
+
+### FFmpeg audio capture lifecycle
+- **Adaptive health monitoring**: FFmpeg health checks now poll at the configured stall budget (capped at ten seconds), so short 1-5 second budgets are observed promptly instead of waiting on a fixed ten-second interval.
+- **Audio parameter safety**: Invalid PCM sample-rate or channel-count requests now fail closed with a sanitized error and never launch FFmpeg.
+- **Regression coverage**: Linux integration coverage starts a real tokenized audio capture process, verifies PCM output, validates invalid-parameter rejection, and proves bounded process cleanup.
+
 ## [1.5.440] - 2026-08-31
 
 ### Startup playback recovery

@@ -229,6 +229,116 @@ public sealed class FfmpegStreamerTests
             arguments);
     }
 
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 1)]
+    [InlineData(5, 5)]
+    [InlineData(60, 10)]
+    [InlineData(999, 10)]
+    public void GetHealthMonitorInterval_TracksConfiguredStallBudget(
+        int stallTimeoutSeconds,
+        int expectedSeconds)
+    {
+        Assert.Equal(
+            TimeSpan.FromSeconds(expectedSeconds),
+            FfmpegStreamer.GetHealthMonitorInterval(stallTimeoutSeconds));
+    }
+
+    [Theory]
+    [InlineData(0, 2)]
+    [InlineData(8000, 0)]
+    public void StartAudioFfmpeg_RejectsInvalidPcmParametersWithoutLaunching(
+        int sampleRate,
+        int channels)
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        using var temporaryDirectory = new TemporaryDirectory();
+        var markerPath = Path.Combine(temporaryDirectory.Path, "started.marker");
+        var scriptPath = Path.Combine(temporaryDirectory.Path, "fake-ffmpeg-audio.sh");
+        var mediaPath = Path.Combine(temporaryDirectory.Path, "input.m4a");
+        File.WriteAllText(
+            scriptPath,
+            $"#!/bin/sh\nprintf started > '{markerPath}'\nprintf PCM\n");
+        File.SetUnixFileMode(
+            scriptPath,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+            UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        File.WriteAllBytes(mediaPath, Array.Empty<byte>());
+
+        var streamer = new FfmpegStreamer(Mock.Of<ILogger<FfmpegStreamer>>());
+        try
+        {
+            Assert.Null(streamer.StartAudioFfmpeg(
+                mediaPath,
+                useGpu: false,
+                ffmpegPath: scriptPath,
+                sampleRate: sampleRate,
+                channels: channels));
+            Assert.False(File.Exists(markerPath));
+        }
+        finally
+        {
+            streamer.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task StartAudioFfmpeg_StreamsPcmAndStopsProcess()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        using var temporaryDirectory = new TemporaryDirectory();
+        var scriptPath = Path.Combine(temporaryDirectory.Path, "fake-ffmpeg-audio.sh");
+        var mediaPath = Path.Combine(temporaryDirectory.Path, "input.m4a");
+        File.WriteAllText(
+            scriptPath,
+            "#!/bin/sh\nprintf 'PCM'\nprintf 'fake audio stderr\\n' >&2\nwhile :; do sleep 1; done\n");
+        File.SetUnixFileMode(
+            scriptPath,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+            UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        File.WriteAllBytes(mediaPath, Array.Empty<byte>());
+
+        var streamer = new FfmpegStreamer(Mock.Of<ILogger<FfmpegStreamer>>());
+        Stream? output = null;
+        var processId = 0;
+        try
+        {
+            output = streamer.StartAudioFfmpeg(
+                mediaPath,
+                useGpu: false,
+                ffmpegPath: scriptPath,
+                seekPositionSeconds: 0,
+                sampleRate: 8000,
+                channels: 2);
+
+            Assert.NotNull(output);
+            Assert.Equal((byte)'P', output!.ReadByte());
+            Assert.Equal((byte)'C', output.ReadByte());
+
+            var process = GetPrivateField<Process>(streamer, "_ffmpegProcess");
+            Assert.NotNull(process);
+            processId = process!.Id;
+
+            streamer.Stop();
+
+            Assert.NotNull(Record.Exception(() => output.ReadByte()));
+            Assert.True(await WaitForProcessExitAsync(processId));
+        }
+        finally
+        {
+            streamer.Stop();
+            output?.Dispose();
+            if (processId > 0)
+                await WaitForProcessExitAsync(processId);
+        }
+    }
+
     [Fact]
     public async Task Stop_ClosesOutputAndStopsTheEntireProcessTree()
     {
