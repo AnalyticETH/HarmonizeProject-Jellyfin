@@ -496,7 +496,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.426 (Current)
+### Version 1.5.427 (Current)
+
+- **Entertainment-area payload validation**: malformed successful bridge responses with missing, null, non-array, or duplicate area data now fail closed instead of being treated as an empty or response-order-dependent target list.
+
+- **Test Connection lifecycle ownership**: default and per-user mapping connection tests are now page- and target-owned, abort on teardown, and suppress stale results after bridge, area, credential, or channel edits.
+
+- **Trusted-build evidence gate**: main CI now requires non-empty TRX and Cobertura reports and rejects missing evidence before release packaging.
+
+- **Regression coverage**: Hue response parsing, administrator lifecycle races, and trusted workflow negative contracts cover the new boundaries.
 
 - **Duplicate device-route playback arbitration**: concurrent playback now rejects duplicate nested device IDs before route lookup instead of falling back to another Hue target.
 
@@ -506,7 +514,7 @@ Benchmarks measure:
 
 - **Regression coverage**: API, configuration, and browser lifecycle contracts cover duplicate routes, credential retention, and deferred preview-cancellation races.
 
-### Version 1.5.425
+### Version 1.5.426
 
 - **Credential preflight route arbitration**: credential-bearing entertainment-area requests now reject ambiguous duplicate nested device IDs before selecting stored keys or contacting Hue, matching schedule, capture, and diagnostics fail-closed behavior.
 

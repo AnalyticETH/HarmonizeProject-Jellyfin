@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.427] - 2026-08-31
+
+### Fail-closed bridge payloads, Test Connection lifecycle, and CI evidence
+- **Entertainment-area payload validation**: malformed successful bridge responses with missing, null, non-array, or duplicate area data now fail closed instead of being treated as an empty or response-order-dependent target list.
+- **Test Connection lifecycle ownership**: default and per-user mapping connection tests are now page- and target-owned, abort on teardown, and suppress stale results after bridge, area, credential, or channel edits.
+- **Trusted-build evidence gate**: main CI now requires non-empty TRX and Cobertura reports and rejects missing evidence before release packaging.
+- **Regression coverage**: Hue response parsing, administrator lifecycle races, and trusted workflow negative contracts cover the new boundaries.
+
 ## [1.5.426] - 2026-08-31
 
 ### Fail-closed legacy route credentials and retained-page loader cancellation

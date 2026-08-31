@@ -163,6 +163,12 @@ for (const marker of [
   "uses: ./.github/workflows/security-scan.yml",
   "Validate pinned .NET SDK parity",
   "node scripts/validate-dotnet-sdk.mjs",
+  "Require non-empty test and coverage evidence",
+  "test_results=\"$(find ./TestResults -type f -name '*.trx' -size +0c -print -quit)\"",
+  "coverage_results=\"$(find ./TestResults -type f -name 'coverage.cobertura.xml' -size +0c -print -quit)\"",
+  "No non-empty TRX test result was produced",
+  "No non-empty Cobertura coverage report was produced",
+  "if-no-files-found: error",
   "jq -er '.version | strings | select(test(\"^[0-9]+\\\\.[0-9]+\\\\.[0-9]+\\\\.[0-9]+$\"))'",
   'local_tag_ref="refs/tags/${TAG}"',
   'git show-ref --verify --quiet "$local_tag_ref"',
@@ -259,6 +265,20 @@ if (securityGuardCount !== 2) {
 
 const ciJobs = getJobBlocks(ci, ciPath);
 const securityJobs = getJobBlocks(security, securityPath);
+
+const buildAndTestJob = ciJobs.find(job => job.name === "build-and-test");
+if (!buildAndTestJob) {
+  throw new Error(`${ciPath} is missing the build-and-test job required for test and coverage evidence`);
+}
+const failClosedArtifactUploads = buildAndTestJob.lines.filter(line =>
+  /^\s+if-no-files-found:\s*error\s*$/.test(withoutComment(line)),
+).length;
+if (failClosedArtifactUploads !== 2) {
+  throw new Error(
+    `${ciPath} build-and-test must keep exactly two fail-closed test and coverage artifact uploads `
+      + `(found ${failClosedArtifactUploads})`,
+  );
+}
 
 for (const job of ciJobs) {
   if (isReusableWorkflowJob(job)) continue;

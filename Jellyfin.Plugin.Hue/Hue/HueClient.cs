@@ -815,31 +815,43 @@ namespace Jellyfin.Plugin.Hue.Hue
                     var json = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
                     using var doc = JsonDocument.Parse(json);
 
-                    var results = new List<EntertainmentArea>();
-                    if (doc.RootElement.TryGetProperty("data", out var dataElement) && dataElement.ValueKind == JsonValueKind.Array)
+                    if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+                        !doc.RootElement.TryGetProperty("data", out var dataElement) ||
+                        dataElement.ValueKind != JsonValueKind.Array)
                     {
-                        if (dataElement.GetArrayLength() > MaxEntertainmentAreas)
-                        {
-                            _logger.LogWarning(
-                                "Hue bridge returned more than the maximum allowed entertainment areas ({0})",
-                                MaxEntertainmentAreas);
-                            return null;
-                        }
+                        _logger.LogWarning("Hue bridge entertainment areas response did not contain an array data property");
+                        return null;
+                    }
 
-                        foreach (var area in dataElement.EnumerateArray())
-                        {
-                            var id = area.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.String
-                                ? idProp.GetString() ?? string.Empty
-                                : string.Empty;
-                            var name = area.TryGetProperty("metadata", out var meta) && meta.ValueKind == JsonValueKind.Object &&
-                                       meta.TryGetProperty("name", out var nameProp) && nameProp.ValueKind == JsonValueKind.String
-                                ? nameProp.GetString() ?? string.Empty
-                                : string.Empty;
+                    var results = new List<EntertainmentArea>();
+                    var seenAreaIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    if (dataElement.GetArrayLength() > MaxEntertainmentAreas)
+                    {
+                        _logger.LogWarning(
+                            "Hue bridge returned more than the maximum allowed entertainment areas ({0})",
+                            MaxEntertainmentAreas);
+                        return null;
+                    }
 
-                            if (!string.IsNullOrEmpty(id))
+                    foreach (var area in dataElement.EnumerateArray())
+                    {
+                        var id = area.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.String
+                            ? idProp.GetString() ?? string.Empty
+                            : string.Empty;
+                        var name = area.TryGetProperty("metadata", out var meta) && meta.ValueKind == JsonValueKind.Object &&
+                                   meta.TryGetProperty("name", out var nameProp) && nameProp.ValueKind == JsonValueKind.String
+                            ? nameProp.GetString() ?? string.Empty
+                            : string.Empty;
+
+                        if (!string.IsNullOrEmpty(id))
+                        {
+                            if (!seenAreaIds.Add(id.Trim()))
                             {
-                                results.Add(new EntertainmentArea(id, string.IsNullOrEmpty(name) ? id : name));
+                                _logger.LogWarning("Hue bridge entertainment areas response contained duplicate area identifiers");
+                                return null;
                             }
+
+                            results.Add(new EntertainmentArea(id, string.IsNullOrEmpty(name) ? id : name));
                         }
                     }
 

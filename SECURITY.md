@@ -36,6 +36,8 @@ Every trusted `main` push runs the named self-hosted CI runner with:
 - Coverage publication keeps the immutable Codecov action optional and explicit: every trusted build retains
   its Cobertura artifact, reports when `CODECOV_TOKEN` is absent, and fails closed when a configured upload
   cannot be authenticated or completed
+- Test and coverage evidence is fail-closed: a trusted build must produce a non-empty TRX result and Cobertura
+  report, and their artifact uploads reject missing files before release packaging can proceed
 
 Bridge HTTP transport also disables automatic redirects and excludes raw bridge response bodies from
 registration/start/stop failure logs, preventing credential-shaped response fields from being sent to

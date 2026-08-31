@@ -2630,6 +2630,110 @@ async function testCredentialLifecyclePreflightPagehideGuard() {
     assert.equal(requests.length, 0, "a stale lifecycle preflight cannot start the credential-bearing API request");
 }
 
+async function testConnectionLifecycleGuards() {
+    const connectionCases = [
+        {
+            name: "default",
+            configure(page) {
+                page.querySelector("#hueBridgeIp").value = "192.168.1.50";
+                page.querySelector("#hueAppKey").value = "default-app-key";
+                page.querySelector("#hueClientKey").value = "default-client-key";
+                page.querySelector("#entertainmentAreaSelect").value = "default-area";
+                page.querySelector("#channelIds").value = "1, 2";
+            },
+            start(api, page) {
+                api.testDefaultConnection(page);
+            },
+            status(page) {
+                return page.querySelector("#bridgeStatus");
+            },
+            mutate(page) {
+                page.querySelector("#hueBridgeIp").value = "192.168.1.51";
+            },
+            button(page) {
+                return page.querySelector("#testConnectionBtn");
+            }
+        },
+        {
+            name: "mapping",
+            configure(page, api) {
+                const mappingState = api.getMappingEditingState(page);
+                mappingState.userId = "12345678-1234-4234-8234-1234567890ab";
+                mappingState.mappingId = "mapping-one";
+                page.querySelector("#mappingUserSelect").value = mappingState.userId;
+                page.querySelector("#mappingBridgeIp").value = "192.168.1.50";
+                page.querySelector("#mappingAppKey").value = "mapping-app-key";
+                page.querySelector("#mappingClientKey").value = "mapping-client-key";
+                page.querySelector("#mappingAreaSelect").value = "mapping-area";
+                page.querySelector("#mappingChannelIdsOverride").value = "3, 4";
+            },
+            start(api, page) {
+                api.testMappingConnection(page);
+            },
+            status(page) {
+                return page.querySelector("#mappingBridgeStatus");
+            },
+            mutate(page) {
+                page.querySelector("#mappingBridgeIp").value = "192.168.1.51";
+            },
+            button(page) {
+                return page.querySelector("#mappingTestConnectionBtn");
+            }
+        }
+    ];
+
+    for (const connectionCase of connectionCases) {
+        for (const outcome of ["success", "error"]) {
+            const harness = makeHarness();
+            const { page, api, requests } = harness;
+            api.ensureBridgeCertificate = () => Promise.resolve(true);
+            connectionCase.configure(page, api);
+            connectionCase.start(api, page);
+            const operation = page._huePreviewRequest;
+            assert.ok(operation && typeof operation.then === "function", `${connectionCase.name} connection test tracks its lifecycle request`);
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(requests.length, 1, `${connectionCase.name} connection test starts one tracked API request`);
+            const status = connectionCase.status(page);
+            status.textContent = `unchanged after ${connectionCase.name} target edit`;
+            connectionCase.mutate(page);
+            if (outcome === "success") {
+                requests[0].resolve({ areaFound: true, streamTested: true, message: "stale success" });
+            } else {
+                requests[0].reject(new Error("stale connection failure"));
+            }
+            await Promise.allSettled([operation]);
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(
+                status.textContent,
+                `unchanged after ${connectionCase.name} target edit`,
+                `${connectionCase.name} stale ${outcome} cannot overwrite a mutated target`
+            );
+            assert.equal(page._huePreviewRequest, null, `${connectionCase.name} ${outcome} cleanup clears the preview request`);
+            assert.equal(page._huePageRequests.preview, undefined, `${connectionCase.name} ${outcome} cleanup clears the page lifecycle record`);
+        }
+
+        const harness = makeHarness();
+        const { page, api, requests } = harness;
+        api.ensureBridgeCertificate = () => Promise.resolve(true);
+        connectionCase.configure(page, api);
+        connectionCase.start(api, page);
+        const operation = page._huePreviewRequest;
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(requests.length, 1, `${connectionCase.name} pagehide case starts one tracked API request`);
+        const status = connectionCase.status(page);
+        status.textContent = `unchanged after ${connectionCase.name} pagehide`;
+        api.invalidatePageLifecycle(page);
+        assert.equal(requests[0].promise.aborted, true, `${connectionCase.name} pagehide aborts the in-flight TestConnection request`);
+        assert.equal(page._huePageRequests.preview, undefined, `${connectionCase.name} pagehide clears the TestConnection lifecycle record`);
+        assert.equal(page._huePreviewRequest, null, `${connectionCase.name} pagehide clears the preview request`);
+        assert.equal(connectionCase.button(page).disabled, false, `${connectionCase.name} pagehide restores the Test Connection button`);
+        requests[0].reject(new Error("pagehide canceled connection test"));
+        await Promise.allSettled([operation]);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(status.textContent, `unchanged after ${connectionCase.name} pagehide`, `${connectionCase.name} pagehide cannot write a stale error`);
+    }
+}
+
 async function testRegistrationLifecycleGuards() {
     const harness = makeHarness();
     const { page, api, requests } = harness;
@@ -6664,6 +6768,7 @@ await testBridgeCertificateTrustRequestLifecycle();
 await testCredentialPreflightCancelGuard();
 await testCredentialPreflightTargetMutationGuard();
 await testCredentialLifecyclePreflightPagehideGuard();
+await testConnectionLifecycleGuards();
 await testRegistrationLifecycleGuards();
 await testMappingRegistrationSiblingPagehideGuard();
 testMappingPlaybackDeviceCacheReadOwnershipGuard();

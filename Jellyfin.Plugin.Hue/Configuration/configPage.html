@@ -2381,7 +2381,7 @@
                             generation,
                             key,
                             url,
-                            requestOptions,
+                            typeof requestOptions === 'function' ? requestOptions() : requestOptions,
                             target);
                         request._huePageRequestRecord = trackedRequest._huePageRequestRecord;
                         return trackedRequest;
@@ -3438,6 +3438,7 @@
                         page._huePreviewRequest ||
                         page._hueCaptureRequest ||
                         page._huePreviewCancellationRequest);
+                    var hadDiagnosticLifecycle = !!page._hueDiagnosticLoadingOwner;
                     var diagnosticLoadingOwner = page._hueDiagnosticLoadingOwner;
                     if (diagnosticLoadingOwner) {
                         page._hueDiagnosticLoadingOwner = null;
@@ -3697,6 +3698,7 @@
                         // a newer retained-page operation's loader directly.
                         if (!diagnosticLoadingOwner && !previewLoadingOwner && !HueConfigurationPage._hueGlobalLoadingOwner) Dashboard.hideLoadingMsg();
                     }
+                    if (hadDiagnosticLifecycle) HueConfigurationPage.setDiagnosticBusy(page, false);
                     page._hueSessionHistoryLoading = false;
                     page._hueSceneScheduleRuntimeStatusLoading = false;
                     page._hueSceneScheduleConflictsLoading = false;
@@ -4947,7 +4949,7 @@
                         dataType: "json"
                     });
                 },
-                fetchConnectionTest: function (bridgeIp, appKey, areaId, clientKey, channelIds, userId, deviceId) {
+                getConnectionTestRequestOptions: function (bridgeIp, appKey, areaId, clientKey, channelIds, userId, deviceId) {
                     var payload = {
                         ipAddress: bridgeIp,
                         appKey: appKey,
@@ -4960,13 +4962,23 @@
                         payload.channelIds = channelIds.trim();
                     }
 
-                    return ApiClient.ajax({
+                    return {
                         type: "POST",
                         url: ApiClient.getUrl("HueSync/TestConnection"),
                         data: JSON.stringify(payload),
                         contentType: "application/json",
                         dataType: "json"
-                    });
+                    };
+                },
+                fetchConnectionTest: function (bridgeIp, appKey, areaId, clientKey, channelIds, userId, deviceId) {
+                    return ApiClient.ajax(HueConfigurationPage.getConnectionTestRequestOptions(
+                        bridgeIp,
+                        appKey,
+                        areaId,
+                        clientKey,
+                        channelIds,
+                        userId,
+                        deviceId));
                 },
                 fetchColorPreview: function (bridgeIp, appKey, clientKey, areaId, channelIds, red, green, blue, brightnessPercent, durationSeconds, userId, transitionSeconds, transitionOutSeconds, effect, effectSpeedPercent, transitionCurve, targetAllEnabledMappings, targetSelection, deviceId) {
                     targetSelection = targetSelection || {};
@@ -13964,28 +13976,47 @@
                         channelIds: channelIds
                     };
                     var preflightFingerprint = HueConfigurationPage.getMappingTargetFingerprint(preflightTarget);
-                    var isCredentialInputCurrent = function () {
+                    var getCurrentTarget = function () {
                         var currentBridgeInput = page.querySelector('#hueBridgeIp');
                         var currentAppKeyInput = page.querySelector('#hueAppKey');
                         var currentClientKeyInput = page.querySelector('#hueClientKey');
                         var currentChannelInput = page.querySelector('#channelIds');
-                        var currentTarget = {
+                        return {
                             bridgeIp: currentBridgeInput ? currentBridgeInput.value.trim() : '',
                             appKey: currentAppKeyInput ? currentAppKeyInput.value.trim() : '',
                             clientKey: currentClientKeyInput ? currentClientKeyInput.value.trim() : '',
                             areaId: HueConfigurationPage.getSelectedAreaId(page),
                             channelIds: currentChannelInput ? currentChannelInput.value.trim() : ''
                         };
-                        return HueConfigurationPage.getMappingTargetFingerprint(currentTarget) === preflightFingerprint;
+                    };
+                    var isCredentialInputCurrent = function () {
+                        return HueConfigurationPage.getMappingTargetFingerprint(getCurrentTarget()) === preflightFingerprint;
                     };
                     var request;
-                    request = HueConfigurationPage.runWithBridgeCertificate(
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                            page,
+                            pageGeneration,
+                            request,
+                            getCurrentTarget());
+                    };
+                    request = HueConfigurationPage.getCredentialLifecycleRequest(
                         page,
+                        pageGeneration,
+                        'preview',
                         bridgeIp,
                         page.querySelector('#bridgeStatus'),
+                        ApiClient.getUrl("HueSync/TestConnection"),
                         function () {
-                            return HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId, clientKey, channelIds);
-                        }, 'preview', isCredentialInputCurrent);
+                            return HueConfigurationPage.getConnectionTestRequestOptions(
+                                bridgeIp,
+                                appKey,
+                                areaId,
+                                clientKey,
+                                channelIds);
+                        },
+                        preflightTarget,
+                        isCredentialInputCurrent);
                     var loadingOwner = HueConfigurationPage.claimDiagnosticLoading(page, request);
                     page._hueDiagnosticLoadingOwner = loadingOwner;
                     page._huePreviewRequest = request;
@@ -13993,12 +14024,12 @@
                     HueConfigurationPage.setDiagnosticBusy(page, true);
                     request
                         .then(function (response) {
-                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
+                            if (!isCurrent()) return;
                             var result = HueConfigurationPage.connectionTestMessage(response, areaId);
                             HueConfigurationPage.refreshStatus(page, result.text, result.tone);
                         })
                         .catch(function (err) {
-                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
+                            if (!isCurrent()) return;
                             console.error("Bridge connection test error:", err);
                             HueConfigurationPage.refreshStatus(page, "Bridge connection failed. Verify the address, app key, and network access.", "error");
                         })
@@ -14010,6 +14041,10 @@
                             }
                             if (page._hueDiagnosticLoadingOwner === loadingOwner) {
                                 page._hueDiagnosticLoadingOwner = null;
+                            }
+                            if (request._huePageRequestRecord && page._huePageRequests &&
+                                page._huePageRequests.preview === request._huePageRequestRecord) {
+                                HueConfigurationPage.cancelPageLifecycleRequest(page, 'preview');
                             }
                             HueConfigurationPage.releaseDiagnosticLoading(loadingOwner);
                         });
@@ -15281,18 +15316,41 @@
                     Dashboard.showLoadingMsg();
                     var preflightTarget = Object.assign({}, target, { channelIds: channelIds });
                     var preflightFingerprint = HueConfigurationPage.getMappingTargetFingerprint(preflightTarget);
-                    var isCredentialInputCurrent = function () {
+                    var getCurrentTarget = function () {
                         var currentTarget = HueConfigurationPage.getEffectiveMappingTarget(page);
                         currentTarget.channelIds = HueConfigurationPage.getEffectiveMappingChannelIds(page, currentTarget);
-                        return HueConfigurationPage.getMappingTargetFingerprint(currentTarget) === preflightFingerprint;
+                        return currentTarget;
                     };
-                    var request = HueConfigurationPage.runWithBridgeCertificate(
+                    var isCredentialInputCurrent = function () {
+                        return HueConfigurationPage.getMappingTargetFingerprint(getCurrentTarget()) === preflightFingerprint;
+                    };
+                    var request;
+                    var isCurrent = function () {
+                        return HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
+                            page,
+                            pageGeneration,
+                            request,
+                            getCurrentTarget());
+                    };
+                    request = HueConfigurationPage.getCredentialLifecycleRequest(
                         page,
+                        pageGeneration,
+                        'preview',
                         target.bridgeIp,
                         statusEl,
+                        ApiClient.getUrl("HueSync/TestConnection"),
                         function () {
-                            return HueConfigurationPage.fetchConnectionTest(target.bridgeIp, target.appKey, target.areaId, target.clientKey, channelIds, target.userId, target.deviceId);
-                        }, 'preview', isCredentialInputCurrent);
+                            return HueConfigurationPage.getConnectionTestRequestOptions(
+                                target.bridgeIp,
+                                target.appKey,
+                                target.areaId,
+                                target.clientKey,
+                                channelIds,
+                                target.userId,
+                                target.deviceId);
+                        },
+                        preflightTarget,
+                        isCredentialInputCurrent);
                     var loadingOwner = HueConfigurationPage.claimDiagnosticLoading(page, request);
                     page._hueDiagnosticLoadingOwner = loadingOwner;
                     page._huePreviewRequest = request;
@@ -15300,7 +15358,7 @@
                     HueConfigurationPage.setDiagnosticBusy(page, true);
                     request
                         .then(function (response) {
-                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
+                            if (!isCurrent()) return;
                             var result = HueConfigurationPage.connectionTestMessage(response, target.areaId);
                             if (statusEl) {
                                 statusEl.textContent = result.text;
@@ -15313,7 +15371,7 @@
                             }
                         })
                         .catch(function (err) {
-                            if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
+                            if (!isCurrent()) return;
                             console.error("Mapping bridge connection test error:", err);
                             if (statusEl) {
                                 statusEl.textContent = "Bridge connection failed. Verify the address, app key, and network access.";
@@ -15328,6 +15386,10 @@
                             }
                             if (page._hueDiagnosticLoadingOwner === loadingOwner) {
                                 page._hueDiagnosticLoadingOwner = null;
+                            }
+                            if (request._huePageRequestRecord && page._huePageRequests &&
+                                page._huePageRequests.preview === request._huePageRequestRecord) {
+                                HueConfigurationPage.cancelPageLifecycleRequest(page, 'preview');
                             }
                             HueConfigurationPage.releaseDiagnosticLoading(loadingOwner);
                         });

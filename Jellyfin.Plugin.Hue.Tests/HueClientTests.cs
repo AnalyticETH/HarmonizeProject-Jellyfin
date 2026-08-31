@@ -486,6 +486,33 @@ public class HueClientTests : IDisposable
         Assert.Empty(result);
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData(@"{""data"": null}")]
+    [InlineData(@"{""data"": {}}")]
+    public async Task GetEntertainmentAreas_MissingOrNonArrayData_ReturnsNull(string responseJson)
+    {
+        SetupHttpResponse(HttpStatusCode.OK, responseJson);
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentAreas("192.168.1.100", "test-app-key");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetEntertainmentAreas_DuplicateIds_ReturnsNull()
+    {
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            @"{""data"": [{""id"": ""area-1""}, {""id"": ""AREA-1""}]}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentAreas("192.168.1.100", "test-app-key");
+
+        Assert.Null(result);
+    }
+
     [Fact]
     public async Task GetEntertainmentAreas_MissingMetadata_HandlesGracefully()
     {

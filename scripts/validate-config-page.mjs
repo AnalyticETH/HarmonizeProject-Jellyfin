@@ -1030,8 +1030,8 @@ for (const [functionName, markers] of [
 }
 
 for (const [functionName, markers] of [
-    ["testDefaultConnection", ["runWithBridgeCertificate", "fetchConnectionTest", "isPageLifecycleCurrent", "isCredentialInputCurrent"]],
-    ["testMappingConnection", ["runWithBridgeCertificate", "fetchConnectionTest", "isPageLifecycleCurrent", "isCredentialInputCurrent"]],
+    ["testDefaultConnection", ["getCredentialLifecycleRequest", "getConnectionTestRequestOptions", "isPageLifecycleTargetRequestCurrent", "isCredentialInputCurrent"]],
+    ["testMappingConnection", ["getCredentialLifecycleRequest", "getConnectionTestRequestOptions", "isPageLifecycleTargetRequestCurrent", "isCredentialInputCurrent"]],
     ["previewDefaultColor", ["runWithBridgeCertificate", "fetchColorPreview", "usesMultiTargetSelection", "isPageLifecycleCurrent", "isCredentialInputCurrent"]],
     ["previewMappingColor", ["runWithBridgeCertificate", "fetchColorPreview", "isPageLifecycleCurrent", "isCredentialInputCurrent"]],
     ["registerBridge", ["_hueRegistrationPreflight", "isPageLifecycleCurrent", "isCurrentRegistrationTarget"]],
@@ -1048,7 +1048,7 @@ for (const [functionName, markers] of [
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
     for (const marker of markers) {
         if (!functionBody.includes(marker)) {
-            throw new Error(`${file} ${functionName} must trust the bridge certificate before credential-bearing requests: ${marker}`);
+            throw new Error(`${file} ${functionName} must protect credential-bearing requests with the page lifecycle: ${marker}`);
         }
     }
 }
@@ -1975,9 +1975,12 @@ for (const functionName of ["testDefaultConnection", "testMappingConnection"]) {
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
     if (!functionBody.includes("page._huePreviewRequest = request;") ||
+        !functionBody.includes("getCredentialLifecycleRequest") ||
+        !functionBody.includes("isPageLifecycleTargetRequestCurrent") ||
+        !functionBody.includes("cancelPageLifecycleRequest(page, 'preview')") ||
         !functionBody.includes("setDiagnosticBusy(page, true)") ||
         !functionBody.includes("setDiagnosticBusy(page, false)")) {
-        throw new Error(`${file} ${functionName} is missing cancellable diagnostic lifecycle wiring`);
+        throw new Error(`${file} ${functionName} is missing target-scoped cancellable diagnostic lifecycle wiring`);
     }
 }
 
@@ -2075,6 +2078,22 @@ for (const [functionName, source] of [["loadColorPresets", "colorPresets"], ["lo
         !functionBody.includes("markPreviewTargetMetadataUnavailable(page)") ||
         !functionBody.includes("updatePreviewTargetMetadataControls(page)")) {
         throw new Error(`${file} ${functionName} must fail closed when target metadata loading fails`);
+    }
+}
+
+{
+    const start = scriptMatch[1].indexOf("getCredentialLifecycleRequest: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "typeof requestOptions === 'function' ? requestOptions() : requestOptions",
+        "getPageLifecycleRequest",
+        "request._huePageRequestRecord = preflightRecord",
+        "page._huePageRequests[key] = preflightRecord"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} getCredentialLifecycleRequest must retain the abortable page-owned request record: ${marker}`);
+        }
     }
 }
 

@@ -132,6 +132,34 @@ runNegativeFixture(
 );
 
 runNegativeFixture(
+  "dotnet-ci.yml",
+  fixtureRoot => mutateWorkflow(
+    fixtureRoot,
+    "dotnet-ci.yml",
+    workflow => workflow.replace(
+      "    - name: Require non-empty test and coverage evidence\n",
+      "",
+    ),
+  ),
+  ["trusted"],
+  /is missing trusted-workflow marker: Require non-empty test and coverage evidence/,
+);
+
+runNegativeFixture(
+  "dotnet-ci.yml",
+  fixtureRoot => mutateWorkflow(
+    fixtureRoot,
+    "dotnet-ci.yml",
+    workflow => workflow.replace(
+      "        if-no-files-found: error\n",
+      "        if-no-files-found: warn\n",
+    ),
+  ),
+  ["trusted"],
+  /must keep exactly two fail-closed test and coverage artifact uploads/,
+);
+
+runNegativeFixture(
   "pull-request-validation.yml",
   fixtureRoot => mutateWorkflow(
     fixtureRoot,
