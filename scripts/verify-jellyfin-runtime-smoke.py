@@ -145,20 +145,26 @@ def validate_archive_entries(archive_path: Path) -> dict[str, bytes]:
     return extracted
 
 
+def set_owner_mode(path: Path, mode: int) -> None:
+    current_mode = path.stat().st_mode & 0o777
+    if current_mode != mode:
+        path.chmod(mode)
+
+
 def prepare_plugin_directory(root: Path, plugin_directory_name: str, archive_entries: dict[str, bytes]) -> Path:
     config_dir = root / "config"
     cache_dir = root / "cache"
     plugin_dir = config_dir / "plugins" / plugin_directory_name
     plugin_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(config_dir, RUNTIME_DIRECTORY_MODE)
-    os.chmod(cache_dir, RUNTIME_DIRECTORY_MODE)
-    os.chmod(config_dir / "plugins", RUNTIME_DIRECTORY_MODE)
-    os.chmod(plugin_dir, RUNTIME_DIRECTORY_MODE)
+    set_owner_mode(config_dir, RUNTIME_DIRECTORY_MODE)
+    set_owner_mode(cache_dir, RUNTIME_DIRECTORY_MODE)
+    set_owner_mode(config_dir / "plugins", RUNTIME_DIRECTORY_MODE)
+    set_owner_mode(plugin_dir, RUNTIME_DIRECTORY_MODE)
     for name, payload in archive_entries.items():
         output = plugin_dir / name
         output.write_bytes(payload)
-        os.chmod(output, RUNTIME_MANIFEST_MODE if name == "meta.json" else 0o644)
+        set_owner_mode(output, RUNTIME_MANIFEST_MODE if name == "meta.json" else 0o644)
     return plugin_dir
 
 

@@ -234,6 +234,8 @@ for (const marker of [
   "def current_runtime_user() -> str:",
   "def parse_security_options(raw_value: str) -> list[str]:",
   "def resolve_container_user() -> str:",
+  "def set_owner_mode(path: Path, mode: int) -> None:",
+  "path.chmod(mode)",
   "\"--user\", runtime_user",
   "return \"0:0\"",
   "fetch_health(",
