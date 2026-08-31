@@ -221,6 +221,7 @@ for (const marker of [
   "EXPECTED_ARCHIVE_ENTRIES = (",
   '# Official Jellyfin 10.10.7 linux/amd64 image manifest digest.',
   'DEFAULT_IMAGE = "jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123"',
+  "def resolve_runtime_temp_dir() -> Path:",
   "RUNTIME_DIRECTORY_MODE = 0o700",
   "RUNTIME_MANIFEST_MODE = 0o600",
   'REQUIRED_LOG_MARKERS = (',

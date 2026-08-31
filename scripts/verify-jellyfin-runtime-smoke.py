@@ -102,6 +102,16 @@ def validate_image_reference(image: str) -> str:
     return image
 
 
+def resolve_runtime_temp_dir() -> Path:
+    """Choose a host-visible temporary directory for Docker bind mounts."""
+    runner_temp = os.environ.get("RUNNER_TEMP", "").strip()
+    if runner_temp:
+        candidate = Path(runner_temp)
+        if candidate.is_absolute() and candidate.is_dir() and os.access(candidate, os.W_OK | os.X_OK):
+            return candidate
+    return Path(tempfile.gettempdir())
+
+
 def current_runtime_user() -> str:
     uid = os.getuid()
     gid = os.getgid()
@@ -274,7 +284,11 @@ def verify_runtime_smoke(
 
     image = validate_image_reference(image)
     ensure_image_present(image)
-    temp_root = Path(tempfile.mkdtemp(prefix="jellyfin-runtime-smoke-"))
+    # The runtime runner service has PrivateTmp enabled, while its rootless
+    # Docker daemon is a separate user service. Use RUNNER_TEMP (under the
+    # shared runner work tree) when present so bind mounts are visible to both
+    # namespaces; local invocations fall back to the normal system temp path.
+    temp_root = Path(tempfile.mkdtemp(prefix="jellyfin-runtime-smoke-", dir=resolve_runtime_temp_dir()))
     container_name = f"{container_name_prefix}-{int(time.time())}"
     try:
         prepare_plugin_directory(temp_root, plugin_directory_name, archive_entries)
