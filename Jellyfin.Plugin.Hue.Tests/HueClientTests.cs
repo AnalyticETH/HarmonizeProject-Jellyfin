@@ -513,6 +513,22 @@ public class HueClientTests : IDisposable
         Assert.Null(result);
     }
 
+    [Theory]
+    [InlineData(@"{""data"": [{""metadata"": {""name"": ""Missing ID""}}]}")]
+    [InlineData(@"{""data"": [{""id"": null}]}")]
+    [InlineData(@"{""data"": [{""id"": 42}]}")]
+    [InlineData(@"{""data"": [{""id"": ""   ""}]}")]
+    [InlineData(@"{""data"": [42]}")]
+    public async Task GetEntertainmentAreas_InvalidAreaIdentifier_ReturnsNull(string responseJson)
+    {
+        SetupHttpResponse(HttpStatusCode.OK, responseJson);
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentAreas("192.168.1.100", "test-app-key");
+
+        Assert.Null(result);
+    }
+
     [Fact]
     public async Task GetEntertainmentAreas_MissingMetadata_HandlesGracefully()
     {

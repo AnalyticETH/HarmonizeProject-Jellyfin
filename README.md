@@ -496,7 +496,11 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.428 (Current)
+### Version 1.5.429 (Current)
+
+- **Fail-closed entertainment-area identifiers**: malformed successful Hue bridge responses containing non-object areas or missing, null, numeric, or blank IDs are rejected before they can become selectable targets.
+
+- **Regression coverage**: Hue response parsing covers malformed area entries while preserving valid empty and metadata-optional responses.
 
 - **Duplicate scene-cue identity safety**: malformed case-variant persisted schedule IDs now fail closed across manual and bulk API actions, scheduler evaluation, runtime state, and deletion; ambiguous requests return conflict without mutation.
 

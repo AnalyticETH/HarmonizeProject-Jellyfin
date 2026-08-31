@@ -835,9 +835,16 @@ namespace Jellyfin.Plugin.Hue.Hue
 
                     foreach (var area in dataElement.EnumerateArray())
                     {
-                        var id = area.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.String
-                            ? idProp.GetString() ?? string.Empty
-                            : string.Empty;
+                        if (area.ValueKind != JsonValueKind.Object ||
+                            !area.TryGetProperty("id", out var idProp) ||
+                            idProp.ValueKind != JsonValueKind.String ||
+                            string.IsNullOrWhiteSpace(idProp.GetString()))
+                        {
+                            _logger.LogWarning("Hue bridge entertainment areas response contained an area without a valid identifier");
+                            return null;
+                        }
+
+                        var id = idProp.GetString()!;
                         var name = area.TryGetProperty("metadata", out var meta) && meta.ValueKind == JsonValueKind.Object &&
                                    meta.TryGetProperty("name", out var nameProp) && nameProp.ValueKind == JsonValueKind.String
                             ? nameProp.GetString() ?? string.Empty

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.429] - 2026-08-31
+
+### Fail-closed malformed entertainment-area identifiers
+- **Entertainment-area response safety**: successful Hue bridge responses now fail closed when any returned area is not an object or lacks a non-blank string identifier, preventing malformed entries from becoming selectable or addressable targets.
+- **Regression coverage**: Hue response parsing covers missing, null, numeric, whitespace-only, and non-object area identifiers.
+
 ## [1.5.428] - 2026-08-31
 
 ### Fail-closed duplicate scene-cue IDs and retained diagnostics cancellation
