@@ -85,12 +85,16 @@ const configPageExcludes = fs
     .map(line => line.trim())
     .filter(line => line && !line.startsWith("#"));
 if (
-    configPageExcludes.length !== 35 ||
+    configPageExcludes.length !== 36 ||
     new Set(configPageExcludes).size !== configPageExcludes.length ||
-    configPageExcludes.some(rule => !/^(javascript\.express|typescript\.react)\./.test(rule))
+    configPageExcludes.some(rule =>
+        !/^(javascript\.express|typescript\.react)\./.test(rule) &&
+        rule !== "javascript.lang.security.audit.code-string-concat.code-string-concat"
+    ) ||
+    !configPageExcludes.includes("javascript.lang.security.audit.code-string-concat.code-string-concat")
 ) {
     throw new Error(
-        `${configPageExcludesPath} must contain exactly 35 unique Express/React framework-rule exclusions`
+        `${configPageExcludesPath} must contain exactly 36 unique framework-rule exclusions, including the server-only eval-taint rule`
     );
 }
 const scriptExcludesPath = ".github/semgrep/script-excludes.txt";
@@ -145,7 +149,7 @@ const pinnedConfigRuntimeMarkers = [
     'config_rule_prefix="${SEMGREP_WORK_DIR#/}"',
     'config_rule_prefix="${config_rule_prefix//\\//.}"',
     "done < .github/semgrep/config-page-excludes.txt",
-    'test "${#config_page_rule_excludes[@]}" -eq 35',
+    'test "${#config_page_rule_excludes[@]}" -eq 36',
     'script_rule_prefix="${SEMGREP_WORK_DIR#/}"',
     'script_rule_prefix="${script_rule_prefix//\\//.}"',
     "done < .github/semgrep/script-excludes.txt",

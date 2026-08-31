@@ -506,6 +506,10 @@ Benchmarks measure:
 
 - **Regression coverage**: route validation, scheduler, capture, and diagnostics tests cover duplicate nested device IDs without bridge activity or credential leakage.
 
+- **Server-only Semgrep taint boundary**: the Node/Express/Next `eval` taint rule is explicitly excluded from the vanilla browser-page scan because the extracted page has no server request objects or `eval` sinks; generic/browser dynamic-execution rules remain blocking.
+
+- **Embedded scan regression coverage**: both blocking workflows pin the reviewed exclusion count and continue to require the extracted administrator target to be scanned with zero findings, scanner errors, or analysis timeouts.
+
 ### Version 1.5.423
 
 - **Configuration loader ownership**: configuration load and save completions now release the shared global loader only when they still own it, so a late request cannot hide a newer export or runtime-stop indicator.

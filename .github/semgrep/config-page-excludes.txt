@@ -1,5 +1,7 @@
-# p/javascript contains framework packs that cannot apply to this vanilla browser page.
+# p/javascript contains framework-specific packs that cannot apply to this vanilla browser page.
 # Keep the exclusions explicit and reviewable; generic/browser rules remain blocking.
+# The Node/Express/Next eval-taint rule is server-only: this page has no request
+# objects or eval sinks. Generic/browser dynamic-execution rules remain blocking.
 javascript.express.security.audit.express-check-directory-listing.express-check-directory-listing
 javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-domain
 javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-httponly
@@ -31,6 +33,7 @@ javascript.express.security.express-xml2json-xxe.express-xml2json-xxe
 javascript.express.security.injection.raw-html-format.raw-html-format
 javascript.express.security.require-request.require-request
 javascript.express.security.x-frame-options-misconfiguration.x-frame-options-misconfiguration
+javascript.lang.security.audit.code-string-concat.code-string-concat
 typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
 typescript.react.security.audit.react-unsanitized-method.react-unsanitized-method
 typescript.react.security.audit.react-unsanitized-property.react-unsanitized-property

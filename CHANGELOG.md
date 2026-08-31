@@ -19,6 +19,10 @@ No unreleased changes.
 - **Duplicate device-route arbitration**: legacy or hand-edited mappings with duplicate nested device IDs now fail closed in schedule validation and execution, current-light capture, and target diagnostics instead of selecting the first route.
 - **Regression coverage**: route validation, scheduler, capture, and diagnostics tests cover duplicate nested device IDs without bridge activity or credential leakage.
 
+### Embedded administrator Semgrep rule scope
+- **Server-only taint boundary**: the Node/Express/Next `eval` taint rule is explicitly excluded from the vanilla browser-page scan because the extracted page has no server request objects or `eval` sinks; generic/browser dynamic-execution rules remain blocking.
+- **Regression coverage**: both blocking workflows pin the reviewed exclusion count and continue to require the extracted administrator target to be scanned with zero findings, scanner errors, or analysis timeouts.
+
 ## [1.5.423] - 2026-08-30
 
 ### Global loader arbitration for configuration lifecycle operations
