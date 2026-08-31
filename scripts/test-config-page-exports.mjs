@@ -508,6 +508,87 @@ function testRetainedPageLifecycleHandlersRegisterOnce() {
     );
 }
 
+async function testSceneScheduleRuntimeStatusManualAnnouncements() {
+    assert.match(
+        html,
+        /id="sceneScheduleRuntimeStatusAnnouncement"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/,
+        "scheduler refresh has a separate polite announcement region"
+    );
+    assert.match(
+        scriptMatch[1],
+        /document\.querySelector\('#refreshSceneScheduleStatusBtn'\)\.addEventListener\(\s*'click', function \(\) \{\s*HueConfigurationPage\.loadSceneScheduleRuntimeStatus\(this\.closest\('\.page'\), true\);\s*\}\);/s,
+        "the explicit scheduler refresh button requests a one-shot announcement"
+    );
+
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    api.loadSceneScheduleConflicts = () => Promise.resolve();
+    api.loadSceneScheduleOccurrences = () => Promise.resolve();
+    api.loadSceneScheduleHistory = () => Promise.resolve();
+
+    const announcement = page.querySelector("#sceneScheduleRuntimeStatusAnnouncement");
+    assert.equal(announcement.textContent, "", "automatic scheduler announcements start empty");
+
+    const manual = api.loadSceneScheduleRuntimeStatus(page, true);
+    assert.equal(requests.length, 1, "manual scheduler refresh starts one request");
+    assert.equal(announcement.textContent, "Loading scheduler status...", "manual refresh announces loading");
+
+    const automatic = api.loadSceneScheduleRuntimeStatus(page);
+    assert.equal(requests.length, 1, "automatic polling does not supersede an explicit refresh");
+    requests[0].resolve({
+        ServiceAvailable: true,
+        AutomationEnabled: true,
+        Schedules: [],
+        PendingCleanups: [],
+        PendingCleanupCount: 0,
+        GeneratedAtUtc: null
+    });
+    await Promise.all([manual, automatic]);
+    assert.match(
+        announcement.textContent,
+        /^Scheduler status updated: No scheduled cues configured\./,
+        "manual scheduler refresh announces success"
+    );
+
+    const manualUnavailable = api.loadSceneScheduleRuntimeStatus(page, true);
+    assert.equal(requests.length, 2, "manual scheduler refresh can be repeated after completion");
+    requests[1].resolve({ ServiceAvailable: false });
+    await manualUnavailable;
+    assert.equal(
+        announcement.textContent,
+        "Scheduler status unavailable. The scheduled-cue service is unavailable; configuration is still editable.",
+        "manual refresh announces unavailable scheduler state"
+    );
+
+    const manualError = api.loadSceneScheduleRuntimeStatus(page, true);
+    assert.equal(requests.length, 3, "manual scheduler refresh starts after unavailable status");
+    requests[2].reject(new Error("scheduler unavailable"));
+    await manualError;
+    assert.equal(
+        announcement.textContent,
+        "Scheduler status error: Unable to read scheduler status. Check the server log.",
+        "manual refresh announces scheduler errors"
+    );
+
+    const automaticOnly = api.loadSceneScheduleRuntimeStatus(page);
+    assert.equal(requests.length, 4, "automatic polling starts when no manual request is pending");
+    requests[3].resolve({ ServiceAvailable: true, Schedules: [] });
+    await automaticOnly;
+    assert.equal(
+        announcement.textContent,
+        "Scheduler status error: Unable to read scheduler status. Check the server log.",
+        "automatic polling remains quiet after a manual announcement"
+    );
+
+    const pagehideManual = api.loadSceneScheduleRuntimeStatus(page, true);
+    assert.equal(requests.length, 5, "pagehide regression starts a tracked manual refresh");
+    api.invalidatePageLifecycle(page);
+    assert.equal(announcement.textContent, "", "pagehide clears a stale scheduler announcement");
+    requests[4].resolve({ ServiceAvailable: true, Schedules: [] });
+    await pagehideManual;
+    assert.equal(announcement.textContent, "", "invalidated scheduler refresh cannot repopulate its announcement");
+}
+
 function testFfmpegFlagLengthContracts() {
     for (const id of ["customFfmpegFlags", "mappingCustomFfmpegFlagsOverride"]) {
         const inputStart = html.indexOf(`id="${id}"`);
@@ -7091,6 +7172,7 @@ for (const testCase of exportCases) {
 
 testMappingDeviceDiscoveryPageOwnershipContract();
 testRetainedPageLifecycleHandlersRegisterOnce();
+await testSceneScheduleRuntimeStatusManualAnnouncements();
 testFfmpegFlagLengthContracts();
 testSectionNavigationRetainedPageScope();
 await testEditMappingLifecycleGuards();

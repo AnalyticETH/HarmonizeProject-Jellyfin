@@ -307,6 +307,7 @@ const requiredLiveRegions = {
         "scenePlaylistStatus",
         "sceneScheduleBulkStatus",
         "sceneScheduleStatus",
+        "sceneScheduleRuntimeStatusAnnouncement",
         "sceneScheduleDuplicateTargetStatus",
         "sceneScheduleConflictsSummary",
         "sceneScheduleOccurrencesSummary",
@@ -346,6 +347,36 @@ for (const [role, ids] of Object.entries(requiredLiveRegions)) {
         !openingTagMatch[0].includes('aria-live="off"') ||
         !openingTagMatch[0].includes('aria-atomic="true"')) {
         throw new Error(`${file} scheduler telemetry summary must remain a quiet atomic status region`);
+    }
+}
+
+{
+    const runtimeStart = scriptMatch[1].indexOf("loadSceneScheduleRuntimeStatus: function");
+    const runtimeEnd = scriptMatch[1].indexOf("\n                },", runtimeStart);
+    const runtimeBody = runtimeStart >= 0 && runtimeEnd > runtimeStart
+        ? scriptMatch[1].slice(runtimeStart, runtimeEnd)
+        : "";
+    for (const marker of [
+        "loadSceneScheduleRuntimeStatus: function (page, announce)",
+        "var shouldAnnounce = announce === true;",
+        "previousRuntimeStatusRecord.announce === true",
+        "var announcement = page.querySelector('#sceneScheduleRuntimeStatusAnnouncement');",
+        "announceStatus(\"Loading scheduler status...\");",
+        "request._huePageRequestRecord.announce = shouldAnnounce;",
+        "announceStatus(\"Scheduler status updated: \" + summaryText);",
+        "announceStatus(\"Scheduler status unavailable. \" + unavailableText);",
+        "announceStatus(\"Scheduler status error: \" + errorText);",
+        "requestRecord.announce = false"
+    ]) {
+        if (!runtimeBody.includes(marker)) {
+            throw new Error(`${file} scheduler manual refresh announcement contract is missing: ${marker}`);
+        }
+    }
+    if (!scriptMatch[1].includes("HueConfigurationPage.loadSceneScheduleRuntimeStatus(this.closest('.page'), true);")) {
+        throw new Error(`${file} scheduler refresh button must request a one-shot announcement`);
+    }
+    if (!scriptMatch[1].includes("runtimeStatusAnnouncement.textContent = \"\";")) {
+        throw new Error(`${file} page lifecycle invalidation must clear scheduler refresh announcements`);
     }
 }
 

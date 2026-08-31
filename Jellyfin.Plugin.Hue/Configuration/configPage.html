@@ -823,6 +823,7 @@
                         <div class="inputContainer" style="display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: 1em;">
                             <button is="emby-button" type="button" class="raised" id="refreshSceneScheduleStatusBtn"><span>Refresh Cue Status</span></button>
                             <div id="sceneScheduleRuntimeStatusSummary" class="fieldDescription" role="status" aria-live="off" aria-atomic="true">Loading scheduler status...</div>
+                            <div id="sceneScheduleRuntimeStatusAnnouncement" role="status" aria-live="polite" aria-atomic="true" style="position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;"></div>
                         </div>
                         <div id="sceneScheduleRuntimeStatus" style="margin-top: 0.5em; overflow-x: auto;"></div>
                         <div id="sceneSchedulePendingCleanupStatus" style="margin-top: 0.75em; overflow-x: auto;"></div>
@@ -3788,6 +3789,8 @@
                     if (hadDiagnosticLifecycle) HueConfigurationPage.setDiagnosticBusy(page, false);
                     page._hueSessionHistoryLoading = false;
                     page._hueSceneScheduleRuntimeStatusLoading = false;
+                    var runtimeStatusAnnouncement = page.querySelector && page.querySelector('#sceneScheduleRuntimeStatusAnnouncement');
+                    if (runtimeStatusAnnouncement) runtimeStatusAnnouncement.textContent = "";
                     page._hueSceneScheduleConflictsLoading = false;
                     page._hueSceneScheduleConflictsExporting = false;
                     page._hueSceneScheduleConflictsCsvExporting = false;
@@ -10138,23 +10141,38 @@
                         if (current) HueConfigurationPage.loadSceneScheduleRuntimeStatus(page);
                     });
                 },
-                loadSceneScheduleRuntimeStatus: function (page) {
+                loadSceneScheduleRuntimeStatus: function (page, announce) {
                     if (!page) return Promise.resolve();
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
+                    var shouldAnnounce = announce === true;
+                    var previousRuntimeStatusRecord = page._huePageRequests &&
+                        page._huePageRequests.sceneScheduleRuntimeStatus;
+                    if (!shouldAnnounce && previousRuntimeStatusRecord &&
+                        previousRuntimeStatusRecord.announce === true) {
+                        return Promise.resolve();
+                    }
                     HueConfigurationPage.cancelPageLifecycleRequest(page, 'sceneScheduleRuntimeStatus');
                     if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return Promise.resolve();
                     page._hueSceneScheduleRuntimeStatusLoading = true;
                     var button = page.querySelector('#refreshSceneScheduleStatusBtn');
                     var summary = page.querySelector('#sceneScheduleRuntimeStatusSummary');
+                    var announcement = page.querySelector('#sceneScheduleRuntimeStatusAnnouncement');
                     var container = page.querySelector('#sceneScheduleRuntimeStatus');
+                    var announceStatus = function (message) {
+                        if (shouldAnnounce && announcement) announcement.textContent = message || "";
+                    };
                     if (button) button.disabled = true;
                     if (summary) summary.textContent = "Loading scheduler status...";
+                    announceStatus("Loading scheduler status...");
 
                     var request = HueConfigurationPage.getPageLifecycleRequest(
                         page,
                         pageGeneration,
                         'sceneScheduleRuntimeStatus',
                         ApiClient.getUrl("HueSync/SceneSchedules/Status"));
+                    if (request && request._huePageRequestRecord) {
+                        request._huePageRequestRecord.announce = shouldAnnounce;
+                    }
                     var isCurrent = function () {
                         return HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request);
                     };
@@ -10174,10 +10192,12 @@
                         var pendingCleanupCount = Math.max(0, Number(HueConfigurationPage.readStatusField(response, "PendingCleanupCount", pendingCleanups.length) || 0));
                         var pendingContainer = page.querySelector('#sceneSchedulePendingCleanupStatus');
                         if (!serviceAvailable) {
+                            var unavailableText = "The scheduled-cue service is unavailable; configuration is still editable.";
                             if (summary) {
-                                summary.textContent = "The scheduled-cue service is unavailable; configuration is still editable.";
+                                summary.textContent = unavailableText;
                                 summary.style.color = "#f0ad4e";
                             }
+                            announceStatus("Scheduler status unavailable. " + unavailableText);
                             if (container) container.textContent = "";
                             if (pendingContainer) pendingContainer.textContent = "";
                             return;
@@ -10193,24 +10213,26 @@
                             return HueConfigurationPage.readStatusField(schedule, "Enabled", false) &&
                                 !HueConfigurationPage.readStatusField(schedule, "Ready", false);
                         }).length;
+                        var cueSummary = schedules.length === 0
+                            ? "No scheduled cues configured."
+                            : schedules.length + " cue" + (schedules.length === 1 ? "" : "s") +
+                                (notReadyCount ? " · " + notReadyCount + " not ready" : " · all enabled cues ready");
+                        var summaryText = (automationEnabled
+                            ? cueSummary
+                            : "Scheduled cue automation is paused · " + cueSummary + " · Run Now remains available") +
+                            (catchUpMinutes > 0 ? " · recovery window " + catchUpMinutes + "m" : "") +
+                            " · playback policy " + String(playbackPolicy) +
+                            " · conflict scope " + (String(playbackScope).toLowerCase() === "matchingtarget" ? "matching target" : String(playbackScope)) +
+                            (String(playbackPolicy).toLowerCase() === "defer" ? " (" + String(deferMinutes) + "m)" : "") +
+                            (restoredDeferredCount ? " · " + restoredDeferredCount + " deferred cue" + (restoredDeferredCount === 1 ? "" : "s") + " restored after restart" : "") +
+                            (pendingCleanupCount ? " · " + pendingCleanupCount + " cleanup recover" + (pendingCleanupCount === 1 ? "y" : "ies") + " pending" : "") +
+                            (playbackActive ? " · playback active" : "") +
+                            " · updated " + generatedText;
                         if (summary) {
-                            var cueSummary = schedules.length === 0
-                                ? "No scheduled cues configured."
-                                : schedules.length + " cue" + (schedules.length === 1 ? "" : "s") +
-                                    (notReadyCount ? " · " + notReadyCount + " not ready" : " · all enabled cues ready");
-                            summary.textContent = (automationEnabled
-                                ? cueSummary
-                                : "Scheduled cue automation is paused · " + cueSummary + " · Run Now remains available") +
-                                (catchUpMinutes > 0 ? " · recovery window " + catchUpMinutes + "m" : "") +
-                                " · playback policy " + String(playbackPolicy) +
-                                " · conflict scope " + (String(playbackScope).toLowerCase() === "matchingtarget" ? "matching target" : String(playbackScope)) +
-                                (String(playbackPolicy).toLowerCase() === "defer" ? " (" + String(deferMinutes) + "m)" : "") +
-                                (restoredDeferredCount ? " · " + restoredDeferredCount + " deferred cue" + (restoredDeferredCount === 1 ? "" : "s") + " restored after restart" : "") +
-                                (pendingCleanupCount ? " · " + pendingCleanupCount + " cleanup recover" + (pendingCleanupCount === 1 ? "y" : "ies") + " pending" : "") +
-                                (playbackActive ? " · playback active" : "") +
-                                " · updated " + generatedText;
+                            summary.textContent = summaryText;
                             summary.style.color = automationEnabled ? "" : "#f0ad4e";
                         }
+                        announceStatus("Scheduler status updated: " + summaryText);
                         if (pendingContainer) {
                             pendingContainer.textContent = "";
                             if (pendingCleanupCount > 0 || pendingCleanups.length > 0) {
@@ -10428,12 +10450,16 @@
                     }).catch(function (err) {
                         if (!isCurrent()) return;
                         console.error("Failed to load scheduled cue status:", err);
+                        var errorText = "Unable to read scheduler status. Check the server log.";
                         if (summary) {
-                            summary.textContent = "Unable to read scheduler status. Check the server log.";
+                            summary.textContent = errorText;
                             summary.style.color = "#d9534f";
                         }
+                        announceStatus("Scheduler status error: " + errorText);
                         if (container) container.textContent = "";
                     }).finally(function () {
+                        var requestRecord = request && request._huePageRequestRecord;
+                        if (requestRecord) requestRecord.announce = false;
                         if (!isCurrent()) return;
                         page._hueSceneScheduleRuntimeStatusLoading = false;
                         if (button) button.disabled = false;
@@ -17315,7 +17341,7 @@
             });
 
             document.querySelector('#refreshSceneScheduleStatusBtn').addEventListener('click', function () {
-                HueConfigurationPage.loadSceneScheduleRuntimeStatus(this.closest('.page'));
+                HueConfigurationPage.loadSceneScheduleRuntimeStatus(this.closest('.page'), true);
             });
 
             document.querySelector('#refreshSceneScheduleConflictsBtn').addEventListener('click', function () {
