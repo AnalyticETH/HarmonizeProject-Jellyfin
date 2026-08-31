@@ -406,7 +406,8 @@ namespace Jellyfin.Plugin.Hue.Hue
                 {
                     foreach (var bridge in doc.RootElement.EnumerateArray())
                     {
-                        if (!bridge.TryGetProperty("internalipaddress", out var addressProperty) ||
+                        if (bridge.ValueKind != JsonValueKind.Object ||
+                            !bridge.TryGetProperty("internalipaddress", out var addressProperty) ||
                             addressProperty.ValueKind != JsonValueKind.String)
                         {
                             continue;

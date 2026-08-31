@@ -282,6 +282,30 @@ public class HueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task DiscoverBridgeIps_SkipsNonObjectCloudEntriesAndKeepsValidCandidates()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, @"[
+            null,
+            42,
+            {""internalipaddress"":""192.168.1.101""},
+            ""malformed-bridge"",
+            {""internalipaddress"":""192.168.1.102""}
+        ]");
+        var localDiscovery = new Mock<IHueBridgeLocalDiscovery>();
+        localDiscovery
+            .Setup(discovery => discovery.DiscoverAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<string> { "192.168.1.103" });
+        var client = new HueClient(_httpClient, _loggerMock.Object, localDiscovery.Object);
+
+        var result = await client.DiscoverBridgeIps();
+
+        Assert.Equal(
+            new[] { "192.168.1.101", "192.168.1.102", "192.168.1.103" },
+            result);
+        localDiscovery.Verify(discovery => discovery.DiscoverAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task DiscoverBridgeIp_SkipsPublicAddresses()
     {
         var responseJson = @"[
