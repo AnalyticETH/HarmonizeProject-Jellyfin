@@ -33,10 +33,11 @@ FORBIDDEN_LOG_MARKERS = (
     "Cannot serialize member Jellyfin.Plugin.Hue.Configuration.PluginConfiguration.HueBridgeCertificatePins",
 )
 EXPECTED_ENTRY_MODE = 0o644 << 16
+RUNTIME_DIRECTORY_MODE = 0o700
 # Jellyfin persists its normalized plugin manifest during activation. The ZIP
 # itself remains non-executable 0644, but the disposable extracted manifest
-# must be writable by the rootless container UID during the smoke run.
-RUNTIME_MANIFEST_MODE = 0o666
+# must be writable by the invoking rootless container UID during the smoke run.
+RUNTIME_MANIFEST_MODE = 0o600
 # Official Jellyfin 10.10.7 linux/amd64 image manifest digest.
 DEFAULT_IMAGE = "jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123"
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 150
@@ -101,6 +102,33 @@ def validate_image_reference(image: str) -> str:
     return image
 
 
+def current_runtime_user() -> str:
+    uid = os.getuid()
+    gid = os.getgid()
+    require(uid >= 0 and gid >= 0, "Current process UID/GID must be non-negative.")
+    return f"{uid}:{gid}"
+
+
+def parse_security_options(raw_value: str) -> list[str]:
+    options = json.loads(raw_value)
+    require(isinstance(options, list), "docker info security options must be a JSON array")
+    normalized: list[str] = []
+    for option in options:
+        require(isinstance(option, str) and option.strip(), "docker info security options must contain non-empty strings")
+        normalized.append(option.strip())
+    return normalized
+
+
+def resolve_container_user() -> str:
+    security_options_result = run_command([
+        "docker", "info", "--format", "{{json .SecurityOptions}}"
+    ])
+    security_options = parse_security_options((security_options_result.stdout or "").strip())
+    if any(option == "name=rootless" or option == "rootless" for option in security_options):
+        return "0:0"
+    return current_runtime_user()
+
+
 def validate_archive_entries(archive_path: Path) -> dict[str, bytes]:
     extracted: dict[str, bytes] = {}
     with zipfile.ZipFile(archive_path) as archive:
@@ -123,10 +151,10 @@ def prepare_plugin_directory(root: Path, plugin_directory_name: str, archive_ent
     plugin_dir = config_dir / "plugins" / plugin_directory_name
     plugin_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(config_dir, 0o777)
-    os.chmod(cache_dir, 0o777)
-    os.chmod(config_dir / "plugins", 0o777)
-    os.chmod(plugin_dir, 0o777)
+    os.chmod(config_dir, RUNTIME_DIRECTORY_MODE)
+    os.chmod(cache_dir, RUNTIME_DIRECTORY_MODE)
+    os.chmod(config_dir / "plugins", RUNTIME_DIRECTORY_MODE)
+    os.chmod(plugin_dir, RUNTIME_DIRECTORY_MODE)
     for name, payload in archive_entries.items():
         output = plugin_dir / name
         output.write_bytes(payload)
@@ -144,6 +172,7 @@ def ensure_image_present(image: str) -> None:
 
 
 def start_container(container_name: str, image: str, config_dir: Path, cache_dir: Path, port: int) -> str:
+    runtime_user = resolve_container_user()
     run_command(["docker", "rm", "-f", container_name], check=False)
     result = run_command([
         "docker", "run", "-d",
@@ -154,7 +183,7 @@ def start_container(container_name: str, image: str, config_dir: Path, cache_dir
         "--pids-limit", "512",
         "--memory", "2g",
         "--cpus", "2",
-        "--user", "1000:1000",
+        "--user", runtime_user,
         "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m",
         "--tmpfs", "/run:rw,noexec,nosuid,nodev,size=16m",
         "-p", f"127.0.0.1:{port}:8096",
@@ -265,6 +294,12 @@ def verify_runtime_smoke(
 
 def run_self_test() -> None:
     require(validate_image_reference(DEFAULT_IMAGE) == DEFAULT_IMAGE, "self-test image pin validation failed")
+    require(current_runtime_user() == f"{os.getuid()}:{os.getgid()}", "self-test runtime user resolution failed")
+    require(parse_security_options('["name=seccomp,profile=builtin","name=rootless","name=cgroupns"]') == [
+        "name=seccomp,profile=builtin",
+        "name=rootless",
+        "name=cgroupns",
+    ], "self-test security option parsing failed")
     with tempfile.TemporaryDirectory(prefix="jellyfin-runtime-smoke-self-test-") as temp_dir:
         archive_path = Path(temp_dir) / "jellyfin-plugin-hue-release.zip"
         with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
@@ -281,6 +316,8 @@ def run_self_test() -> None:
         require(tuple(sorted(entries)) == EXPECTED_ARCHIVE_ENTRIES, "self-test archive parsing failed")
         plugin_dir = Path(temp_dir) / "config" / "plugins" / "HueSync"
         prepare_plugin_directory(Path(temp_dir), "HueSync", entries)
+        require((plugin_dir).stat().st_mode & 0o777 == RUNTIME_DIRECTORY_MODE,
+                "self-test plugin directory mode failed")
         require((plugin_dir / "meta.json").stat().st_mode & 0o777 == RUNTIME_MANIFEST_MODE,
                 "self-test runtime manifest mode failed")
         require((plugin_dir / "Jellyfin.Plugin.Hue.dll").stat().st_mode & 0o777 == 0o644,
