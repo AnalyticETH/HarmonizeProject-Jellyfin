@@ -504,7 +504,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.445 (Current)
+### Version 1.5.446 (Current)
+
+- **Accessible runtime controls**: active Hue session Stop buttons now expose row-specific accessible names using the already displayed playback, user, state, device, and target context without including session IDs or credentials.
+
+- **Regression coverage**: browser-harness and static configuration-page contracts verify distinct runtime-session Stop labels and credential-free accessible names.
+
+### Version 1.5.445
 
 - **iCalendar export safety**: credential-free calendar events now saturate `DTEND` at `DateTime.MaxValue` when a valid cue starts on the final representable instant instead of throwing during export.
 

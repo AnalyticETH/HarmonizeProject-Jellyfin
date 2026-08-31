@@ -1893,6 +1893,31 @@ for (const [functionName, requestKey, queryMarker] of [
         }
     }
 
+    const activeSessionStart = runtimeStatusBody.indexOf("activeSessions.forEach(function (session) {");
+    const activeSessionEnd = runtimeStatusBody.indexOf("sessionsElement.appendChild(sessionLine);", activeSessionStart);
+    const activeSessionBody = activeSessionStart >= 0 && activeSessionEnd > activeSessionStart
+        ? runtimeStatusBody.slice(activeSessionStart, activeSessionEnd)
+        : "";
+    for (const marker of [
+        "var sessionLabel = item +",
+        "sessionLine.textContent = sessionLabel;",
+        "stopSessionButton.setAttribute('aria-label', 'Stop sync for ' + sessionLabel);"
+    ]) {
+        if (!activeSessionBody.includes(marker)) {
+            throw new Error(`${file} active runtime-session stop controls are missing accessible row context: ${marker}`);
+        }
+    }
+    const ariaLabelStart = activeSessionBody.indexOf("stopSessionButton.setAttribute('aria-label'");
+    const ariaLabelEnd = activeSessionBody.indexOf(");", ariaLabelStart);
+    const ariaLabelStatement = ariaLabelStart >= 0 && ariaLabelEnd > ariaLabelStart
+        ? activeSessionBody.slice(ariaLabelStart, ariaLabelEnd)
+        : "";
+    if (ariaLabelStatement.includes("sessionId") ||
+        ariaLabelStatement.includes("AppKey") ||
+        ariaLabelStatement.includes("ClientKey")) {
+        throw new Error(`${file} active runtime-session stop labels must not expose identifiers or credentials`);
+    }
+
     const pollingStart = scriptMatch[1].indexOf("stopRuntimeStatusPolling: function");
     const pollingEnd = scriptMatch[1].indexOf("\n                },", pollingStart);
     const pollingBody = pollingStart >= 0 && pollingEnd > pollingStart

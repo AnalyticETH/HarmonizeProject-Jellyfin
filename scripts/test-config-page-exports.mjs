@@ -1650,6 +1650,72 @@ async function testRuntimeStopLifecycleGuards() {
     }
 }
 
+async function testRuntimeSessionStopAccessibleLabels() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    api.loadSceneScheduleRuntimeStatus = () => Promise.resolve();
+
+    const operation = api.loadRuntimeStatus(page);
+    assert.equal(requests.length, 1, "runtime status accessibility test starts one request");
+    assert.equal(requests[0].options.url, "HueSync/Status", "runtime status accessibility test reads the runtime status route");
+
+    const sessions = [
+        {
+            CurrentItem: "Movie One",
+            ActiveUserName: 'Alice & "Home"',
+            ActiveDeviceName: "Living Room TV",
+            ActiveBridgeIp: "192.0.2.10",
+            ActiveEntertainmentAreaId: "area-one",
+            State: "Syncing",
+            CanStopSync: true,
+            PlaySessionId: "play-session-secret-one"
+        },
+        {
+            CurrentItem: "Concert Two",
+            ActiveUserName: "Bob",
+            ActiveDeviceName: "Bedroom TV",
+            ActiveBridgeIp: "192.0.2.11",
+            ActiveEntertainmentAreaId: "area-two",
+            State: "Paused",
+            CanStopSync: true,
+            PlaySessionId: "play-session-secret-two"
+        }
+    ];
+    const expectedRows = [
+        'Movie One · Alice & "Home" · Syncing · Living Room TV · 192.0.2.10 / area-one',
+        "Concert Two · Bob · Paused · Bedroom TV · 192.0.2.11 / area-two"
+    ];
+
+    requests[0].resolve({ ServiceAvailable: true, State: "Syncing", Sessions: sessions });
+    await operation;
+
+    const sessionList = page.querySelector("#runtimeSessions");
+    assert.equal(sessionList.children.length, sessions.length, "runtime status renders every active session row");
+    assert.deepEqual(
+        sessionList.children.map(row => row.textContent),
+        expectedRows,
+        "runtime session rows retain the displayed non-secret context"
+    );
+
+    const stopButtons = sessionList.children.map((row, index) => {
+        const button = row.children.find(child => child.tagName === "BUTTON");
+        assert.ok(button, `runtime session ${index + 1} renders a stop button`);
+        return button;
+    });
+    const labels = stopButtons.map(button => button.getAttribute("aria-label"));
+    assert.deepEqual(
+        labels,
+        expectedRows.map(row => "Stop sync for " + row),
+        "runtime session stop controls expose their row context as accessible names"
+    );
+    assert.notEqual(labels[0], labels[1], "concurrent runtime sessions have distinct stop labels");
+    for (const [index, label] of labels.entries()) {
+        assert.equal(label.includes(sessions[index].PlaySessionId), false, "runtime stop labels do not expose play-session IDs");
+        assert.equal(label.includes("app-secret"), false, "runtime stop labels do not expose App Keys");
+        assert.equal(label.includes("client-secret"), false, "runtime stop labels do not expose Client Keys");
+    }
+}
+
 async function testRuntimeStopLoaderOwnershipAcrossRetainedPages() {
     const harness = makeHarness();
     const { page: hiddenPage, makePage, api, requests, dashboard } = harness;
@@ -7326,6 +7392,7 @@ await testDuplicateTargetNormalizationAndGuard();
 await testDuplicateMappingResolutionLifecycleGuards();
 await testUserMappingReconciliationLifecycleGuards();
 await testRuntimeStopLifecycleGuards();
+await testRuntimeSessionStopAccessibleLabels();
 await testRuntimeStopLoaderOwnershipAcrossRetainedPages();
 await testConfigurationExportLoaderOwnershipAcrossRetainedPages();
 await testGlobalLoaderOwnershipAcrossRuntimeStopAndConfigurationExport();
@@ -7344,4 +7411,4 @@ await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus page-scoped mapping-device discovery and route-refresh ownership, mapping discovery-cache read ownership, retained mapping-page state isolation, sibling mapping-registration preflight/request ownership, mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, user-mapping dependency inspection pagehide/current-result lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop, configuration-export, configuration-load/export, configuration-save/export, configuration-import-validation/export, configuration-import-submit/export, diagnostic/configuration-import loader ownership, preview/capture/configuration-import loader ownership, nested certificate-preflight preview loader ownership, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus page-scoped mapping-device discovery and route-refresh ownership, mapping discovery-cache read ownership, retained mapping-page state isolation, sibling mapping-registration preflight/request ownership, mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, user-mapping dependency inspection pagehide/current-result lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop and runtime-session accessible labels, configuration-export, configuration-load/export, configuration-save/export, configuration-import-validation/export, configuration-import-submit/export, diagnostic/configuration-import loader ownership, preview/capture/configuration-import loader ownership, nested certificate-preflight preview loader ownership, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

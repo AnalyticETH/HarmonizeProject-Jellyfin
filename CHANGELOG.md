@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.446] - 2026-08-31
+
+### Runtime session accessibility
+- **Accessible runtime controls**: active Hue session Stop buttons now expose row-specific accessible names using the already displayed playback, user, state, device, and target context without including session IDs or credentials.
+- **Regression coverage**: browser-harness and static configuration-page contracts verify distinct runtime-session Stop labels and credential-free accessible names.
+
 ## [1.5.445] - 2026-08-31
 
 ### Calendar boundary safety

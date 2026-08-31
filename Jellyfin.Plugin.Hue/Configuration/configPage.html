@@ -13193,9 +13193,10 @@
                                     var area = HueConfigurationPage.readStatusField(session, "ActiveEntertainmentAreaId", "");
                                     var stateText = HueConfigurationPage.readStatusField(session, "State", "Starting");
                                     var sessionLine = document.createElement('div');
-                                    sessionLine.textContent = item + (user ? " · " + user : "") + " · " + stateText +
+                                    var sessionLabel = item + (user ? " · " + user : "") + " · " + stateText +
                                         (device ? " · " + device : "") +
                                         (target && area ? " · " + target + " / " + area : "");
+                                    sessionLine.textContent = sessionLabel;
                                     var sessionId = HueConfigurationPage.readStatusField(session, "PlaySessionId", "");
                                     var sessionCanStop = HueConfigurationPage.readStatusField(session, "CanStopSync", false);
                                     if (sessionCanStop && sessionId) {
@@ -13204,6 +13205,7 @@
                                         stopSessionButton.className = 'raised';
                                         stopSessionButton.style.marginLeft = '0.5em';
                                         stopSessionButton.textContent = 'Stop';
+                                        stopSessionButton.setAttribute('aria-label', 'Stop sync for ' + sessionLabel);
                                         stopSessionButton.addEventListener('click', function () {
                                             HueConfigurationPage.stopRuntimeSession(page, sessionId);
                                         });
