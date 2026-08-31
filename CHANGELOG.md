@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.435] - 2026-08-31
+
+### Malformed Hue response safety and accessible mapping actions
+- **Malformed entertainment-response safety**: Hue entertainment configuration, channel, and member parsing now rejects non-object JSON elements before property access, preserving sanitized credential-free failures instead of surfacing server errors.
+- **Accessible mapping actions**: dynamically generated user-mapping Edit, View References, and Delete controls now expose escaped row-specific accessible names without leaking mapping identifiers or credentials.
+- **Regression coverage**: parser, controller, stream tester, scheduler, sync, configuration-page, and static-contract tests cover malformed response elements and accessible action labels.
+
 ## [1.5.434] - 2026-08-31
 
 ### Route-specific bridge discovery and accessible scheduler refresh

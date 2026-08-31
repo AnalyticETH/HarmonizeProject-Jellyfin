@@ -504,7 +504,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.434 (Current)
+### Version 1.5.435 (Current)
+
+- **Malformed entertainment-response safety**: Hue entertainment configuration, channel, and member parsing now rejects non-object JSON elements before property access, preserving sanitized credential-free failures instead of surfacing server errors.
+
+- **Accessible mapping actions**: dynamically generated user-mapping Edit, View References, and Delete controls now expose escaped row-specific accessible names without leaking mapping identifiers or credentials.
+
+- **Regression coverage**: parser, controller, stream tester, scheduler, sync, configuration-page, and static-contract tests cover malformed response elements and accessible action labels.
+
+### Version 1.5.434
 
 - **Playback-device route bridge discovery**: the administrator route editor can now discover and suggest bridge addresses independently of the parent mapping bridge, with isolated cancellation and stale-result protection.
 

@@ -326,7 +326,7 @@ def run_self_test() -> None:
             for name, payload in {
                 "BouncyCastle.Cryptography.dll": b"bc",
                 "Jellyfin.Plugin.Hue.dll": b"dll",
-                "meta.json": b'{"version":"1.5.434.0"}\n',
+                "meta.json": b'{"version":"1.5.435.0"}\n',
             }.items():
                 info = zipfile.ZipInfo(filename=name, date_time=(1980, 1, 1, 0, 0, 0))
                 info.create_system = 0
@@ -342,7 +342,7 @@ def run_self_test() -> None:
                 "self-test runtime manifest mode failed")
         require((plugin_dir / "Jellyfin.Plugin.Hue.dll").stat().st_mode & 0o777 == 0o644,
                 "self-test assembly mode failed")
-        good_logs = "...\nLoaded plugin: Philips Hue Sync 1.5.434.0\n..."
+        good_logs = "...\nLoaded plugin: Philips Hue Sync 1.5.435.0\n..."
         require(all(marker in good_logs for marker in REQUIRED_LOG_MARKERS), "self-test required marker detection failed")
         require(not any(marker in good_logs for marker in FORBIDDEN_LOG_MARKERS), "self-test forbidden marker detection failed")
         bad_logs = "Plugin /config/plugins/HueSync has been disabled"
