@@ -1189,6 +1189,157 @@ for (const [functionName, markers] of [
 }
 
 {
+    const claimStart = scriptMatch[1].indexOf("claimDiagnosticLoading: function");
+    const claimEnd = scriptMatch[1].indexOf("\n                },", claimStart);
+    const claimBody = claimStart >= 0 && claimEnd > claimStart ? scriptMatch[1].slice(claimStart, claimEnd) : "";
+    if (!claimBody.includes("HueConfigurationPage._hueGlobalLoadingOwner = owner;")) {
+        throw new Error(`${file} claimDiagnosticLoading must use the shared global loader owner`);
+    }
+    const helperStart = scriptMatch[1].indexOf("releaseDiagnosticLoading: function");
+    const helperEnd = scriptMatch[1].indexOf("\n                },", helperStart);
+    const helperBody = helperStart >= 0 && helperEnd > helperStart ? scriptMatch[1].slice(helperStart, helperEnd) : "";
+    for (const marker of [
+        "if (HueConfigurationPage._hueGlobalLoadingOwner !== owner) return false;",
+        "HueConfigurationPage._hueGlobalLoadingOwner = null;",
+        "Dashboard.hideLoadingMsg();"
+    ]) {
+        if (!helperBody.includes(marker)) {
+            throw new Error(`${file} releaseDiagnosticLoading must only hide the loader for its current owner: ${marker}`);
+        }
+    }
+    for (const functionName of ["testDefaultConnection", "testMappingConnection"]) {
+        const start = scriptMatch[1].indexOf(`${functionName}: function`);
+        const end = scriptMatch[1].indexOf("\n                },", start);
+        const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+        for (const marker of [
+            "var loadingOwner = HueConfigurationPage.claimDiagnosticLoading(page, request);",
+            "page._hueDiagnosticLoadingOwner = loadingOwner;",
+            "HueConfigurationPage.releaseDiagnosticLoading(loadingOwner);"
+        ]) {
+            if (!functionBody.includes(marker)) {
+                throw new Error(`${file} ${functionName} must release only its owned diagnostic loader: ${marker}`);
+            }
+        }
+        if (functionBody.includes("Dashboard.hideLoadingMsg();")) {
+            throw new Error(`${file} ${functionName} must not hide a newer operation's global loader directly`);
+        }
+    }
+}
+
+{
+    const claimStart = scriptMatch[1].indexOf("claimPreviewLoading: function");
+    const claimEnd = scriptMatch[1].indexOf("\n                },", claimStart);
+    const claimBody = claimStart >= 0 && claimEnd > claimStart ? scriptMatch[1].slice(claimStart, claimEnd) : "";
+    if (!claimBody.includes("HueConfigurationPage._hueGlobalLoadingOwner = owner;")) {
+        throw new Error(`${file} claimPreviewLoading must use the shared global loader owner`);
+    }
+    const helperStart = scriptMatch[1].indexOf("releasePreviewLoading: function");
+    const helperEnd = scriptMatch[1].indexOf("\n                },", helperStart);
+    const helperBody = helperStart >= 0 && helperEnd > helperStart ? scriptMatch[1].slice(helperStart, helperEnd) : "";
+    for (const marker of [
+        "if (HueConfigurationPage._hueGlobalLoadingOwner !== owner) return false;",
+        "HueConfigurationPage._hueGlobalLoadingOwner = null;",
+        "Dashboard.hideLoadingMsg();"
+    ]) {
+        if (!helperBody.includes(marker)) {
+            throw new Error(`${file} releasePreviewLoading must only hide the loader for its current owner: ${marker}`);
+        }
+    }
+
+    const trackStart = scriptMatch[1].indexOf("trackPreviewRequest: function");
+    const trackEnd = scriptMatch[1].indexOf("\n                },", trackStart);
+    const trackBody = trackStart >= 0 && trackEnd > trackStart ? scriptMatch[1].slice(trackStart, trackEnd) : "";
+    for (const marker of [
+        "page._huePreviewLoadingOwner ||",
+        "HueConfigurationPage.claimPreviewLoading(page, trackedRequest);",
+        "page._huePreviewLoadingOwner = loadingOwner;"
+    ]) {
+        if (!trackBody.includes(marker)) {
+            throw new Error(`${file} trackPreviewRequest must retain one loader owner across nested preview promises: ${marker}`);
+        }
+    }
+
+    const finishStart = scriptMatch[1].indexOf("finishPreviewRequest: function");
+    const finishEnd = scriptMatch[1].indexOf("\n                },", finishStart);
+    const finishBody = finishStart >= 0 && finishEnd > finishStart ? scriptMatch[1].slice(finishStart, finishEnd) : "";
+    for (const marker of [
+        "var loadingOwner = page && page._huePreviewLoadingOwner;",
+        "var ownsLoading = !!loadingOwner && loadingOwner.request === request;",
+        "HueConfigurationPage.releasePreviewLoading(loadingOwner);"
+    ]) {
+        if (!finishBody.includes(marker)) {
+            throw new Error(`${file} finishPreviewRequest must release only its owned loader: ${marker}`);
+        }
+    }
+    if (finishBody.includes("Dashboard.hideLoadingMsg();")) {
+        throw new Error(`${file} finishPreviewRequest must not hide a newer operation's global loader directly`);
+    }
+}
+
+{
+    const claimStart = scriptMatch[1].indexOf("claimPageLoading: function");
+    const claimEnd = scriptMatch[1].indexOf("\n                },", claimStart);
+    const claimBody = claimStart >= 0 && claimEnd > claimStart ? scriptMatch[1].slice(claimStart, claimEnd) : "";
+    for (const marker of [
+        "var owner = { page: page, request: request, slot: slot || '' };",
+        "HueConfigurationPage._hueGlobalLoadingOwner = owner;",
+        "page[owner.slot] = owner;"
+    ]) {
+        if (!claimBody.includes(marker)) {
+            throw new Error(`${file} claimPageLoading must register a page-scoped owner: ${marker}`);
+        }
+    }
+    const releaseStart = scriptMatch[1].indexOf("releasePageLoading: function");
+    const releaseEnd = scriptMatch[1].indexOf("\n                },", releaseStart);
+    const releaseBody = releaseStart >= 0 && releaseEnd > releaseStart ? scriptMatch[1].slice(releaseStart, releaseEnd) : "";
+    for (const marker of [
+        "if (page && owner.slot && page[owner.slot] === owner) page[owner.slot] = null;",
+        "if (HueConfigurationPage._hueGlobalLoadingOwner !== owner) return false;",
+        "HueConfigurationPage._hueGlobalLoadingOwner = null;",
+        "Dashboard.hideLoadingMsg();"
+    ]) {
+        if (!releaseBody.includes(marker)) {
+            throw new Error(`${file} releasePageLoading must hide only for the current page owner: ${marker}`);
+        }
+    }
+    for (const functionName of [
+        "discoverBridge",
+        "discoverMappingBridge",
+        "discoverMappingDevices",
+        "registerBridge",
+        "editUserMapping",
+        "inspectUserMappingDependencies"
+    ]) {
+        const start = scriptMatch[1].indexOf(`${functionName}: function`);
+        const end = scriptMatch[1].indexOf("\n                },", start);
+        const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+        if (!functionBody.includes("HueConfigurationPage.claimPageLoading(")) {
+            throw new Error(`${file} ${functionName} must claim its page-scoped loader owner`);
+        }
+        if (!functionBody.includes("HueConfigurationPage.releasePageLoading(")) {
+            throw new Error(`${file} ${functionName} must release its page-scoped loader owner`);
+        }
+        if (functionBody.includes("Dashboard.hideLoadingMsg();")) {
+            throw new Error(`${file} ${functionName} must not hide a newer operation's global loader directly`);
+        }
+    }
+    const invalidateStart = scriptMatch[1].indexOf("invalidatePageLifecycle: function");
+    const invalidateEnd = scriptMatch[1].indexOf("\n                },", invalidateStart);
+    const invalidateBody = invalidateStart >= 0 && invalidateEnd > invalidateStart
+        ? scriptMatch[1].slice(invalidateStart, invalidateEnd)
+        : "";
+    for (const marker of [
+        "var hadMappingPlaybackDeviceLoadingOwner = !!page._hueMappingPlaybackDevicesLoadingOwner;",
+        "!hadMappingPlaybackDeviceLoadingOwner &&",
+        "!HueConfigurationPage._hueGlobalLoadingOwner"
+    ]) {
+        if (!invalidateBody.includes(marker)) {
+            throw new Error(`${file} invalidatePageLifecycle must guard legacy discovery cleanup from newer global loaders: ${marker}`);
+        }
+    }
+}
+
+{
     const start = scriptMatch[1].indexOf("ensureBridgeCertificate: function");
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
@@ -1594,7 +1745,13 @@ for (const [functionName, requestKey, queryMarker] of [
         "page._hueTargetDiagnosticsLoading = false",
         "page._hueDiagnosticsRequest = null",
         "page._hueTargetDiagnosticsRequest = null",
-        "page._hueSupportBundleRequest = null"
+        "page._hueSupportBundleRequest = null",
+        "page._hueDiagnosticLoadingOwner = null",
+        "releaseDiagnosticLoading(diagnosticLoadingOwner)",
+        "var previewLoadingOwner = page._huePreviewLoadingOwner",
+        "page._huePreviewLoadingOwner = null",
+        "releasePreviewLoading(previewLoadingOwner)",
+        "if (!diagnosticLoadingOwner && !previewLoadingOwner) Dashboard.hideLoadingMsg();"
     ]) {
         if (!functionBody.includes(marker)) {
             throw new Error(`${file} invalidatePageLifecycle is missing cleanup contract: ${marker}`);

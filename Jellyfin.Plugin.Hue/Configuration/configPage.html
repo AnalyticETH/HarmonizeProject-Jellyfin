@@ -2971,6 +2971,11 @@
                         discoveryUrl,
                         null,
                         target);
+                    var loadingOwner = HueConfigurationPage.claimPageLoading(
+                        page,
+                        request,
+                        '_hueMappingPlaybackDevicesLoadingOwner');
+                    if (request._huePageRequestRecord) request._huePageRequestRecord.loadingOwner = loadingOwner;
                     request
                         .then(function (response) {
                             var currentUserSelect = page && page.querySelector('#mappingUserSelect');
@@ -3020,7 +3025,10 @@
                             // request can still own the page lifecycle slot. Clear
                             // this operation's UI in that case; only pagehide or a
                             // superseding request should leave cleanup to its owner.
-                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
+                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) {
+                                HueConfigurationPage.releasePageLoading(loadingOwner);
+                                return;
+                            }
                             if (!HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
                                 page,
                                 pageGeneration,
@@ -3030,7 +3038,7 @@
                             }
                             page._hueMappingPlaybackDevicesLoading = false;
                             if (button) button.disabled = false;
-                            Dashboard.hideLoadingMsg();
+                            HueConfigurationPage.releasePageLoading(loadingOwner);
                         });
                 },
                 ensurePageLifecycle: function (page) {
@@ -3092,6 +3100,50 @@
                     Dashboard.hideLoadingMsg();
                     return true;
                 },
+                // Diagnostic connection tests share Dashboard's global loader
+                // with configuration and runtime operations. A retained page's
+                // late diagnostic completion must not hide a newer operation's
+                // loader.
+                claimDiagnosticLoading: function (page, request) {
+                    var owner = { page: page, request: request };
+                    HueConfigurationPage._hueGlobalLoadingOwner = owner;
+                    return owner;
+                },
+                releaseDiagnosticLoading: function (owner) {
+                    if (HueConfigurationPage._hueGlobalLoadingOwner !== owner) return false;
+                    HueConfigurationPage._hueGlobalLoadingOwner = null;
+                    Dashboard.hideLoadingMsg();
+                    return true;
+                },
+                // Generic previews and current-light captures also use
+                // Dashboard's global loader. Keep their completion/pagehide
+                // cleanup behind the same retained-page ownership check as
+                // diagnostics and configuration operations.
+                claimPreviewLoading: function (page, request) {
+                    var owner = { page: page, request: request };
+                    HueConfigurationPage._hueGlobalLoadingOwner = owner;
+                    return owner;
+                },
+                releasePreviewLoading: function (owner) {
+                    if (HueConfigurationPage._hueGlobalLoadingOwner !== owner) return false;
+                    HueConfigurationPage._hueGlobalLoadingOwner = null;
+                    Dashboard.hideLoadingMsg();
+                    return true;
+                },
+                claimPageLoading: function (page, request, slot) {
+                    var owner = { page: page, request: request, slot: slot || '' };
+                    HueConfigurationPage._hueGlobalLoadingOwner = owner;
+                    if (page && owner.slot) page[owner.slot] = owner;
+                    return owner;
+                },
+                releasePageLoading: function (owner) {
+                    var page = owner && owner.page;
+                    if (page && owner.slot && page[owner.slot] === owner) page[owner.slot] = null;
+                    if (HueConfigurationPage._hueGlobalLoadingOwner !== owner) return false;
+                    HueConfigurationPage._hueGlobalLoadingOwner = null;
+                    Dashboard.hideLoadingMsg();
+                    return true;
+                },
                 isPageLifecycleRequestCurrent: function (page, generation, request) {
                     if (!HueConfigurationPage.isPageLifecycleCurrent(page, generation)) return false;
                     var requests = page._huePageRequests || {};
@@ -3145,6 +3197,11 @@
                     if (!record) return;
                     delete requests[key];
                     HueConfigurationPage.abortPageLifecycleRequest(record);
+                    if (record.loadingOwner) {
+                        var canceledLoadingOwner = record.loadingOwner;
+                        record.loadingOwner = null;
+                        HueConfigurationPage.releasePageLoading(canceledLoadingOwner);
+                    }
                     if (key === 'bridgeDiscovery' || key === 'mappingBridgeDiscovery') {
                         var bridgeDiscoveryLoadingProperty = key === 'bridgeDiscovery'
                             ? '_hueBridgeDiscoveryLoading'
@@ -3152,24 +3209,18 @@
                         var bridgeDiscoveryButtonSelector = key === 'bridgeDiscovery'
                             ? '#discoverBtn'
                             : '#mappingDiscoverBtn';
-                        var hadBridgeDiscovery = page[bridgeDiscoveryLoadingProperty] === true;
                         page[bridgeDiscoveryLoadingProperty] = false;
                         var bridgeDiscoveryButton = page.querySelector && page.querySelector(bridgeDiscoveryButtonSelector);
                         if (bridgeDiscoveryButton) bridgeDiscoveryButton.disabled = false;
-                        if (hadBridgeDiscovery) Dashboard.hideLoadingMsg();
                     }
                     if (key === 'mappingPlaybackDevices') {
-                        var hadMappingPlaybackDeviceDiscovery = page._hueMappingPlaybackDevicesLoading === true;
                         page._hueMappingPlaybackDevicesLoading = false;
                         HueConfigurationPage.clearMappingPlaybackDevices(page);
                         var mappingPlaybackDevicesButton = page.querySelector && page.querySelector('#mappingDiscoverDevicesBtn');
                         if (mappingPlaybackDevicesButton) mappingPlaybackDevicesButton.disabled = false;
-                        if (hadMappingPlaybackDeviceDiscovery) Dashboard.hideLoadingMsg();
                     }
                     if (key === 'userMappingDependencies') {
-                        var hadUserMappingDependencyInspection = !!page._hueUserMappingDependenciesRequest;
                         page._hueUserMappingDependenciesRequest = null;
-                        if (hadUserMappingDependencyInspection) Dashboard.hideLoadingMsg();
                     }
                     var directScenePlaylistMutation = page._hueScenePlaylistMutation;
                     if (directScenePlaylistMutation && directScenePlaylistMutation.key === key) {
@@ -3387,9 +3438,31 @@
                         page._huePreviewRequest ||
                         page._hueCaptureRequest ||
                         page._huePreviewCancellationRequest);
+                    var diagnosticLoadingOwner = page._hueDiagnosticLoadingOwner;
+                    if (diagnosticLoadingOwner) {
+                        page._hueDiagnosticLoadingOwner = null;
+                        HueConfigurationPage.releaseDiagnosticLoading(diagnosticLoadingOwner);
+                    }
+                    var previewLoadingOwner = page._huePreviewLoadingOwner;
+                    if (previewLoadingOwner) {
+                        page._huePreviewLoadingOwner = null;
+                        HueConfigurationPage.releasePreviewLoading(previewLoadingOwner);
+                    }
                     var hadMappingPlaybackDeviceDiscovery = page._hueMappingPlaybackDevicesLoading === true;
                     var hadMappingPlaybackDeviceRequest = !!(
                         page._huePageRequests && page._huePageRequests.mappingPlaybackDevices);
+                    var hadMappingPlaybackDeviceLoadingOwner = !!page._hueMappingPlaybackDevicesLoadingOwner;
+                    var pageLoadingOwners = [
+                        page._hueBridgeDiscoveryLoadingOwner,
+                        page._hueMappingBridgeDiscoveryLoadingOwner,
+                        page._hueMappingPlaybackDevicesLoadingOwner,
+                        page._hueRegistrationLoadingOwner,
+                        page._hueUserMappingEditLoadingOwner,
+                        page._hueUserMappingDependenciesLoadingOwner
+                    ];
+                    pageLoadingOwners.forEach(function (owner) {
+                        if (owner) HueConfigurationPage.releasePageLoading(owner);
+                    });
                     if (page._hueCertificatePreflights) {
                         Object.keys(page._hueCertificatePreflights).forEach(function (key) {
                             page._hueCertificatePreflights[key].canceled = true;
@@ -3591,14 +3664,23 @@
                     // leave the discovery affordance/spinner wedged when its request
                     // settles after pagehide.
                     page._hueMappingPlaybackDevicesLoading = false;
+                    page._hueBridgeDiscoveryLoadingOwner = null;
+                    page._hueMappingBridgeDiscoveryLoadingOwner = null;
+                    page._hueMappingPlaybackDevicesLoadingOwner = null;
+                    page._hueRegistrationLoadingOwner = null;
+                    page._hueUserMappingEditLoadingOwner = null;
+                    page._hueUserMappingDependenciesLoadingOwner = null;
                     HueConfigurationPage.clearMappingPlaybackDevices(page);
-                    if (hadMappingPlaybackDeviceDiscovery && !hadMappingPlaybackDeviceRequest) {
+                    if (hadMappingPlaybackDeviceDiscovery && !hadMappingPlaybackDeviceRequest &&
+                        !hadMappingPlaybackDeviceLoadingOwner &&
+                        !HueConfigurationPage._hueGlobalLoadingOwner) {
                         var mappingPlaybackDevicesButton = page.querySelector && page.querySelector('#mappingDiscoverDevicesBtn');
                         if (mappingPlaybackDevicesButton) mappingPlaybackDevicesButton.disabled = false;
                         Dashboard.hideLoadingMsg();
                     }
                     page._huePreviewRequest = null;
                     page._hueCaptureRequest = null;
+                    page._huePreviewLoadingOwner = null;
                     page._huePreviewCancellationRequest = null;
                     page._huePreviewStatusElement = null;
                     page._hueSceneScheduleRequest = null;
@@ -3610,7 +3692,10 @@
                     page._hueSceneScheduleReloadLease = null;
                     if (hadPreviewLifecycle) {
                         HueConfigurationPage.setPreviewBusy(page, false);
-                        Dashboard.hideLoadingMsg();
+                        // Diagnostic and generic preview operations release
+                        // their loader through owner tokens above. Do not hide
+                        // a newer retained-page operation's loader directly.
+                        if (!diagnosticLoadingOwner && !previewLoadingOwner) Dashboard.hideLoadingMsg();
                     }
                     page._hueSessionHistoryLoading = false;
                     page._hueSceneScheduleRuntimeStatusLoading = false;
@@ -3695,6 +3780,7 @@
                     page._hueDiagnosticsRequest = null;
                     page._hueTargetDiagnosticsRequest = null;
                     page._hueSupportBundleRequest = null;
+                    page._hueDiagnosticLoadingOwner = null;
                     page._hueDiagnosticsCancellationRequest = null;
                     page._hueDiagnosticsCancellationRequested = false;
                     // Import preflight is page-scoped. Drop its document and
@@ -3763,16 +3849,29 @@
                     }
                     var trackedRequest = Promise.resolve(request);
                     trackedRequest._huePageRequestRecord = record;
+                    // Credential-bearing previews track both the outer
+                    // certificate-preflight promise and the inner action
+                    // promise. Reuse the first owner for that logical
+                    // operation so the outer completion can release it.
+                    var loadingOwner = page._huePreviewLoadingOwner ||
+                        HueConfigurationPage.claimPreviewLoading(page, trackedRequest);
+                    page._huePreviewLoadingOwner = loadingOwner;
                     return trackedRequest;
                 },
                 finishPreviewRequest: function (page, generation, request) {
                     var current = HueConfigurationPage.isPageLifecycleRequestCurrent(page, generation, request);
                     var ownsRequest = !!page && page._huePreviewRequest === request;
+                    var loadingOwner = page && page._huePreviewLoadingOwner;
+                    var ownsLoading = !!loadingOwner && loadingOwner.request === request;
                     if (!ownsRequest) return false;
                     if (!current) {
                         page._huePreviewRequest = null;
                         if (page._hueCaptureRequest === request) page._hueCaptureRequest = null;
                         page._huePreviewStatusElement = null;
+                        if (ownsLoading) {
+                            page._huePreviewLoadingOwner = null;
+                            HueConfigurationPage.releasePreviewLoading(loadingOwner);
+                        }
                         return false;
                     }
                     page._huePreviewRequest = null;
@@ -3780,7 +3879,10 @@
                     page._huePreviewStatusElement = null;
                     HueConfigurationPage.setPreviewBusy(page, false);
                     HueConfigurationPage.cancelPageLifecycleRequest(page, 'preview');
-                    Dashboard.hideLoadingMsg();
+                    if (ownsLoading) {
+                        page._huePreviewLoadingOwner = null;
+                        HueConfigurationPage.releasePreviewLoading(loadingOwner);
+                    }
                     return true;
                 },
                 initializePreviewTargetMetadata: function (page) {
@@ -13679,6 +13781,11 @@
                         ApiClient.getUrl("HueSync/DiscoverBridges"),
                         null,
                         discoveryTarget);
+                    var loadingOwner = HueConfigurationPage.claimPageLoading(
+                        page,
+                        request,
+                        '_hueBridgeDiscoveryLoadingOwner');
+                    if (request._huePageRequestRecord) request._huePageRequestRecord.loadingOwner = loadingOwner;
                     var isCurrent = function () {
                         var currentInput = page.querySelector('#hueBridgeIp');
                         return HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
@@ -13724,11 +13831,14 @@
                             var requestRecord = request && request._huePageRequestRecord;
                             var tracked = page && page._huePageRequests &&
                                 page._huePageRequests.bridgeDiscovery === requestRecord;
-                            if (!tracked) return;
+                            if (!tracked) {
+                                HueConfigurationPage.releasePageLoading(loadingOwner);
+                                return;
+                            }
                             delete page._huePageRequests.bridgeDiscovery;
                             page._hueBridgeDiscoveryLoading = false;
                             discoverBtn.disabled = false;
-                            Dashboard.hideLoadingMsg();
+                            HueConfigurationPage.releasePageLoading(loadingOwner);
                         });
                 },
                 registerBridge: function (page) {
@@ -13766,6 +13876,10 @@
                         }
                         if (button) button.disabled = true;
                         Dashboard.showLoadingMsg();
+                        var loadingOwner = HueConfigurationPage.claimPageLoading(
+                            page,
+                            preflight,
+                            '_hueRegistrationLoadingOwner');
 
                         var request;
                         try {
@@ -13779,11 +13893,12 @@
                         } catch {
                             if (page._hueRegistrationPreflight === preflight) page._hueRegistrationPreflight = null;
                             if (button) button.disabled = false;
-                            Dashboard.hideLoadingMsg();
+                            HueConfigurationPage.releasePageLoading(loadingOwner);
                             Dashboard.alert("Registration failed. Verify the bridge address and link-button prompt, then try again.");
                             return;
                         }
 
+                        loadingOwner.request = request;
                         page._hueRegistrationRequest = request;
                         request.then(function (response) {
                             if (!isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
@@ -13811,7 +13926,7 @@
                                 if (button) button.disabled = false;
                             }
                             if (page._hueRegistrationPreflight === preflight) page._hueRegistrationPreflight = null;
-                            Dashboard.hideLoadingMsg();
+                            HueConfigurationPage.releasePageLoading(loadingOwner);
                         });
                     }).catch(function (err) {
                         if (preflight.canceled || !isCurrentRegistrationTarget() || !HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
@@ -13871,6 +13986,8 @@
                         function () {
                             return HueConfigurationPage.fetchConnectionTest(bridgeIp, appKey, areaId, clientKey, channelIds);
                         }, 'preview', isCredentialInputCurrent);
+                    var loadingOwner = HueConfigurationPage.claimDiagnosticLoading(page, request);
+                    page._hueDiagnosticLoadingOwner = loadingOwner;
                     page._huePreviewRequest = request;
                     page._huePreviewStatusElement = page.querySelector('#bridgeStatus');
                     HueConfigurationPage.setDiagnosticBusy(page, true);
@@ -13886,14 +14003,15 @@
                             HueConfigurationPage.refreshStatus(page, "Bridge connection failed. Verify the address, app key, and network access.", "error");
                         })
                         .finally(function () {
-                            var current = HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) &&
-                                page._huePreviewRequest === request;
                             if (page._huePreviewRequest === request) {
                                 page._huePreviewRequest = null;
                                 page._huePreviewStatusElement = null;
                                 HueConfigurationPage.setDiagnosticBusy(page, false);
                             }
-                            if (current) Dashboard.hideLoadingMsg();
+                            if (page._hueDiagnosticLoadingOwner === loadingOwner) {
+                                page._hueDiagnosticLoadingOwner = null;
+                            }
+                            HueConfigurationPage.releaseDiagnosticLoading(loadingOwner);
                         });
                 },
 
@@ -14968,6 +15086,11 @@
                         ApiClient.getUrl("HueSync/DiscoverBridges"),
                         null,
                         discoveryTarget);
+                    var loadingOwner = HueConfigurationPage.claimPageLoading(
+                        page,
+                        request,
+                        '_hueMappingBridgeDiscoveryLoadingOwner');
+                    if (request._huePageRequestRecord) request._huePageRequestRecord.loadingOwner = loadingOwner;
                     var isCurrent = function () {
                         var currentInput = page.querySelector('#mappingBridgeIp');
                         return HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
@@ -15011,11 +15134,14 @@
                             var requestRecord = request && request._huePageRequestRecord;
                             var tracked = page && page._huePageRequests &&
                                 page._huePageRequests.mappingBridgeDiscovery === requestRecord;
-                            if (!tracked) return;
+                            if (!tracked) {
+                                HueConfigurationPage.releasePageLoading(loadingOwner);
+                                return;
+                            }
                             delete page._huePageRequests.mappingBridgeDiscovery;
                             page._hueMappingBridgeDiscoveryLoading = false;
                             discoverBtn.disabled = false;
-                            Dashboard.hideLoadingMsg();
+                            HueConfigurationPage.releasePageLoading(loadingOwner);
                         });
                 },
 
@@ -15167,6 +15293,8 @@
                         function () {
                             return HueConfigurationPage.fetchConnectionTest(target.bridgeIp, target.appKey, target.areaId, target.clientKey, channelIds, target.userId, target.deviceId);
                         }, 'preview', isCredentialInputCurrent);
+                    var loadingOwner = HueConfigurationPage.claimDiagnosticLoading(page, request);
+                    page._hueDiagnosticLoadingOwner = loadingOwner;
                     page._huePreviewRequest = request;
                     page._huePreviewStatusElement = statusEl;
                     HueConfigurationPage.setDiagnosticBusy(page, true);
@@ -15193,14 +15321,15 @@
                             }
                         })
                         .finally(function () {
-                            var current = HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) &&
-                                page._huePreviewRequest === request;
                             if (page._huePreviewRequest === request) {
                                 page._huePreviewRequest = null;
                                 page._huePreviewStatusElement = null;
                                 HueConfigurationPage.setDiagnosticBusy(page, false);
                             }
-                            if (current) Dashboard.hideLoadingMsg();
+                            if (page._hueDiagnosticLoadingOwner === loadingOwner) {
+                                page._hueDiagnosticLoadingOwner = null;
+                            }
+                            HueConfigurationPage.releaseDiagnosticLoading(loadingOwner);
                         });
                 },
 
@@ -16140,6 +16269,11 @@
                             type: 'GET',
                             dataType: 'json'
                         });
+                    var loadingOwner = HueConfigurationPage.claimPageLoading(
+                        page,
+                        request,
+                        '_hueUserMappingEditLoadingOwner');
+                    if (request._huePageRequestRecord) request._huePageRequestRecord.loadingOwner = loadingOwner;
                     return request.then(function (mappings) {
                         if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                         mappings = Array.isArray(mappings) ? mappings : [];
@@ -16350,9 +16484,7 @@
                         console.error("Failed to load user mapping:", err);
                         Dashboard.alert("Unable to edit mapping: " + (err.message || err));
                     }).finally(function () {
-                        if (HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) {
-                            Dashboard.hideLoadingMsg();
-                        }
+                        HueConfigurationPage.releasePageLoading(loadingOwner);
                     });
                 },
 
@@ -16383,6 +16515,11 @@
                         'userMappingDependencies',
                         ApiClient.getUrl(dependencyUrl));
                     page._hueUserMappingDependenciesRequest = request;
+                    var loadingOwner = HueConfigurationPage.claimPageLoading(
+                        page,
+                        request,
+                        '_hueUserMappingDependenciesLoadingOwner');
+                    if (request._huePageRequestRecord) request._huePageRequestRecord.loadingOwner = loadingOwner;
                     Dashboard.showLoadingMsg();
                     var isCurrent = function () {
                         return page._hueUserMappingDependenciesRequest === request &&
@@ -16434,7 +16571,7 @@
                             if (page._hueUserMappingDependenciesRequest === request) {
                                 page._hueUserMappingDependenciesRequest = null;
                             }
-                            if (current && !tracked) Dashboard.hideLoadingMsg();
+                            HueConfigurationPage.releasePageLoading(loadingOwner);
                         });
                 },
 

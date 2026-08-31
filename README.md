@@ -496,7 +496,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.424 (Current)
+### Version 1.5.425 (Current)
+
+- **Credential preflight route arbitration**: credential-bearing entertainment-area requests now reject ambiguous duplicate nested device IDs before selecting stored keys or contacting Hue, matching schedule, capture, and diagnostics fail-closed behavior.
+
+- **Global loader ownership**: configuration-page discovery, registration, mapping-edit/dependency, diagnostic, preview, and current-light operations now share owner-checked loader tokens with configuration operations, so stale or nested completions cannot hide a newer operation's indicator.
+
+- **Regression coverage**: API and configuration-page contracts cover duplicate device-route credentials plus retained-page, cross-operation, and nested certificate-preflight loader races.
 
 - **Configuration import loader ownership**: import validation and submit completions now release the shared global loader only when they still own it, so a late import request cannot hide a newer export or runtime-stop indicator.
 

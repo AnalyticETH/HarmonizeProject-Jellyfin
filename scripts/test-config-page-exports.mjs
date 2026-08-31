@@ -687,6 +687,422 @@ async function testGlobalLoaderOwnershipAcrossConfigurationImportSubmitAndExport
     assert.equal(loadingVisible, false, "configuration export completion releases the shared loader after import submit");
 }
 
+async function testGlobalLoaderOwnershipAcrossDiagnosticsAndConfigurationImport() {
+    for (const testCase of [
+        {
+            method: "testDefaultConnection",
+            setup(page) {
+                page.querySelector("#hueBridgeIp").value = "192.168.1.50";
+                page.querySelector("#hueAppKey").value = "default-app-key";
+            }
+        },
+        {
+            method: "testMappingConnection",
+            setup(page) {
+                page.querySelector("#mappingBridgeIp").value = "192.168.1.51";
+                page.querySelector("#mappingAppKey").value = "mapping-app-key";
+            }
+        }
+    ]) {
+        const harness = makeHarness();
+        const { page, api, requests, dashboard } = harness;
+        api.applyConfigurationImportCredentials = () => true;
+        let resolveDiagnostic;
+        api.runWithBridgeCertificate = () => new Promise(resolve => {
+            resolveDiagnostic = resolve;
+        });
+        let loadingVisible = false;
+        dashboard.showLoadingMsg = () => { loadingVisible = true; };
+        dashboard.hideLoadingMsg = () => { loadingVisible = false; };
+        testCase.setup(page);
+
+        api[testCase.method](page);
+        const diagnostic = page._huePreviewRequest;
+        assert.ok(diagnostic && typeof diagnostic.then === "function", `${testCase.method} tracks the diagnostic request`);
+        assert.equal(loadingVisible, true, `${testCase.method} shows the global loader`);
+
+        page._hueImportDocument = { Configuration: { HueBridgeIp: "bridge.local" } };
+        const validation = api.validateConfigurationImport(page);
+        assert.equal(requests.length, 1, `${testCase.method} and import validation use one deferred API request`);
+        assert.equal(loadingVisible, true, `${testCase.method} and import validation leave the loader visible`);
+
+        resolveDiagnostic({ Succeeded: true, Message: "Diagnostic complete" });
+        await diagnostic;
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(
+            loadingVisible,
+            true,
+            `${testCase.method} completion cannot hide the newer import-validation loader`
+        );
+
+        requests[0].resolve({ valid: true, canImport: true, configurationVersion: "diagnostic-loader-version" });
+        await validation;
+        assert.equal(loadingVisible, false, "import validation completion releases its owned loader");
+    }
+
+    const retainedHarness = makeHarness();
+    const { page: hiddenPage, makePage, api, requests, dashboard } = retainedHarness;
+    const visiblePage = makePage();
+    api.runWithBridgeCertificate = () => new Promise(resolve => {
+        retainedHarness.resolveDiagnostic = resolve;
+    });
+    api.applyConfigurationImportCredentials = () => true;
+    hiddenPage.querySelector("#hueBridgeIp").value = "192.168.1.52";
+    hiddenPage.querySelector("#hueAppKey").value = "retained-app-key";
+    let loadingVisible = false;
+    dashboard.showLoadingMsg = () => { loadingVisible = true; };
+    dashboard.hideLoadingMsg = () => { loadingVisible = false; };
+
+    api.testDefaultConnection(hiddenPage);
+    const hiddenDiagnostic = hiddenPage._huePreviewRequest;
+    visiblePage._hueImportDocument = { Configuration: { HueBridgeIp: "bridge.local" } };
+    const validation = api.validateConfigurationImport(visiblePage);
+    assert.equal(requests.length, 1, "retained diagnostic/import loader test starts one validation request");
+    assert.equal(loadingVisible, true, "the visible import validation owns the loader");
+
+    api.invalidatePageLifecycle(hiddenPage);
+    assert.equal(
+        loadingVisible,
+        true,
+        "pagehide of an older diagnostic page cannot hide the visible import-validation loader"
+    );
+
+    retainedHarness.resolveDiagnostic({ Succeeded: true, Message: "stale diagnostic" });
+    await hiddenDiagnostic;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(
+        loadingVisible,
+        true,
+        "a stale diagnostic completion after pagehide cannot hide the visible import-validation loader"
+    );
+
+    requests[0].resolve({ valid: true, canImport: true, configurationVersion: "retained-diagnostic-version" });
+    await validation;
+    assert.equal(loadingVisible, false, "the visible import validation releases the loader after retained diagnostic pagehide");
+}
+
+async function testGlobalLoaderOwnershipAcrossPreviewAndConfigurationImport() {
+    const previewValues = {
+        red: 1,
+        green: 2,
+        blue: 3,
+        brightnessPercent: 80,
+        effectSpeedPercent: 100,
+        durationSeconds: 5,
+        effect: "Solid",
+        transitionSeconds: 0,
+        transitionOutSeconds: 0,
+        transitionCurve: "Linear"
+    };
+
+    for (const testCase of [
+        {
+            method: "previewAllEnabledTargets",
+            setup(api, page) {
+                page._huePreviewTargetMetadataReady = true;
+                api.getPreviewValues = () => previewValues;
+            },
+            response: { succeeded: true, message: "Preview complete" }
+        },
+        {
+            method: "captureCurrentColor",
+            setup(api, page) {
+                page._huePreviewTargetMetadataReady = true;
+                api.getCurrentLightCaptureTargetSelection = () => ({
+                    targetAllEnabledMappings: false,
+                    includeDefaultTarget: false,
+                    targetUserIds: [],
+                    targetRoutes: [],
+                    targetUserId: "",
+                    targetDeviceId: ""
+                });
+            },
+            response: { Succeeded: true, Red: 16, Green: 32, Blue: 48, BrightnessPercent: 20 }
+        }
+    ]) {
+        const harness = makeHarness();
+        const { page, api, requests, dashboard } = harness;
+        api.applyConfigurationImportCredentials = () => true;
+        let loadingVisible = false;
+        dashboard.showLoadingMsg = () => { loadingVisible = true; };
+        dashboard.hideLoadingMsg = () => { loadingVisible = false; };
+        testCase.setup(api, page);
+
+        api[testCase.method](page);
+        const preview = page._huePreviewRequest;
+        assert.ok(preview && typeof preview.then === "function", `${testCase.method} tracks a preview request`);
+        assert.equal(requests.length, 1, `${testCase.method} starts one deferred preview request`);
+        assert.equal(loadingVisible, true, `${testCase.method} shows the global loader`);
+
+        page._hueImportDocument = { Configuration: { HueBridgeIp: "bridge.local" } };
+        const validation = api.validateConfigurationImport(page);
+        assert.equal(requests.length, 2, `${testCase.method} and import validation start independent requests`);
+        assert.equal(loadingVisible, true, `${testCase.method} and import validation leave the loader visible`);
+
+        requests[0].resolve(testCase.response);
+        await preview;
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(
+            loadingVisible,
+            true,
+            `${testCase.method} completion cannot hide the newer import-validation loader`
+        );
+
+        requests[1].resolve({ valid: true, canImport: true, configurationVersion: "preview-loader-version" });
+        await validation;
+        assert.equal(loadingVisible, false, "import validation completion releases its owned loader after a preview");
+    }
+
+    const retainedHarness = makeHarness();
+    const { page: hiddenPage, makePage, api, requests, dashboard } = retainedHarness;
+    const visiblePage = makePage();
+    let loadingVisible = false;
+    dashboard.showLoadingMsg = () => { loadingVisible = true; };
+    dashboard.hideLoadingMsg = () => { loadingVisible = false; };
+    api.applyConfigurationImportCredentials = () => true;
+    hiddenPage._huePreviewTargetMetadataReady = true;
+    api.getPreviewValues = () => previewValues;
+
+    api.previewAllEnabledTargets(hiddenPage);
+    const hiddenPreview = hiddenPage._huePreviewRequest;
+    visiblePage._hueImportDocument = { Configuration: { HueBridgeIp: "bridge.local" } };
+    const validation = api.validateConfigurationImport(visiblePage);
+    assert.equal(requests.length, 2, "retained preview/import loader test starts both operations");
+    assert.equal(loadingVisible, true, "the visible import validation owns the loader after a retained preview starts");
+
+    api.invalidatePageLifecycle(hiddenPage);
+    assert.equal(requests[0].promise.aborted, true, "pagehide aborts the retained preview request");
+    assert.equal(
+        loadingVisible,
+        true,
+        "pagehide of an older preview page cannot hide the visible import-validation loader"
+    );
+
+    requests[0].resolve({ succeeded: true, message: "stale preview" });
+    await hiddenPreview;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(
+        loadingVisible,
+        true,
+        "a stale preview completion after pagehide cannot hide the visible import-validation loader"
+    );
+
+    requests[1].resolve({ valid: true, canImport: true, configurationVersion: "retained-preview-loader-version" });
+    await validation;
+    assert.equal(loadingVisible, false, "the visible import validation releases the loader after retained preview pagehide");
+}
+
+async function testNestedPreviewLoaderOwnershipAcrossCertificatePreflight() {
+    const harness = makeHarness();
+    const { page, api, requests, dashboard } = harness;
+    page._huePreviewTargetMetadataReady = true;
+    page.querySelector("#hueBridgeIp").value = "192.168.1.53";
+    page.querySelector("#hueAppKey").value = "preflight-app-key";
+    page.querySelector("#hueClientKey").value = "preflight-client-key";
+    page.querySelector("#entertainmentAreaSelect").value = "area-one";
+    api.getPreviewValues = () => ({
+        red: 1,
+        green: 2,
+        blue: 3,
+        brightnessPercent: 80,
+        effectSpeedPercent: 100,
+        durationSeconds: 5,
+        effect: "Solid",
+        transitionSeconds: 0,
+        transitionOutSeconds: 0,
+        transitionCurve: "Linear"
+    });
+    let releasePreflight;
+    api.runWithBridgeCertificate = (_page, _bridgeIp, _statusElement, action) => new Promise((resolve, reject) => {
+        releasePreflight = () => Promise.resolve().then(action).then(resolve, reject);
+    });
+    api.applyConfigurationImportCredentials = () => true;
+    let loadingVisible = false;
+    let loadingHides = 0;
+    dashboard.showLoadingMsg = () => { loadingVisible = true; };
+    dashboard.hideLoadingMsg = () => {
+        loadingVisible = false;
+        loadingHides += 1;
+    };
+
+    api.previewDefaultColor(page);
+    const preview = page._huePreviewRequest;
+    assert.ok(preview && typeof preview.then === "function", "credential-preflight preview tracks its outer request");
+    assert.equal(requests.length, 0, "credential-preflight preview defers the action request");
+    assert.equal(loadingVisible, true, "credential-preflight preview shows the global loader");
+
+    page._hueImportDocument = { Configuration: { HueBridgeIp: "bridge.local" } };
+    const validation = api.validateConfigurationImport(page);
+    assert.equal(requests.length, 1, "nested preview/import test starts the deferred import validation");
+    assert.equal(loadingVisible, true, "import validation keeps the loader visible during certificate preflight");
+
+    assert.equal(typeof releasePreflight, "function", "credential-preflight preview exposes a deferred certificate continuation");
+    const action = releasePreflight();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests.length, 2, "certificate approval starts the inner preview action request");
+    requests[1].resolve({ succeeded: true, message: "nested preview complete" });
+    await action;
+    await preview;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(loadingVisible, true, "nested preview completion cannot hide the newer import-validation loader");
+    assert.equal(loadingHides, 0, "nested preview completion does not hide a newer loader");
+
+    requests[0].resolve({ valid: true, canImport: true, configurationVersion: "nested-preview-loader-version" });
+    await validation;
+    assert.equal(loadingVisible, false, "import validation releases the loader after nested preview completion");
+    assert.equal(loadingHides, 1, "nested preview/import overlap hides the loader exactly once");
+}
+
+async function testGlobalLoaderOwnershipAcrossPageLifecycleOperations() {
+    const userId = "12345678-1234-4234-8234-1234567890ab";
+    const cases = [
+        {
+            name: "discoverBridge",
+            setup(api, page) {
+                page.querySelector("#hueBridgeIp").value = "192.168.1.61";
+            },
+            start(api, page) {
+                return api.discoverBridge(page);
+            },
+            response: { IpAddresses: ["192.168.1.61"] }
+        },
+        {
+            name: "discoverMappingBridge",
+            setup(api, page) {
+                page.querySelector("#mappingBridgeIp").value = "192.168.1.62";
+            },
+            start(api, page) {
+                return api.discoverMappingBridge(page);
+            },
+            response: { IpAddresses: ["192.168.1.62"] }
+        },
+        {
+            name: "discoverMappingDevices",
+            setup(api, page) {
+                page.querySelector("#mappingUserSelect").value = userId;
+                api.refreshMappingDeviceRoutes = () => {};
+            },
+            start(api, page) {
+                return api.discoverMappingDevices(page);
+            },
+            response: [{ UserId: userId, DeviceId: "device-one" }]
+        },
+        {
+            name: "registerBridge",
+            setup(api, page, harness) {
+                page.querySelector("#hueBridgeIp").value = "192.168.1.63";
+                api.loadEntertainmentAreas = () => {};
+                let resolvePreflight;
+                api.ensureBridgeCertificate = () => new Promise(resolve => {
+                    resolvePreflight = resolve;
+                });
+                harness.dashboard.confirm = (_message, _title, callback) => callback(true);
+                harness.resolveRegistrationPreflight = value => resolvePreflight(value);
+            },
+            async start(api, page, harness) {
+                api.registerBridge(page);
+                harness.resolveRegistrationPreflight(true);
+                await new Promise(resolve => setImmediate(resolve));
+                await new Promise(resolve => setImmediate(resolve));
+            },
+            response: { username: "registered-app-key", clientKey: "registered-client-key" }
+        },
+        {
+            name: "editUserMapping",
+            setup() {},
+            start(api, page) {
+                return api.editUserMapping(page, "user-one", "mapping-one");
+            },
+            response: [{
+                MappingId: "mapping-one",
+                UserId: "user-one",
+                UserName: "User One",
+                SyncEnabled: false
+            }]
+        },
+        {
+            name: "inspectUserMappingDependencies",
+            setup() {},
+            start(api, page) {
+                return api.inspectUserMappingDependencies(page, "user-one", "mapping-one");
+            },
+            response: {
+                UserName: "User One",
+                CanDelete: true,
+                CanDisable: true,
+                ScheduledCueCount: 0,
+                ScheduledCues: [],
+                ScenePlaylistCount: 0,
+                ScenePlaylists: []
+            }
+        }
+    ];
+
+    async function flushLifecycle() {
+        await new Promise(resolve => setImmediate(resolve));
+        await new Promise(resolve => setImmediate(resolve));
+    }
+
+    async function runCase(testCase, invalidateOlder) {
+        const harness = makeHarness();
+        const { page: olderPage, makePage, api, requests, dashboard } = harness;
+        const visiblePage = makePage();
+        let loadingVisible = false;
+        let loadingHides = 0;
+        dashboard.showLoadingMsg = () => { loadingVisible = true; };
+        dashboard.hideLoadingMsg = () => {
+            loadingVisible = false;
+            loadingHides += 1;
+        };
+        testCase.setup(api, olderPage, harness);
+        const olderOperation = testCase.start(api, olderPage, harness);
+        if (olderOperation && typeof olderOperation.then === "function") {
+            // Keep the operation promise available for completion assertions;
+            // request resolution remains controlled by the harness below.
+            await Promise.resolve();
+        }
+        await flushLifecycle();
+        assert.equal(requests.length, 1, `${testCase.name} starts one older-page request`);
+        assert.equal(loadingVisible, true, `${testCase.name} shows the older-page loader`);
+
+        api.applyConfigurationImportCredentials = () => true;
+        visiblePage._hueImportDocument = { Configuration: { HueBridgeIp: "visible-bridge" } };
+        const newerOperation = api.validateConfigurationImport(visiblePage);
+        assert.equal(requests.length, 2, `${testCase.name} starts a newer import-validation request`);
+        assert.equal(loadingVisible, true, `${testCase.name} leaves the newer loader visible`);
+
+        if (invalidateOlder) {
+            api.invalidatePageLifecycle(olderPage);
+            assert.equal(
+                loadingVisible,
+                true,
+                `${testCase.name} pagehide cannot hide the newer import-validation loader`
+            );
+        }
+
+        requests[0].resolve(testCase.response);
+        if (olderOperation && typeof olderOperation.then === "function") {
+            await olderOperation;
+        }
+        await flushLifecycle();
+        assert.equal(
+            loadingVisible,
+            true,
+            `${testCase.name} completion cannot hide the newer import-validation loader`
+        );
+
+        requests[1].resolve({ valid: true, canImport: true, configurationVersion: "page-operation-loader-version" });
+        await newerOperation;
+        assert.equal(loadingVisible, false, `${testCase.name} newer import validation releases the loader`);
+        assert.equal(loadingHides, 1, `${testCase.name} overlap hides the loader exactly once`);
+    }
+
+    for (const testCase of cases) {
+        await runCase(testCase, false);
+        await runCase(testCase, true);
+    }
+}
+
 async function testCurrentFailure(testCase) {
     const harness = makeHarness();
     const { page, api, requests, downloads } = harness;
@@ -6242,8 +6658,12 @@ await testGlobalLoaderOwnershipAcrossConfigurationLoadAndExport();
 await testGlobalLoaderOwnershipAcrossConfigurationSaveAndExport();
 await testGlobalLoaderOwnershipAcrossConfigurationImportValidationAndExport();
 await testGlobalLoaderOwnershipAcrossConfigurationImportSubmitAndExport();
+await testGlobalLoaderOwnershipAcrossDiagnosticsAndConfigurationImport();
+await testGlobalLoaderOwnershipAcrossPreviewAndConfigurationImport();
+await testNestedPreviewLoaderOwnershipAcrossCertificatePreflight();
+await testGlobalLoaderOwnershipAcrossPageLifecycleOperations();
 await testDisabledMappingCannotPreview();
 await testSavedSceneSingleMappingUsesSelectedTargetPayload();
 await testBridgeCertificatePinRenderingAndForgetLifecycle();
 
-console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus page-scoped mapping-device discovery and route-refresh ownership, mapping discovery-cache read ownership, retained mapping-page state isolation, sibling mapping-registration preflight/request ownership, mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, user-mapping dependency inspection pagehide/current-result lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop, configuration-export, configuration-load/export, configuration-save/export, configuration-import-validation/export, configuration-import-submit/export loader ownership, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);
+console.log(`Configuration lifecycle contracts passed (${exportCases.length} exports plus page-scoped mapping-device discovery and route-refresh ownership, mapping discovery-cache read ownership, retained mapping-page state isolation, sibling mapping-registration preflight/request ownership, mapping-edit/save/delete/cleanup/bulk-delete/bulk-enabled lifecycle, user-mapping dependency inspection pagehide/current-result lifecycle, scoped route credentials/channel isolation/device-discovery pagehide and retry lifecycle, bridge-discovery pagehide/retry/target-mutation lifecycle, certificate preflight/trust-prompt/cancel/pagehide/target-mutation, certificate pin rendering/forget lifecycle, registration lifecycle, import file/validation/submit, configuration and color-preset save/duplicate/delete/bulk-delete/bulk-duplicate/bulk-error-retry/rename/scene save/delete/duplicate/rename/dependencies/bulk-delete/bulk-duplicate/shared-mutation-lock-arbitration/history-clear/schedule-delete/bulk-mutation stale-confirmation/pagehide/stale-completion/current-success, scheduled-cue run/cancel identity, unsafe area-ID selection, preview/capture pagehide and stale-completion guards, duplicate-target, duplicate-resolution, user-mapping reconciliation, runtime-stop, configuration-export, configuration-load/export, configuration-save/export, configuration-import-validation/export, configuration-import-submit/export, diagnostic/configuration-import loader ownership, preview/capture/configuration-import loader ownership, nested certificate-preflight preview loader ownership, disabled-mapping preview, and single-mapping saved-scene preview payload paths)`);

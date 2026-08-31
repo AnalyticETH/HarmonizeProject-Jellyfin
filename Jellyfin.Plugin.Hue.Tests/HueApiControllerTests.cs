@@ -2213,6 +2213,47 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task PostEntertainmentAreas_DeviceRouteDuplicateIdsFailClosed()
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-device",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "Living-Room-TV",
+                            HueBridgeIp = "192.168.1.101",
+                            HueAppKey = "first-device-app-key"
+                        },
+                        new()
+                        {
+                            DeviceId = " Living-Room-TV ",
+                            HueBridgeIp = "192.168.1.102",
+                            HueAppKey = "second-device-app-key"
+                        }
+                    }
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var action = await controller.PostEntertainmentAreas(new HueEntertainmentAreasRequest
+        {
+            UserId = "user-device",
+            DeviceId = "Living-Room-TV",
+            IpAddress = "192.168.1.101"
+        });
+
+        Assert.IsType<BadRequestObjectResult>(action.Result);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task PostEntertainmentChannels_DeviceRouteUsesStoredCredentials()
     {
         InstallConfiguration(new PluginConfiguration

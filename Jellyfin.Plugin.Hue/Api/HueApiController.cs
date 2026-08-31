@@ -484,6 +484,9 @@ namespace Jellyfin.Plugin.Hue.Api
                     return false;
 
                 var deviceMapping = deviceMappings.SingleOrDefault();
+                if (PluginConfiguration.HasAmbiguousDeviceTarget(deviceMapping, normalizedDeviceId))
+                    return false;
+
                 var deviceTarget = deviceMapping?.DeviceTargets?.FirstOrDefault(candidate =>
                     candidate != null &&
                     string.Equals(candidate.DeviceId?.Trim(), normalizedDeviceId, StringComparison.Ordinal));

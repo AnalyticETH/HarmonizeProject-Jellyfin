@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.425] - 2026-08-31
+
+### Fail-closed credential route and loader arbitration
+- **Credential preflight route arbitration**: credential-bearing entertainment-area requests now reject ambiguous duplicate nested device IDs before selecting stored keys or contacting Hue, matching schedule, capture, and diagnostics fail-closed behavior.
+- **Global loader ownership**: configuration-page discovery, registration, mapping-edit/dependency, diagnostic, preview, and current-light operations now share owner-checked loader tokens with configuration operations, so stale or nested completions cannot hide a newer operation's indicator.
+- **Regression coverage**: API and configuration-page contracts cover duplicate device-route credentials plus retained-page, cross-operation, and nested certificate-preflight loader races.
+
 ## [1.5.424] - 2026-08-30
 
 ### Global loader arbitration for configuration import lifecycle operations
