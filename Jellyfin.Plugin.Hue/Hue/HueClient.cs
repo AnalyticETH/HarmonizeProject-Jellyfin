@@ -1449,20 +1449,25 @@ namespace Jellyfin.Plugin.Hue.Hue
                         }
 
                         var light = data[0];
-                        if (light.ValueKind != JsonValueKind.Object ||
-                            (light.TryGetProperty("id", out var lightIdProperty) &&
-                             (lightIdProperty.ValueKind != JsonValueKind.String ||
-                              !string.Equals(
-                                  lightIdProperty.GetString()?.Trim(),
-                                  lightId,
-                                  StringComparison.OrdinalIgnoreCase))))
+                        if (light.ValueKind != JsonValueKind.Object)
+                        {
+                            _logger.LogWarning("Hue light response did not contain an object light resource.");
+                            return null;
+                        }
+
+                        if (light.TryGetProperty("id", out var lightIdProperty) &&
+                            (lightIdProperty.ValueKind != JsonValueKind.String ||
+                             !string.Equals(
+                                 lightIdProperty.GetString()?.Trim(),
+                                 lightId,
+                                 StringComparison.OrdinalIgnoreCase)))
                         {
                             // A response for another light must never be associated with
                             // the requested resource. Preserve compatibility with older
                             // bridge responses that omit the optional id field, but fail
                             // closed whenever an explicit id is malformed or mismatched.
-                            throw new InvalidOperationException(
-                                $"Hue light response did not identify requested light {lightId}.");
+                            _logger.LogWarning("Hue light response did not identify the requested light.");
+                            return null;
                         }
 
                         if (!light.TryGetProperty("on", out var on) ||
@@ -1476,7 +1481,8 @@ namespace Jellyfin.Plugin.Hue.Hue
                             !brightnessValue.TryGetDouble(out var brightnessNumber) ||
                             !double.IsFinite(brightnessNumber))
                         {
-                            throw new InvalidOperationException("Hue light response did not contain required state fields.");
+                            _logger.LogWarning("Hue light response did not contain required state fields.");
+                            return null;
                         }
 
                         var isOn = onValue.GetBoolean();

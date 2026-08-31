@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.439] - 2026-08-31
+
+### Light-state malformed-resource safety
+- **Credential-free malformed-resource handling**: Hue light-state capture now reports non-object resources, mismatched identifiers, and invalid required state fields as normal partial-capture warnings instead of emitting exception-path logs.
+- **Regression coverage**: malformed scalar roots, non-object resources, identifiers, and required state shapes verify bounded fail-closed capture behavior without exception logging.
+
 ## [1.5.438] - 2026-08-31
 
 ### Light-state response safety

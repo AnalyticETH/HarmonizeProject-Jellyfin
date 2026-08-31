@@ -504,7 +504,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.438 (Current)
+### Version 1.5.439 (Current)
+
+- **Light-state malformed-resource safety**: Hue light-state capture now reports non-object resources, mismatched identifiers, and invalid required state fields as normal partial-capture warnings instead of emitting exception-path logs.
+
+- **Regression coverage**: malformed scalar roots, non-object resources, identifiers, and required state shapes verify bounded fail-closed capture behavior without exception logging.
+
+### Version 1.5.438
 
 - **Top-level shape validation**: Hue light-state responses now require an object-shaped root before reading `data`, so scalar bridge responses become explicit partial-capture failures through the normal sanitized warning path instead of generating an exception log.
 
