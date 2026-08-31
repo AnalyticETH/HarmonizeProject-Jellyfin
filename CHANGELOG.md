@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.438] - 2026-08-31
+
+### Light-state response safety
+- **Top-level shape validation**: Hue light-state responses now require an object-shaped root before reading `data`, so scalar bridge responses become explicit partial-capture failures through the normal sanitized warning path instead of generating an exception log.
+- **Regression coverage**: scalar, null, and string top-level response fixtures verify that malformed light payloads fail closed without an exception-path log.
+
 ## [1.5.437] - 2026-08-31
 
 ### Entertainment configuration response safety

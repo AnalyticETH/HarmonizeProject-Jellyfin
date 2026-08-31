@@ -967,6 +967,42 @@ public class HueClientTests : IDisposable
         Assert.True(result[0].HasColor);
     }
 
+    [Theory]
+    [InlineData("null")]
+    [InlineData("42")]
+    [InlineData("\"scalar\"")]
+    public async Task GetLightStatesWithResult_ScalarTopLevelResponseFailsClosedWithoutExceptionLog(string responseJson)
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-scalar""}}] }
+            ]
+        }");
+        SetupHttpResponse(HttpStatusCode.OK, responseJson);
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            doc.RootElement);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(1, result.AttemptedCount);
+        Assert.Equal(0, result.CapturedCount);
+        Assert.Equal(1, result.FailedCount);
+        Assert.Empty(result.States);
+        var logText = string.Join(
+            "\n",
+            _loggerMock.Invocations.Select(invocation =>
+                string.Join(" ", invocation.Arguments.Select(argument => argument?.ToString() ?? string.Empty))));
+        Assert.DoesNotContain("Failed to get state for light", logText, StringComparison.Ordinal);
+        Assert.DoesNotContain("InvalidOperationException", logText, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task GetLightStates_CapturesWritableAdvancedStateFields()
     {

@@ -1439,11 +1439,13 @@ namespace Jellyfin.Plugin.Hue.Hue
 
                         var json = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
                         using var doc = JsonDocument.Parse(json);
-                        if (!doc.RootElement.TryGetProperty("data", out var data) ||
+                        if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+                            !doc.RootElement.TryGetProperty("data", out var data) ||
                             data.ValueKind != JsonValueKind.Array ||
                             data.GetArrayLength() == 0)
                         {
-                            throw new InvalidOperationException("Hue light response did not contain state data.");
+                            _logger.LogWarning("Hue light response did not contain state data.");
+                            return null;
                         }
 
                         var light = data[0];

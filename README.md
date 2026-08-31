@@ -504,7 +504,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.437 (Current)
+### Version 1.5.438 (Current)
+
+- **Top-level shape validation**: Hue light-state responses now require an object-shaped root before reading `data`, so scalar bridge responses become explicit partial-capture failures through the normal sanitized warning path instead of generating an exception log.
+
+- **Regression coverage**: scalar, null, and string top-level response fixtures verify that malformed light payloads fail closed without an exception-path log.
+
+### Version 1.5.437
 
 - **Entertainment configuration response safety**: Hue entertainment-configuration responses now require an object-shaped root before reading `data`, so scalar bridge responses fail closed through the normal sanitized invalid-response path instead of generating an exception log.
 
