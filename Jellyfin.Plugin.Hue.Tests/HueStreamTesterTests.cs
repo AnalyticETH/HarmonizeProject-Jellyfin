@@ -42,6 +42,28 @@ public sealed class HueStreamTesterTests
     }
 
     [Fact]
+    public void TryBuildColors_RejectScalarAndNullChannelElements()
+    {
+        using var document = JsonDocument.Parse(
+            "{\"channels\":[null,42,\"malformed-channel\"]}");
+
+        var probeValid = HueStreamTester.TryBuildProbeColors(document.RootElement, out var probeColors);
+        var solidValid = HueStreamTester.TryBuildSolidColors(
+            document.RootElement,
+            null,
+            red: 255,
+            green: 255,
+            blue: 255,
+            brightnessPercent: 100,
+            out var solidColors);
+
+        Assert.False(probeValid);
+        Assert.Empty(probeColors);
+        Assert.False(solidValid);
+        Assert.Empty(solidColors);
+    }
+
+    [Fact]
     public void TryBuildProbeColors_RejectsAreaBeyondDtlsPacketBudget()
     {
         using var document = CreateAreaConfiguration(HueStreamer.MaxHueStreamChannels + 1);

@@ -578,6 +578,12 @@ namespace Jellyfin.Plugin.Hue.Hue
                     JsonElement? matchingConfiguration = null;
                     foreach (var candidate in data.EnumerateArray())
                     {
+                        if (candidate.ValueKind != JsonValueKind.Object)
+                        {
+                            _logger.LogWarning("Entertainment configuration response contained a malformed area object");
+                            return (JsonElement?)null;
+                        }
+
                         // Preserve the legacy first-entry fallback only when every
                         // returned resource truly omits its identity. A present but
                         // malformed id is not equivalent to an older response without
@@ -625,6 +631,12 @@ namespace Jellyfin.Plugin.Hue.Hue
                             return (JsonElement?)null;
                         }
 
+                        if (!HasValidEntertainmentConfigurationShape(matchingConfiguration.Value))
+                        {
+                            _logger.LogWarning("Entertainment configuration response contained malformed channel data");
+                            return (JsonElement?)null;
+                        }
+
                         // Clone the element so the JsonDocument can be safely disposed.
                         return (JsonElement?)matchingConfiguration.Value.Clone();
                     }
@@ -645,6 +657,12 @@ namespace Jellyfin.Plugin.Hue.Hue
                         return (JsonElement?)null;
                     }
 
+                    if (!HasValidEntertainmentConfigurationShape(data[0]))
+                    {
+                        _logger.LogWarning("Entertainment configuration response contained malformed channel data");
+                        return (JsonElement?)null;
+                    }
+
                     // Clone the legacy response so the JsonDocument can be safely disposed.
                     return (JsonElement?)data[0].Clone();
                 }, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -658,6 +676,41 @@ namespace Jellyfin.Plugin.Hue.Hue
                 _logger.LogWarning(ex, "Unable to load entertainment configuration for area {0}", areaId);
                 return null;
             }
+        }
+
+        private static bool HasValidEntertainmentConfigurationShape(JsonElement configuration)
+        {
+            if (configuration.ValueKind != JsonValueKind.Object)
+                return false;
+
+            if (!configuration.TryGetProperty("channels", out var channels))
+                return true;
+
+            if (channels.ValueKind != JsonValueKind.Array ||
+                channels.GetArrayLength() > MaxEntertainmentChannels)
+            {
+                return false;
+            }
+
+            foreach (var channel in channels.EnumerateArray())
+            {
+                if (channel.ValueKind != JsonValueKind.Object)
+                    return false;
+
+                if (!channel.TryGetProperty("members", out var members))
+                    continue;
+
+                if (members.ValueKind != JsonValueKind.Array)
+                    return false;
+
+                foreach (var member in members.EnumerateArray())
+                {
+                    if (member.ValueKind != JsonValueKind.Object)
+                        return false;
+                }
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -1301,11 +1354,15 @@ namespace Jellyfin.Plugin.Hue.Hue
             var lightIds = new List<string>();
             var seenLightIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            if (areaConfig.TryGetProperty("channels", out var channels) &&
+            if (areaConfig.ValueKind == JsonValueKind.Object &&
+                areaConfig.TryGetProperty("channels", out var channels) &&
                 channels.ValueKind == JsonValueKind.Array)
             {
                 foreach (var channel in channels.EnumerateArray())
                 {
+                    if (channel.ValueKind != JsonValueKind.Object)
+                        continue;
+
                     if (channelIds != null &&
                         (!channel.TryGetProperty("channel_id", out var channelIdProperty) ||
                          !channelIdProperty.TryGetInt32(out var channelId) ||
@@ -1319,6 +1376,9 @@ namespace Jellyfin.Plugin.Hue.Hue
 
                     foreach (var member in members.EnumerateArray())
                     {
+                        if (member.ValueKind != JsonValueKind.Object)
+                            continue;
+
                         if (!member.TryGetProperty("service", out var service) || service.ValueKind != JsonValueKind.Object ||
                             !service.TryGetProperty("rid", out var ridProp) || ridProp.ValueKind != JsonValueKind.String)
                             continue;

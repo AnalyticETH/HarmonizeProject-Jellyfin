@@ -4691,7 +4691,8 @@ public sealed class HueSceneAutomationService : BackgroundService
     private static HashSet<int> GetValidChannelIds(JsonElement areaConfiguration)
     {
         var channelIds = new HashSet<int>();
-        if (!areaConfiguration.TryGetProperty("channels", out var channels) ||
+        if (areaConfiguration.ValueKind != JsonValueKind.Object ||
+            !areaConfiguration.TryGetProperty("channels", out var channels) ||
             channels.ValueKind != JsonValueKind.Array)
         {
             return channelIds;
@@ -4699,7 +4700,8 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         foreach (var channel in channels.EnumerateArray())
         {
-            if (channel.TryGetProperty("channel_id", out var channelIdProperty) &&
+            if (channel.ValueKind == JsonValueKind.Object &&
+                channel.TryGetProperty("channel_id", out var channelIdProperty) &&
                 channelIdProperty.TryGetInt32(out var channelId) &&
                 channelId >= ushort.MinValue &&
                 channelId <= ushort.MaxValue)

@@ -1054,7 +1054,8 @@ namespace Jellyfin.Plugin.Hue.Api
             var result = new List<HueEntertainmentChannel>();
             foreach (var channel in channels.EnumerateArray())
             {
-                if (!channel.TryGetProperty("channel_id", out var channelIdProperty) ||
+                if (channel.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                    !channel.TryGetProperty("channel_id", out var channelIdProperty) ||
                     !channelIdProperty.TryGetInt32(out var channelId) ||
                     channelId < ushort.MinValue ||
                     channelId > ushort.MaxValue)
@@ -1099,7 +1100,8 @@ namespace Jellyfin.Plugin.Hue.Api
         private static HashSet<int> GetValidChannelIds(System.Text.Json.JsonElement areaConfiguration)
         {
             var channelIds = new HashSet<int>();
-            if (!areaConfiguration.TryGetProperty("channels", out var channels) ||
+            if (areaConfiguration.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                !areaConfiguration.TryGetProperty("channels", out var channels) ||
                 channels.ValueKind != System.Text.Json.JsonValueKind.Array)
             {
                 return channelIds;
@@ -1107,7 +1109,8 @@ namespace Jellyfin.Plugin.Hue.Api
 
             foreach (var channel in channels.EnumerateArray())
             {
-                if (channel.TryGetProperty("channel_id", out var channelIdProperty) &&
+                if (channel.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                    channel.TryGetProperty("channel_id", out var channelIdProperty) &&
                     channelIdProperty.ValueKind == System.Text.Json.JsonValueKind.Number &&
                     channelIdProperty.TryGetInt32(out var channelId) &&
                     channelId >= ushort.MinValue &&

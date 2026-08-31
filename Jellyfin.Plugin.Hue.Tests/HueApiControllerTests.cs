@@ -2618,6 +2618,27 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task PostEntertainmentChannels_MalformedChannelShapeReturnsSanitizedBadGateway()
+    {
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"id\":\"area-1\",\"channels\":[null,\"malformed-channel\"]}]}");
+        var controller = CreateController();
+
+        var action = await controller.PostEntertainmentChannels(new HueEntertainmentChannelsRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-secret",
+            EntertainmentAreaId = "area-1"
+        });
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status502BadGateway, response.StatusCode);
+        var serialized = JsonSerializer.Serialize(response.Value);
+        Assert.DoesNotContain("app-secret", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PostEntertainmentChannels_BlankAppKeyUsesStoredGlobalCredential()
     {
         InstallConfiguration(new PluginConfiguration

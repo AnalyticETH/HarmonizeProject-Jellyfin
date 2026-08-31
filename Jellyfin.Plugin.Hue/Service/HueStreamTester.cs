@@ -2542,7 +2542,8 @@ public sealed class HueStreamTester :
         out Dictionary<int, byte[]> channelColors)
     {
         channelColors = new Dictionary<int, byte[]>();
-        if (!areaConfiguration.TryGetProperty("channels", out var channels) ||
+        if (areaConfiguration.ValueKind != JsonValueKind.Object ||
+            !areaConfiguration.TryGetProperty("channels", out var channels) ||
             channels.ValueKind != JsonValueKind.Array)
         {
             return false;
@@ -2551,7 +2552,8 @@ public sealed class HueStreamTester :
         var availableChannelIds = new HashSet<int>();
         foreach (var channel in channels.EnumerateArray())
         {
-            if (!channel.TryGetProperty("channel_id", out var channelIdProperty) ||
+            if (channel.ValueKind != JsonValueKind.Object ||
+                !channel.TryGetProperty("channel_id", out var channelIdProperty) ||
                 channelIdProperty.ValueKind != JsonValueKind.Number ||
                 !channelIdProperty.TryGetInt32(out var channelId) ||
                 channelId < 0 ||
@@ -2602,7 +2604,8 @@ public sealed class HueStreamTester :
             return false;
         }
 
-        if (!areaConfiguration.TryGetProperty("channels", out var channels) ||
+        if (areaConfiguration.ValueKind != JsonValueKind.Object ||
+            !areaConfiguration.TryGetProperty("channels", out var channels) ||
             channels.ValueKind != JsonValueKind.Array)
         {
             return false;
@@ -2614,7 +2617,8 @@ public sealed class HueStreamTester :
         var blue16 = ToHueColorComponent(blue, brightnessPercent);
         foreach (var channel in channels.EnumerateArray())
         {
-            if (!channel.TryGetProperty("channel_id", out var channelIdProperty) ||
+            if (channel.ValueKind != JsonValueKind.Object ||
+                !channel.TryGetProperty("channel_id", out var channelIdProperty) ||
                 channelIdProperty.ValueKind != JsonValueKind.Number ||
                 !channelIdProperty.TryGetInt32(out var channelId) ||
                 channelId < 0 ||

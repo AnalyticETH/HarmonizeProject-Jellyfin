@@ -681,6 +681,38 @@ public class HueClientTests : IDisposable
         Assert.Null(result);
     }
 
+    [Theory]
+    [InlineData("null")]
+    [InlineData("42")]
+    [InlineData("\"malformed-channel\"")]
+    public async Task GetEntertainmentConfiguration_MalformedChannelElement_ReturnsNull(string malformedChannel)
+    {
+        var responseJson = $"{{\"data\":[{{\"id\":\"area-1\",\"channels\":[{malformedChannel}]}}]}}";
+        SetupHttpResponse(HttpStatusCode.OK, responseJson);
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "test-app-key", "area-1");
+
+        Assert.Null(result);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("42")]
+    [InlineData("\"malformed-member\"")]
+    public async Task GetEntertainmentConfiguration_MalformedMemberElement_ReturnsNull(string malformedMember)
+    {
+        var responseJson = $"{{\"data\":[{{\"id\":\"area-1\",\"channels\":[{{\"channel_id\":0,\"members\":[{malformedMember}]}}]}}]}}";
+        SetupHttpResponse(HttpStatusCode.OK, responseJson);
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "test-app-key", "area-1");
+
+        Assert.Null(result);
+    }
+
     [Fact]
     public async Task GetEntertainmentConfiguration_IdlessLegacyResponse_ReturnsFirstConfiguration()
     {
@@ -1254,6 +1286,39 @@ public class HueClientTests : IDisposable
         // Assert
         Assert.NotNull(result);
         Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task GetLightStatesWithResult_IgnoresMalformedChannelAndMemberElements()
+    {
+        using var doc = JsonDocument.Parse(@"{
+            ""channels"": [
+                null,
+                ""malformed-channel"",
+                {
+                    ""channel_id"": 0,
+                    ""members"": [null, 42, {""service"": {""rid"": ""light-safe""}}]
+                }
+            ]
+        }");
+        SetupHttpResponse(HttpStatusCode.OK, @"{
+            ""data"": [{
+                ""on"": {""on"": true},
+                ""dimming"": {""brightness"": 50}
+            }]
+        }");
+
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100",
+            "test-app-key",
+            doc.RootElement);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.AttemptedCount);
+        Assert.Equal(1, result.CapturedCount);
+        Assert.Equal("light-safe", Assert.Single(result.States).Id);
     }
 
     [Fact]

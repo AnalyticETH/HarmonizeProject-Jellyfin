@@ -2900,7 +2900,8 @@ namespace Jellyfin.Plugin.Hue.Service
         {
             try
             {
-                if (!areaConfig.TryGetProperty("channels", out var channels))
+                if (!areaConfig.TryGetProperty("channels", out var channels) ||
+                    channels.ValueKind != System.Text.Json.JsonValueKind.Array)
                     return;
 
                 var dimLevel = Math.Clamp(brightnessDimLevel, 0, 100);
@@ -2909,7 +2910,15 @@ namespace Jellyfin.Plugin.Hue.Service
                 var channelColors = new Dictionary<int, byte[]>();
                 foreach (var channel in channels.EnumerateArray())
                 {
-                    var channelId = channel.GetProperty("channel_id").GetInt32();
+                    if (channel.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                        !channel.TryGetProperty("channel_id", out var channelIdProperty) ||
+                        !channelIdProperty.TryGetInt32(out var channelId) ||
+                        channelId < 0 ||
+                        channelId > ushort.MaxValue)
+                    {
+                        continue;
+                    }
+
                     if (channelIds != null && !channelIds.Contains(channelId))
                         continue;
 
@@ -2954,13 +2963,23 @@ namespace Jellyfin.Plugin.Hue.Service
                     appKey,
                     areaId,
                     cancellationToken);
-                if (areaConfig == null || !areaConfig.Value.TryGetProperty("channels", out var channels))
+                if (areaConfig == null ||
+                    !areaConfig.Value.TryGetProperty("channels", out var channels) ||
+                    channels.ValueKind != System.Text.Json.JsonValueKind.Array)
                     return false;
 
                 var channelColors = new Dictionary<int, byte[]>();
                 foreach (var channel in channels.EnumerateArray())
                 {
-                    var channelId = channel.GetProperty("channel_id").GetInt32();
+                    if (channel.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                        !channel.TryGetProperty("channel_id", out var channelIdProperty) ||
+                        !channelIdProperty.TryGetInt32(out var channelId) ||
+                        channelId < 0 ||
+                        channelId > ushort.MaxValue)
+                    {
+                        continue;
+                    }
+
                     if (channelIds != null && !channelIds.Contains(channelId))
                         continue;
 
@@ -5341,11 +5360,13 @@ namespace Jellyfin.Plugin.Hue.Service
                 {
                     foreach (var channel in channels.EnumerateArray())
                     {
-                        if (!channel.TryGetProperty("channel_id", out var channelIdProperty) ||
+                        if (channel.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                            !channel.TryGetProperty("channel_id", out var channelIdProperty) ||
                             !channelIdProperty.TryGetInt32(out var channelId) ||
                             channelId < 0 ||
                             channelId > ushort.MaxValue ||
                             !channel.TryGetProperty("position", out var position) ||
+                            position.ValueKind != System.Text.Json.JsonValueKind.Object ||
                             !position.TryGetProperty("x", out var xProperty) ||
                             !position.TryGetProperty("z", out var zProperty) ||
                             !xProperty.TryGetDouble(out var x) ||
