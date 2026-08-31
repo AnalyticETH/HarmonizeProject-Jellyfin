@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
 using System.Text.Json.Serialization;
@@ -3799,6 +3800,86 @@ namespace Jellyfin.Plugin.Hue.Configuration
             }
 
             return errors;
+        }
+
+        /// <summary>
+        /// Resolves one persisted scene cue only when its stable ID identifies exactly one
+        /// row. Configuration validation rejects duplicate IDs on normal writes, but older
+        /// or hand-edited configuration can still contain them; action and scheduler paths
+        /// must never let collection order choose which cue is addressed.
+        /// </summary>
+        internal static bool TryResolveUniqueSceneSchedule(
+            IEnumerable<HueSceneSchedule>? schedules,
+            string? scheduleId,
+            [NotNullWhen(true)] out HueSceneSchedule? schedule,
+            out bool ambiguous)
+        {
+            schedule = null;
+            ambiguous = false;
+            var key = scheduleId?.Trim();
+            if (string.IsNullOrWhiteSpace(key))
+                return false;
+
+            foreach (var candidate in schedules ?? Enumerable.Empty<HueSceneSchedule>())
+            {
+                if (candidate == null ||
+                    !string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (schedule != null)
+                {
+                    schedule = null;
+                    ambiguous = true;
+                    return false;
+                }
+
+                schedule = candidate;
+            }
+
+            return schedule != null;
+        }
+
+        /// <summary>
+        /// Resolves a normalized selection without allowing a duplicate persisted ID to
+        /// select an arbitrary row. Missing and ambiguous IDs are returned separately so
+        /// callers can preserve their existing not-found versus conflict contracts.
+        /// </summary>
+        internal static bool TryResolveUniqueSceneSchedules(
+            IEnumerable<HueSceneSchedule>? configuredSchedules,
+            IReadOnlyList<string> scheduleIds,
+            out HueSceneSchedule[] schedules,
+            out string[] missingIds,
+            out string[] ambiguousIds)
+        {
+            var selected = new List<HueSceneSchedule>(scheduleIds?.Count ?? 0);
+            var missing = new List<string>();
+            var ambiguous = new List<string>();
+            foreach (var scheduleId in scheduleIds ?? Array.Empty<string>())
+            {
+                if (TryResolveUniqueSceneSchedule(
+                        configuredSchedules,
+                        scheduleId,
+                        out var schedule,
+                        out var isAmbiguous))
+                {
+                    selected.Add(schedule!);
+                }
+                else if (isAmbiguous)
+                {
+                    ambiguous.Add(scheduleId);
+                }
+                else
+                {
+                    missing.Add(scheduleId);
+                }
+            }
+
+            schedules = selected.ToArray();
+            missingIds = missing.ToArray();
+            ambiguousIds = ambiguous.ToArray();
+            return missingIds.Length == 0 && ambiguousIds.Length == 0;
         }
 
         /// <summary>

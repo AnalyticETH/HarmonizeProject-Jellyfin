@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.428] - 2026-08-31
+
+### Fail-closed duplicate scene-cue IDs and retained diagnostics cancellation
+- **Duplicate scene-cue identity safety**: malformed case-variant persisted schedule IDs now fail closed across manual and bulk API actions, scheduler evaluation, runtime state, and deletion; ambiguous requests return conflict without mutation.
+- **Diagnostics cancellation lifecycle**: retained configuration pages track cancellation requests, abort them on page teardown, and suppress stale completions.
+- **Regression coverage**: service/API duplicate-ID and administrator lifecycle contracts cover these boundaries.
+
 ## [1.5.427] - 2026-08-31
 
 ### Fail-closed bridge payloads, Test Connection lifecycle, and CI evidence

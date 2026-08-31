@@ -89,6 +89,9 @@ public sealed class HueSceneAutomationService : BackgroundService
         _bridgeAddressResolver = bridgeAddressResolver ?? HueBridgeCertificateValidation.ResolveLocalBridgeAddressAsync;
     }
 
+    private static string GetAmbiguousSceneScheduleMessage(IEnumerable<string> scheduleIds)
+        => $"The requested scene schedule ID(s) are ambiguous because duplicate persisted cues match: {string.Join(", ", scheduleIds)}.";
+
     /// <summary>
     /// Returns credential-free configured schedules for the administrator API.
     /// </summary>
@@ -313,24 +316,18 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         var configuredSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
-        var selectedSchedules = keys
-            .Select(key => configuredSchedules.FirstOrDefault(candidate =>
-                candidate != null &&
-                string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase)))
-            .ToArray();
-        var missingKeys = keys
-            .Where((_, index) => selectedSchedules[index] == null)
-            .ToArray();
-        if (missingKeys.Length > 0)
+        if (!PluginConfiguration.TryResolveUniqueSceneSchedules(
+                configuredSchedules,
+                keys,
+                out var schedules,
+                out var missingKeys,
+                out var ambiguousKeys))
         {
-            message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingKeys)}.";
+            message = ambiguousKeys.Length > 0
+                ? GetAmbiguousSceneScheduleMessage(ambiguousKeys)
+                : $"The requested scene schedule(s) were not found: {string.Join(", ", missingKeys)}.";
             return false;
         }
-
-        var schedules = selectedSchedules
-            .Where(schedule => schedule != null)
-            .Cast<HueSceneSchedule>()
-            .ToArray();
         var previousScheduleStates = schedules.ToDictionary(
             schedule => schedule.Id?.Trim() ?? string.Empty,
             schedule => (schedule.RunCount, schedule.Enabled, schedule.SkipNextOccurrence),
@@ -431,12 +428,15 @@ public sealed class HueSceneAutomationService : BackgroundService
         message = string.Empty;
         var config = Plugin.Instance?.Configuration;
         var key = scheduleId?.Trim() ?? string.Empty;
-        var schedule = config?.SceneSchedules?.FirstOrDefault(candidate =>
-            candidate != null &&
-            string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
-        if (schedule == null)
+        if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                config?.SceneSchedules,
+                key,
+                out var schedule,
+                out var ambiguous))
         {
-            message = "The requested scene schedule was not found.";
+            message = ambiguous
+                ? GetAmbiguousSceneScheduleMessage(new[] { key })
+                : "The requested scene schedule was not found.";
             return false;
         }
 
@@ -512,24 +512,18 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         var configuredSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
-        var selectedSchedules = keys
-            .Select(key => configuredSchedules.FirstOrDefault(schedule =>
-                schedule != null &&
-                string.Equals(schedule.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase)))
-            .ToArray();
-        var missingKeys = keys
-            .Where((_, index) => selectedSchedules[index] == null)
-            .ToArray();
-        if (missingKeys.Length > 0)
+        if (!PluginConfiguration.TryResolveUniqueSceneSchedules(
+                configuredSchedules,
+                keys,
+                out var schedules,
+                out var missingKeys,
+                out var ambiguousKeys))
         {
-            message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingKeys)}.";
+            message = ambiguousKeys.Length > 0
+                ? GetAmbiguousSceneScheduleMessage(ambiguousKeys)
+                : $"The requested scene schedule(s) were not found: {string.Join(", ", missingKeys)}.";
             return false;
         }
-
-        var schedules = selectedSchedules
-            .Where(schedule => schedule != null)
-            .Cast<HueSceneSchedule>()
-            .ToArray();
         var previousEnabled = schedules.ToDictionary(
             schedule => schedule.Id?.Trim() ?? string.Empty,
             schedule => schedule.Enabled,
@@ -635,24 +629,18 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         var configuredSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
-        var selectedSchedules = keys
-            .Select(key => configuredSchedules.FirstOrDefault(schedule =>
-                schedule != null &&
-                string.Equals(schedule.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase)))
-            .ToArray();
-        var missingKeys = keys
-            .Where((_, index) => selectedSchedules[index] == null)
-            .ToArray();
-        if (missingKeys.Length > 0)
+        if (!PluginConfiguration.TryResolveUniqueSceneSchedules(
+                configuredSchedules,
+                keys,
+                out var schedules,
+                out var missingKeys,
+                out var ambiguousKeys))
         {
-            message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingKeys)}.";
+            message = ambiguousKeys.Length > 0
+                ? GetAmbiguousSceneScheduleMessage(ambiguousKeys)
+                : $"The requested scene schedule(s) were not found: {string.Join(", ", missingKeys)}.";
             return false;
         }
-
-        var schedules = selectedSchedules
-            .Where(schedule => schedule != null)
-            .Cast<HueSceneSchedule>()
-            .ToArray();
         var previousSkip = schedules.ToDictionary(
             schedule => schedule.Id?.Trim() ?? string.Empty,
             schedule => schedule.SkipNextOccurrence,
@@ -765,6 +753,18 @@ public sealed class HueSceneAutomationService : BackgroundService
             return false;
         }
 
+        if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                config.SceneSchedules,
+                key,
+                out _,
+                out var ambiguous))
+        {
+            message = ambiguous
+                ? GetAmbiguousSceneScheduleMessage(new[] { key })
+                : "The requested scene schedule was not found.";
+            return false;
+        }
+
         lock (_runtimeStateLock)
         {
             if (_runtimeStates.TryGetValue(key, out var state) && state.ActiveRuns > 0)
@@ -827,24 +827,18 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         var previousSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
-        var selectedSchedules = keys
-            .Select(key => previousSchedules.FirstOrDefault(schedule =>
-                schedule != null &&
-                string.Equals(schedule.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase)))
-            .ToArray();
-        var missingKeys = keys
-            .Where((_, index) => selectedSchedules[index] == null)
-            .ToArray();
-        if (missingKeys.Length > 0)
+        if (!PluginConfiguration.TryResolveUniqueSceneSchedules(
+                previousSchedules,
+                keys,
+                out var schedules,
+                out var missingKeys,
+                out var ambiguousKeys))
         {
-            message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingKeys)}.";
+            message = ambiguousKeys.Length > 0
+                ? GetAmbiguousSceneScheduleMessage(ambiguousKeys)
+                : $"The requested scene schedule(s) were not found: {string.Join(", ", missingKeys)}.";
             return false;
         }
-
-        var schedules = selectedSchedules
-            .Where(schedule => schedule != null)
-            .Cast<HueSceneSchedule>()
-            .ToArray();
         lock (_runtimeStateLock)
         {
             var activeSchedules = schedules
@@ -905,12 +899,15 @@ public sealed class HueSceneAutomationService : BackgroundService
         message = string.Empty;
         var config = Plugin.Instance?.Configuration;
         var key = scheduleId?.Trim() ?? string.Empty;
-        var schedule = config?.SceneSchedules?.FirstOrDefault(candidate =>
-            candidate != null &&
-            string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
-        if (schedule == null)
+        if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                config?.SceneSchedules,
+                key,
+                out var schedule,
+                out var ambiguous))
         {
-            message = "The requested scene schedule was not found.";
+            message = ambiguous
+                ? GetAmbiguousSceneScheduleMessage(new[] { key })
+                : "The requested scene schedule was not found.";
             return false;
         }
 
@@ -1060,9 +1057,13 @@ public sealed class HueSceneAutomationService : BackgroundService
             {
                 foreach (var entry in _runtimeStates)
                 {
-                    var configuredSchedule = config?.SceneSchedules?.FirstOrDefault(schedule =>
-                        schedule != null &&
-                        string.Equals(schedule.Id?.Trim(), entry.Key, StringComparison.OrdinalIgnoreCase));
+                    var configuredSchedule = PluginConfiguration.TryResolveUniqueSceneSchedule(
+                        config?.SceneSchedules,
+                        entry.Key,
+                        out var resolvedSchedule,
+                        out _)
+                        ? resolvedSchedule
+                        : null;
                     var state = entry.Value;
                     state.RunCount = 0;
                     if (configuredSchedule?.MaxRuns > 0)
@@ -2089,14 +2090,17 @@ public sealed class HueSceneAutomationService : BackgroundService
         }
 
         var config = Plugin.Instance?.Configuration;
-        var schedule = config?.SceneSchedules?.FirstOrDefault(candidate =>
-            candidate != null &&
-            string.Equals(candidate.Id?.Trim(), scheduleId?.Trim(), StringComparison.OrdinalIgnoreCase));
-        if (schedule == null)
+        if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                config?.SceneSchedules,
+                scheduleId,
+                out var schedule,
+                out var ambiguous))
         {
             return Failure(
                 scheduleId,
-                "The requested scene schedule was not found.");
+                ambiguous
+                    ? GetAmbiguousSceneScheduleMessage(new[] { scheduleId?.Trim() ?? string.Empty })
+                    : "The requested scene schedule was not found.");
         }
 
         var key = schedule.Id?.Trim() ?? string.Empty;
@@ -3282,6 +3286,16 @@ public sealed class HueSceneAutomationService : BackgroundService
         var key = scheduleId?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(key))
             return false;
+
+        if (Plugin.Instance?.Configuration is { } config &&
+            !PluginConfiguration.TryResolveUniqueSceneSchedule(
+                config.SceneSchedules,
+                key,
+                out _,
+                out _))
+        {
+            return false;
+        }
 
         CancellationTokenSource? cancellation;
         lock (_manualRunCancellationLock)
@@ -5098,8 +5112,18 @@ public sealed class HueSceneAutomationService : BackgroundService
         var schedulerStartedAtUtc = DateTime.UtcNow;
         var logicalStartUtc = ConvertServerLocalNowToUtc(localNow);
 
-        var schedules = config.SceneSchedules?
+        var configuredSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
+        var schedules = configuredSchedules
             .Where(schedule => schedule != null)
+            // A malformed persisted configuration can contain case-variant duplicate IDs.
+            // Do not let scheduler collection order choose one cue or merge both into the
+            // same runtime/occurrence state key; the administrator can repair the config
+            // through the normal validation path.
+            .Where(schedule => PluginConfiguration.TryResolveUniqueSceneSchedule(
+                configuredSchedules,
+                schedule.Id,
+                out _,
+                out _))
             .Select((schedule, index) => new
             {
                 Schedule = CloneSchedule(schedule),
@@ -5404,10 +5428,12 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueSceneSchedule schedule)
     {
         var key = schedule.Id?.Trim() ?? string.Empty;
-        var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
-            candidate != null &&
-            string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
-        if (configuredSchedule == null || !configuredSchedule.Enabled)
+        if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                config.SceneSchedules,
+                key,
+                out var configuredSchedule,
+                out _)
+            || !configuredSchedule.Enabled)
             return false;
 
         var previousEnabled = configuredSchedule.Enabled;
@@ -5445,10 +5471,11 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueSceneSchedule schedule)
     {
         var key = schedule.Id?.Trim() ?? string.Empty;
-        var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
-            candidate != null &&
-            string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
-        if (configuredSchedule == null)
+        if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                config.SceneSchedules,
+                key,
+                out var configuredSchedule,
+                out _))
             return;
 
         // The one-time claim was persisted before the preview started. A playback
@@ -5467,10 +5494,11 @@ public sealed class HueSceneAutomationService : BackgroundService
         HueSceneSchedule schedule)
     {
         var key = schedule.Id?.Trim() ?? string.Empty;
-        var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
-            candidate != null &&
-            string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
-        if (configuredSchedule == null)
+        if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                config.SceneSchedules,
+                key,
+                out var configuredSchedule,
+                out _))
             return;
 
         // The one-time claim is persisted before bridge work begins. A host cancellation
@@ -5560,10 +5588,12 @@ public sealed class HueSceneAutomationService : BackgroundService
         result = null;
         persistenceFailed = false;
         var key = schedule.Id?.Trim() ?? string.Empty;
-        var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
-            candidate != null &&
-            string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
-        if (configuredSchedule == null || !configuredSchedule.SkipNextOccurrence)
+        if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                config.SceneSchedules,
+                key,
+                out var configuredSchedule,
+                out _)
+            || !configuredSchedule.SkipNextOccurrence)
             return false;
 
         var previousEnabled = configuredSchedule.Enabled;
@@ -5716,10 +5746,12 @@ public sealed class HueSceneAutomationService : BackgroundService
         if (string.IsNullOrWhiteSpace(schedule.RunDate))
             return;
 
-        var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
-            candidate != null &&
-            string.Equals(candidate.Id?.Trim(), schedule.Id?.Trim(), StringComparison.OrdinalIgnoreCase));
-        if (configuredSchedule == null || !configuredSchedule.Enabled)
+        if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                config.SceneSchedules,
+                schedule.Id,
+                out var configuredSchedule,
+                out _)
+            || !configuredSchedule.Enabled)
             return;
 
         var previousSkipNextOccurrence = configuredSchedule.SkipNextOccurrence;
@@ -5763,12 +5795,13 @@ public sealed class HueSceneAutomationService : BackgroundService
         var staleIds = new List<string>();
         foreach (var pendingId in pendingIds)
         {
-            var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
-                candidate != null &&
-                string.Equals(candidate.Id?.Trim(), pendingId, StringComparison.OrdinalIgnoreCase));
-            if (configuredSchedule == null ||
-                string.IsNullOrWhiteSpace(configuredSchedule.RunDate) ||
-                !configuredSchedule.Enabled)
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                    config.SceneSchedules,
+                    pendingId,
+                    out var configuredSchedule,
+                    out _)
+                || string.IsNullOrWhiteSpace(configuredSchedule.RunDate)
+                || !configuredSchedule.Enabled)
             {
                 // A deleted, converted, or deliberately disabled cue no longer has a
                 // cancellation restoration to repair. Respect that administrator state.
@@ -5828,10 +5861,12 @@ public sealed class HueSceneAutomationService : BackgroundService
         var staleIds = new List<string>();
         foreach (var pendingId in pendingIds)
         {
-            var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
-                candidate != null &&
-                string.Equals(candidate.Id?.Trim(), pendingId, StringComparison.OrdinalIgnoreCase));
-            if (configuredSchedule == null || string.IsNullOrWhiteSpace(configuredSchedule.RunDate))
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                    config.SceneSchedules,
+                    pendingId,
+                    out var configuredSchedule,
+                    out _)
+                || string.IsNullOrWhiteSpace(configuredSchedule.RunDate))
             {
                 // A deleted or deliberately converted recurring cue no longer has a
                 // one-time completion transition to repair.
@@ -6490,11 +6525,13 @@ public sealed class HueSceneAutomationService : BackgroundService
             if (_runtimeStates.TryGetValue(key, out var state))
                 return state.Clone();
 
-            var configuredRunCount = Plugin.Instance?.Configuration?.SceneSchedules?
-                .FirstOrDefault(candidate =>
-                    candidate != null &&
-                    string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase))?
-                .RunCount ?? 0;
+            var configuredRunCount = PluginConfiguration.TryResolveUniqueSceneSchedule(
+                    Plugin.Instance?.Configuration?.SceneSchedules,
+                    key,
+                    out var configuredSchedule,
+                    out _)
+                ? configuredSchedule.RunCount
+                : 0;
             return new HueSceneScheduleRuntimeState
             {
                 RunCount = Math.Max(0, configuredRunCount)
@@ -6707,10 +6744,11 @@ public sealed class HueSceneAutomationService : BackgroundService
             if (result != null)
                 result.RunCount = state.RunCount;
 
-            var configuredSchedule = config.SceneSchedules?.FirstOrDefault(candidate =>
-                candidate != null &&
-                string.Equals(candidate.Id?.Trim(), key, StringComparison.OrdinalIgnoreCase));
-            if (configuredSchedule != null)
+            if (PluginConfiguration.TryResolveUniqueSceneSchedule(
+                    config.SceneSchedules,
+                    key,
+                    out var configuredSchedule,
+                    out _))
             {
                 configuredSchedule.RunCount = state.RunCount;
                 if (countRun && configuredSchedule.MaxRuns > 0 && state.RunCount >= configuredSchedule.MaxRuns)
@@ -6848,11 +6886,13 @@ public sealed class HueSceneAutomationService : BackgroundService
                         _runtimeStates[group.Key] = state;
                     }
 
-                    var configuredRunCount = Plugin.Instance?.Configuration?.SceneSchedules?
-                        .FirstOrDefault(candidate =>
-                            candidate != null &&
-                            string.Equals(candidate.Id?.Trim(), group.Key, StringComparison.OrdinalIgnoreCase))?
-                        .RunCount ?? 0;
+                    var configuredRunCount = PluginConfiguration.TryResolveUniqueSceneSchedule(
+                            Plugin.Instance?.Configuration?.SceneSchedules,
+                            group.Key,
+                            out var configuredSchedule,
+                            out _)
+                        ? configuredSchedule.RunCount
+                        : 0;
                     // The persisted schedule counter and each history row's RunCount are
                     // authoritative. Do not infer executions from history-row count: an
                     // automatic cancellation is intentionally retained in history with

@@ -496,7 +496,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.427 (Current)
+### Version 1.5.428 (Current)
+
+- **Duplicate scene-cue identity safety**: malformed case-variant persisted schedule IDs now fail closed across manual and bulk API actions, scheduler evaluation, runtime state, and deletion; ambiguous requests return conflict without mutation.
+
+- **Diagnostics cancellation lifecycle**: retained configuration pages track cancellation requests, abort them on page teardown, and suppress stale completions.
+
+- **Regression coverage**: service/API duplicate-ID and administrator lifecycle contracts cover these boundaries.
 
 - **Entertainment-area payload validation**: malformed successful bridge responses with missing, null, non-array, or duplicate area data now fail closed instead of being treated as an empty or response-order-dependent target list.
 

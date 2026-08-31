@@ -1008,6 +1008,32 @@ async function testPreviewCancellationLoaderOwnershipAcrossRetainedPages() {
     assert.equal(loadingHides, loadingHidesBeforePagehide + 1, "preview-cancellation overlap hides the loader exactly once after the newer operation");
 }
 
+async function testDiagnosticsCancellationPagehideLifecycle() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    const diagnostics = api.loadEnvironmentDiagnostics(page);
+    assert.equal(requests.length, 1, "diagnostics cancellation lifecycle starts the diagnostics request");
+
+    api.cancelDiagnostics(page);
+    assert.equal(requests.length, 2, "diagnostics cancellation starts a separate cancellation request");
+    assert.ok(page._huePageRequests.diagnosticsCancellation, "diagnostics cancellation is tracked by the page lifecycle");
+    assert.ok(page._hueDiagnosticsCancellationRequest, "diagnostics cancellation retains its transformed completion promise");
+
+    const message = page.querySelector("#diagnosticsMessage");
+    message.textContent = "unchanged after diagnostics pagehide";
+    api.invalidatePageLifecycle(page);
+    assert.equal(requests[0].promise.aborted, true, "pagehide aborts the diagnostics request");
+    assert.equal(requests[1].promise.aborted, true, "pagehide aborts the tracked diagnostics cancellation request");
+    assert.equal(page._huePageRequests.diagnosticsCancellation, undefined, "pagehide clears the diagnostics cancellation lifecycle record");
+    assert.equal(page._hueDiagnosticsCancellationRequest, null, "pagehide clears the diagnostics cancellation pointer");
+
+    requests[0].reject(new Error("diagnostics pagehide"));
+    requests[1].reject(new Error("cancellation pagehide"));
+    await Promise.allSettled([diagnostics]);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(message.textContent, "unchanged after diagnostics pagehide", "a stale diagnostics cancellation cannot overwrite the hidden page");
+}
+
 async function testGlobalLoaderOwnershipAcrossPageLifecycleOperations() {
     const userId = "12345678-1234-4234-8234-1234567890ab";
     const cases = [
@@ -6819,6 +6845,7 @@ await testGlobalLoaderOwnershipAcrossConfigurationSaveAndExport();
 await testGlobalLoaderOwnershipAcrossConfigurationImportValidationAndExport();
 await testGlobalLoaderOwnershipAcrossConfigurationImportSubmitAndExport();
 await testGlobalLoaderOwnershipAcrossDiagnosticsAndConfigurationImport();
+await testDiagnosticsCancellationPagehideLifecycle();
 await testGlobalLoaderOwnershipAcrossPreviewAndConfigurationImport();
 await testNestedPreviewLoaderOwnershipAcrossCertificatePreflight();
 await testPreviewCancellationLoaderOwnershipAcrossRetainedPages();

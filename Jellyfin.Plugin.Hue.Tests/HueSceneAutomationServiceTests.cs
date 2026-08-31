@@ -4675,6 +4675,53 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task DuplicateCaseVariantScheduleId_FailsClosedForRunMutationAndDelete()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "duplicate-cue",
+                    Name = "First duplicate cue",
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "DUPLICATE-CUE",
+                    Name = "Second duplicate cue",
+                    Enabled = false,
+                    RunCount = 4,
+                    SkipNextOccurrence = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var runResult = await service.RunScheduleAsync(" DUPLICATE-cue ");
+        Assert.False(runResult.Succeeded);
+        Assert.Contains("ambiguous", runResult.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(streamTester.Invocations);
+
+        Assert.False(service.TrySetScheduleEnabled("duplicate-cue", true, out var enabledMessage));
+        Assert.Contains("ambiguous", enabledMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        Assert.False(configuration.SceneSchedules[1].Enabled);
+
+        Assert.False(service.TryDeleteSchedules(new[] { "duplicate-cue" }, out var deleteMessage));
+        Assert.Contains("ambiguous", deleteMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, configuration.SceneSchedules.Count);
+    }
+
+    [Fact]
     public void ResetScheduleRunCount_ClearsPersistedCounterAndReenablesCue()
     {
         var configuration = new PluginConfiguration

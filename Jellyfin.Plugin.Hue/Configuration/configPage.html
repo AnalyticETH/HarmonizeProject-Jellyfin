@@ -13334,12 +13334,17 @@
                         diagnosticsMessage.style.color = "#f0ad4e";
                     }
 
-                    var cancellationRequest = ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("HueSync/Diagnostics/Cancel"),
-                        dataType: "json"
-                    }).then(function (response) {
-                        if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
+                    var cancellationRequest = HueConfigurationPage.getPageLifecycleRequest(
+                        page,
+                        pageGeneration,
+                        'diagnosticsCancellation',
+                        ApiClient.getUrl("HueSync/Diagnostics/Cancel"),
+                        {
+                            type: "POST",
+                            dataType: "json"
+                        });
+                    var cancellationRequestPromise = cancellationRequest.then(function (response) {
+                        if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, cancellationRequest)) return;
                         var canceled = HueConfigurationPage.readStatusField(response, "Canceled", false);
                         var message = HueConfigurationPage.readStatusField(response, "Message", "");
                         if (!canceled) {
@@ -13354,7 +13359,7 @@
                             }
                         }
                     }).catch(function (err) {
-                        if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration)) return;
+                        if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, cancellationRequest)) return;
                         console.error("Diagnostics cancellation error:", err);
                         if (diagnosticsMessage && page._hueDiagnosticsRequest) {
                             diagnosticsMessage.textContent = "Unable to request diagnostics cancellation; the check may still be running.";
@@ -13369,12 +13374,13 @@
                             diagnosticsMessage.style.color = "#d9534f";
                         }
                     }).finally(function () {
-                        if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
-                            page._hueDiagnosticsCancellationRequest !== cancellationRequest) return;
+                        if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, cancellationRequest) ||
+                            page._hueDiagnosticsCancellationRequest !== cancellationRequestPromise) return;
                         page._hueDiagnosticsCancellationRequest = null;
+                        HueConfigurationPage.cancelPageLifecycleRequest(page, 'diagnosticsCancellation');
                         HueConfigurationPage.setDiagnosticsBusy(page);
                     });
-                    page._hueDiagnosticsCancellationRequest = cancellationRequest;
+                    page._hueDiagnosticsCancellationRequest = cancellationRequestPromise;
                     HueConfigurationPage.setDiagnosticsBusy(page);
                 },
                 loadEnvironmentDiagnostics: function (page) {

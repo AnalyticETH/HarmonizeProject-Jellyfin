@@ -1604,6 +1604,9 @@ namespace Jellyfin.Plugin.Hue.Api
             return $"Cue copy {Guid.NewGuid():N}"[..PluginConfiguration.MaxSceneScheduleNameLength];
         }
 
+        private static string GetAmbiguousSceneScheduleMessage(IEnumerable<string> scheduleIds)
+            => $"The requested scene schedule ID(s) are ambiguous because duplicate persisted cues match: {string.Join(", ", scheduleIds)}.";
+
         /// <summary>
         /// Tests bridge reachability and, when supplied, verifies an entertainment area. A client key
         /// additionally opts into a short non-destructive DTLS stream probe. A channelIds profile can
@@ -5564,8 +5567,20 @@ namespace Jellyfin.Plugin.Hue.Api
                 .Where(existing => existing != null)
                 .Select(CloneSceneSchedule)
                 .ToList();
-            var existingIndex = candidateSchedules.FindIndex(existing =>
-                string.Equals(existing.Id?.Trim(), schedule.Id.Trim(), StringComparison.OrdinalIgnoreCase));
+            var hasExistingSchedule = PluginConfiguration.TryResolveUniqueSceneSchedule(
+                previousSchedules,
+                schedule.Id,
+                out _,
+                out var ambiguousExistingSchedule);
+            if (ambiguousExistingSchedule)
+            {
+                return Conflict(GetAmbiguousSceneScheduleMessage(new[] { schedule.Id.Trim() }));
+            }
+
+            var existingIndex = hasExistingSchedule
+                ? candidateSchedules.FindIndex(existing =>
+                    string.Equals(existing.Id?.Trim(), schedule.Id.Trim(), StringComparison.OrdinalIgnoreCase))
+                : -1;
             if (existingIndex >= 0)
             {
                 if (!request.MaxRuns.HasValue)
@@ -5708,11 +5723,16 @@ namespace Jellyfin.Plugin.Hue.Api
                 return NotFound("Plugin configuration not available.");
 
             config.SceneSchedules ??= new List<HueSceneSchedule>();
-            var source = config.SceneSchedules.FirstOrDefault(schedule =>
-                schedule != null &&
-                string.Equals(schedule.Id?.Trim(), id?.Trim(), StringComparison.OrdinalIgnoreCase));
-            if (source == null)
-                return NotFound("Scene schedule not found.");
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                    config.SceneSchedules,
+                    id,
+                    out var source,
+                    out var ambiguous))
+            {
+                return ambiguous
+                    ? Conflict(GetAmbiguousSceneScheduleMessage(new[] { id?.Trim() ?? string.Empty }))
+                    : NotFound("Scene schedule not found.");
+            }
 
             if (config.SceneSchedules.Count >= PluginConfiguration.MaxSceneSchedules)
             {
@@ -5800,16 +5820,22 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             config.SceneSchedules ??= new List<HueSceneSchedule>();
-            var selectedSchedules = scheduleIds
-                .Select(id => config.SceneSchedules.FirstOrDefault(schedule =>
-                    schedule != null &&
-                    string.Equals(schedule.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
-                .ToArray();
-            var missingIds = scheduleIds
-                .Where((_, index) => selectedSchedules[index] == null)
-                .ToArray();
-            if (missingIds.Length > 0)
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedules(
+                    config.SceneSchedules,
+                    scheduleIds,
+                    out var schedules,
+                    out var missingIds,
+                    out var ambiguousIds))
             {
+                if (ambiguousIds.Length > 0)
+                {
+                    return Conflict(new HueSceneScheduleBulkDuplicateResult
+                    {
+                        RequestedCount = scheduleIds.Length,
+                        Message = GetAmbiguousSceneScheduleMessage(ambiguousIds)
+                    });
+                }
+
                 return NotFound(new HueSceneScheduleBulkDuplicateResult
                 {
                     RequestedCount = scheduleIds.Length,
@@ -5817,11 +5843,6 @@ namespace Jellyfin.Plugin.Hue.Api
                     Message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingIds)}."
                 });
             }
-
-            var schedules = selectedSchedules
-                .Where(schedule => schedule != null)
-                .Cast<HueSceneSchedule>()
-                .ToArray();
             var availableCapacity = Math.Max(0, PluginConfiguration.MaxSceneSchedules - config.SceneSchedules.Count);
             if (schedules.Length > availableCapacity)
             {
@@ -5908,13 +5929,22 @@ namespace Jellyfin.Plugin.Hue.Api
                 return NotFound("Plugin configuration not available.");
 
             config.SceneSchedules ??= new List<HueSceneSchedule>();
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                    config.SceneSchedules,
+                    id,
+                    out var selectedSchedule,
+                    out var ambiguous))
+            {
+                return ambiguous
+                    ? Conflict(GetAmbiguousSceneScheduleMessage(new[] { id.Trim() }))
+                    : NotFound("Scene schedule not found.");
+            }
+
             var previousSchedules = config.SceneSchedules.ToList();
             var candidateSchedules = previousSchedules.ToList();
-            var normalizedId = id.Trim();
-            var removed = candidateSchedules.RemoveAll(schedule =>
-                schedule != null &&
-                string.Equals(schedule.Id?.Trim(), normalizedId, StringComparison.OrdinalIgnoreCase));
-            if (removed == 0)
+            var normalizedId = selectedSchedule.Id?.Trim() ?? id.Trim();
+            var removed = candidateSchedules.Remove(selectedSchedule);
+            if (!removed)
                 return NotFound("Scene schedule not found.");
 
             if (_sceneAutomationService != null)
@@ -5991,16 +6021,22 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             config.SceneSchedules ??= new List<HueSceneSchedule>();
-            var selectedSchedules = scheduleIds
-                .Select(id => config.SceneSchedules.FirstOrDefault(schedule =>
-                    schedule != null &&
-                    string.Equals(schedule.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
-                .ToArray();
-            var missingIds = scheduleIds
-                .Where((_, index) => selectedSchedules[index] == null)
-                .ToArray();
-            if (missingIds.Length > 0)
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedules(
+                    config.SceneSchedules,
+                    scheduleIds,
+                    out var schedules,
+                    out var missingIds,
+                    out var ambiguousIds))
             {
+                if (ambiguousIds.Length > 0)
+                {
+                    return Conflict(new HueSceneScheduleBulkRunResult
+                    {
+                        RequestedCount = scheduleIds.Length,
+                        Message = GetAmbiguousSceneScheduleMessage(ambiguousIds)
+                    });
+                }
+
                 return NotFound(new HueSceneScheduleBulkRunResult
                 {
                     RequestedCount = scheduleIds.Length,
@@ -6008,8 +6044,6 @@ namespace Jellyfin.Plugin.Hue.Api
                     Message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingIds)}."
                 });
             }
-
-            var schedules = selectedSchedules.Cast<HueSceneSchedule>().ToArray();
             var validationErrors = new List<string>();
             foreach (var schedule in schedules)
             {
@@ -6189,16 +6223,22 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             config.SceneSchedules ??= new List<HueSceneSchedule>();
-            var selectedSchedules = scheduleIds
-                .Select(id => config.SceneSchedules.FirstOrDefault(schedule =>
-                    schedule != null &&
-                    string.Equals(schedule.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
-                .ToArray();
-            var missingIds = scheduleIds
-                .Where((_, index) => selectedSchedules[index] == null)
-                .ToArray();
-            if (missingIds.Length > 0)
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedules(
+                    config.SceneSchedules,
+                    scheduleIds,
+                    out var schedules,
+                    out var missingIds,
+                    out var ambiguousIds))
             {
+                if (ambiguousIds.Length > 0)
+                {
+                    return Conflict(new HueSceneScheduleBulkCancelResult
+                    {
+                        RequestedCount = scheduleIds.Length,
+                        Message = GetAmbiguousSceneScheduleMessage(ambiguousIds)
+                    });
+                }
+
                 return NotFound(new HueSceneScheduleBulkCancelResult
                 {
                     RequestedCount = scheduleIds.Length,
@@ -6207,8 +6247,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 });
             }
 
-            var canceledIds = selectedSchedules
-                .Cast<HueSceneSchedule>()
+            var canceledIds = schedules
                 .Where(schedule => _sceneAutomationService.CancelSchedule(schedule.Id))
                 .Select(schedule => schedule.Id?.Trim() ?? string.Empty)
                 .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -6231,6 +6270,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpPost("SceneSchedules/{id}/Run")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult<HueSceneAutomationRunResult>> RunSceneSchedule(
             string id,
@@ -6240,12 +6280,15 @@ namespace Jellyfin.Plugin.Hue.Api
             if (config == null)
                 return NotFound("Plugin configuration not available.");
 
-            var scheduleExists = config.SceneSchedules?.Any(schedule =>
-                schedule != null &&
-                string.Equals(schedule.Id?.Trim(), id?.Trim(), StringComparison.OrdinalIgnoreCase)) == true;
-            if (!scheduleExists)
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                    config.SceneSchedules,
+                    id,
+                    out _,
+                    out var ambiguous))
             {
-                return NotFound("Scene schedule not found.");
+                return ambiguous
+                    ? Conflict(GetAmbiguousSceneScheduleMessage(new[] { id?.Trim() ?? string.Empty }))
+                    : NotFound("Scene schedule not found.");
             }
 
             if (_sceneAutomationService == null)
@@ -6261,6 +6304,7 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpPost("SceneSchedules/{id}/Cancel")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public ActionResult<HueSceneScheduleCancellationResult> CancelSceneSchedule(string id)
         {
@@ -6270,11 +6314,16 @@ namespace Jellyfin.Plugin.Hue.Api
             if (_sceneAutomationService == null)
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, "Scene automation service is not available.");
 
-            var scheduleExists = Plugin.Instance.Configuration.SceneSchedules?.Any(schedule =>
-                schedule != null &&
-                string.Equals(schedule.Id?.Trim(), id?.Trim(), StringComparison.OrdinalIgnoreCase)) == true;
-            if (!scheduleExists)
-                return NotFound("Scene schedule not found.");
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                    Plugin.Instance.Configuration.SceneSchedules,
+                    id,
+                    out _,
+                    out var ambiguous))
+            {
+                return ambiguous
+                    ? Conflict(GetAmbiguousSceneScheduleMessage(new[] { id?.Trim() ?? string.Empty }))
+                    : NotFound("Scene schedule not found.");
+            }
 
             var canceled = _sceneAutomationService.CancelSchedule(id);
             return Ok(new HueSceneScheduleCancellationResult
@@ -6302,11 +6351,16 @@ namespace Jellyfin.Plugin.Hue.Api
             if (plugin == null || config == null)
                 return NotFound("Plugin configuration not available.");
 
-            var schedule = config.SceneSchedules?.FirstOrDefault(candidate =>
-                candidate != null &&
-                string.Equals(candidate.Id?.Trim(), id?.Trim(), StringComparison.OrdinalIgnoreCase));
-            if (schedule == null)
-                return NotFound("Scene schedule not found.");
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                    config.SceneSchedules,
+                    id,
+                    out var schedule,
+                    out var ambiguous))
+            {
+                return ambiguous
+                    ? Conflict(GetAmbiguousSceneScheduleMessage(new[] { id?.Trim() ?? string.Empty }))
+                    : NotFound("Scene schedule not found.");
+            }
 
             if (_sceneAutomationService != null)
             {
@@ -6378,16 +6432,22 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             config.SceneSchedules ??= new List<HueSceneSchedule>();
-            var selectedSchedules = scheduleIds
-                .Select(id => config.SceneSchedules.FirstOrDefault(schedule =>
-                    schedule != null &&
-                    string.Equals(schedule.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
-                .ToArray();
-            var missingIds = scheduleIds
-                .Where((_, index) => selectedSchedules[index] == null)
-                .ToArray();
-            if (missingIds.Length > 0)
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedules(
+                    config.SceneSchedules,
+                    scheduleIds,
+                    out var schedules,
+                    out var missingIds,
+                    out var ambiguousIds))
             {
+                if (ambiguousIds.Length > 0)
+                {
+                    return Conflict(new HueSceneScheduleBulkResetRunCountResult
+                    {
+                        RequestedCount = scheduleIds.Length,
+                        Message = GetAmbiguousSceneScheduleMessage(ambiguousIds)
+                    });
+                }
+
                 return NotFound(new HueSceneScheduleBulkResetRunCountResult
                 {
                     RequestedCount = scheduleIds.Length,
@@ -6395,11 +6455,6 @@ namespace Jellyfin.Plugin.Hue.Api
                     Message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingIds)}."
                 });
             }
-
-            var schedules = selectedSchedules
-                .Where(schedule => schedule != null)
-                .Cast<HueSceneSchedule>()
-                .ToArray();
             if (_sceneAutomationService != null)
             {
                 if (!_sceneAutomationService.TryResetSchedulesRunCount(scheduleIds, out var message))
@@ -6485,11 +6540,16 @@ namespace Jellyfin.Plugin.Hue.Api
             if (config == null)
                 return NotFound("Plugin configuration not available.");
 
-            var schedule = config.SceneSchedules?.FirstOrDefault(candidate =>
-                candidate != null &&
-                string.Equals(candidate.Id?.Trim(), id?.Trim(), StringComparison.OrdinalIgnoreCase));
-            if (schedule == null)
-                return NotFound("Scene schedule not found.");
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                    config.SceneSchedules,
+                    id,
+                    out var schedule,
+                    out var ambiguous))
+            {
+                return ambiguous
+                    ? Conflict(GetAmbiguousSceneScheduleMessage(new[] { id?.Trim() ?? string.Empty }))
+                    : NotFound("Scene schedule not found.");
+            }
 
             if (_sceneAutomationService != null)
             {
@@ -6560,16 +6620,23 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             config.SceneSchedules ??= new List<HueSceneSchedule>();
-            var selectedSchedules = scheduleIds
-                .Select(id => config.SceneSchedules.FirstOrDefault(schedule =>
-                    schedule != null &&
-                    string.Equals(schedule.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
-                .ToArray();
-            var missingIds = scheduleIds
-                .Where((_, index) => selectedSchedules[index] == null)
-                .ToArray();
-            if (missingIds.Length > 0)
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedules(
+                    config.SceneSchedules,
+                    scheduleIds,
+                    out var schedules,
+                    out var missingIds,
+                    out var ambiguousIds))
             {
+                if (ambiguousIds.Length > 0)
+                {
+                    return Conflict(new HueSceneScheduleBulkEnabledResult
+                    {
+                        Enabled = request.Enabled,
+                        RequestedCount = scheduleIds.Length,
+                        Message = GetAmbiguousSceneScheduleMessage(ambiguousIds)
+                    });
+                }
+
                 return NotFound(new HueSceneScheduleBulkEnabledResult
                 {
                     Enabled = request.Enabled,
@@ -6577,11 +6644,6 @@ namespace Jellyfin.Plugin.Hue.Api
                     Message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingIds)}."
                 });
             }
-
-            var schedules = selectedSchedules
-                .Where(schedule => schedule != null)
-                .Cast<HueSceneSchedule>()
-                .ToArray();
             if (_sceneAutomationService != null)
             {
                 if (!_sceneAutomationService.TrySetSchedulesEnabled(scheduleIds, request.Enabled, out var message))
@@ -6692,16 +6754,23 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             config.SceneSchedules ??= new List<HueSceneSchedule>();
-            var selectedSchedules = scheduleIds
-                .Select(id => config.SceneSchedules.FirstOrDefault(schedule =>
-                    schedule != null &&
-                    string.Equals(schedule.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
-                .ToArray();
-            var missingIds = scheduleIds
-                .Where((_, index) => selectedSchedules[index] == null)
-                .ToArray();
-            if (missingIds.Length > 0)
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedules(
+                    config.SceneSchedules,
+                    scheduleIds,
+                    out var schedules,
+                    out var missingIds,
+                    out var ambiguousIds))
             {
+                if (ambiguousIds.Length > 0)
+                {
+                    return Conflict(new HueSceneScheduleBulkSkipNextResult
+                    {
+                        SkipNextOccurrence = request.SkipNextOccurrence,
+                        RequestedCount = scheduleIds.Length,
+                        Message = GetAmbiguousSceneScheduleMessage(ambiguousIds)
+                    });
+                }
+
                 return NotFound(new HueSceneScheduleBulkSkipNextResult
                 {
                     SkipNextOccurrence = request.SkipNextOccurrence,
@@ -6709,11 +6778,6 @@ namespace Jellyfin.Plugin.Hue.Api
                     Message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingIds)}."
                 });
             }
-
-            var schedules = selectedSchedules
-                .Where(schedule => schedule != null)
-                .Cast<HueSceneSchedule>()
-                .ToArray();
             if (_sceneAutomationService != null)
             {
                 if (!_sceneAutomationService.TrySetSchedulesSkipNextOccurrence(
@@ -6848,27 +6912,28 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             config.SceneSchedules ??= new List<HueSceneSchedule>();
-            var selectedSchedules = scheduleIds
-                .Select(id => config.SceneSchedules.FirstOrDefault(schedule =>
-                    schedule != null &&
-                    string.Equals(schedule.Id?.Trim(), id, StringComparison.OrdinalIgnoreCase)))
-                .ToArray();
-            var missingIds = scheduleIds
-                .Where((_, index) => selectedSchedules[index] == null)
-                .ToArray();
-            if (missingIds.Length > 0)
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedules(
+                    config.SceneSchedules,
+                    scheduleIds,
+                    out var schedules,
+                    out var missingIds,
+                    out var ambiguousIds))
             {
+                if (ambiguousIds.Length > 0)
+                {
+                    return Conflict(new HueSceneScheduleBulkDeleteResult
+                    {
+                        RequestedCount = scheduleIds.Length,
+                        Message = GetAmbiguousSceneScheduleMessage(ambiguousIds)
+                    });
+                }
+
                 return NotFound(new HueSceneScheduleBulkDeleteResult
                 {
                     RequestedCount = scheduleIds.Length,
                     Message = $"The requested scene schedule(s) were not found: {string.Join(", ", missingIds)}."
                 });
             }
-
-            var schedules = selectedSchedules
-                .Where(schedule => schedule != null)
-                .Cast<HueSceneSchedule>()
-                .ToArray();
             if (_sceneAutomationService != null)
             {
                 if (!_sceneAutomationService.TryDeleteSchedules(scheduleIds, out var message))
@@ -6948,11 +7013,16 @@ namespace Jellyfin.Plugin.Hue.Api
             if (config == null)
                 return NotFound("Plugin configuration not available.");
 
-            var schedule = config.SceneSchedules?.FirstOrDefault(candidate =>
-                candidate != null &&
-                string.Equals(candidate.Id?.Trim(), id?.Trim(), StringComparison.OrdinalIgnoreCase));
-            if (schedule == null)
-                return NotFound("Scene schedule not found.");
+            if (!PluginConfiguration.TryResolveUniqueSceneSchedule(
+                    config.SceneSchedules,
+                    id,
+                    out var schedule,
+                    out var ambiguous))
+            {
+                return ambiguous
+                    ? Conflict(GetAmbiguousSceneScheduleMessage(new[] { id?.Trim() ?? string.Empty }))
+                    : NotFound("Scene schedule not found.");
+            }
 
             if (_sceneAutomationService != null)
             {

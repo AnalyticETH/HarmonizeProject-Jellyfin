@@ -1984,6 +1984,24 @@ for (const functionName of ["testDefaultConnection", "testMappingConnection"]) {
     }
 }
 
+{
+    const functionName = "cancelDiagnostics";
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "getPageLifecycleRequest",
+        "'diagnosticsCancellation'",
+        "isPageLifecycleRequestCurrent(page, pageGeneration, cancellationRequest)",
+        "page._hueDiagnosticsCancellationRequest !== cancellationRequestPromise",
+        "cancelPageLifecycleRequest(page, 'diagnosticsCancellation')"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} ${functionName} must track and invalidate its cancellation request with the page lifecycle: ${marker}`);
+        }
+    }
+}
+
 for (const functionName of ["loadEnvironmentDiagnostics", "loadTargetDiagnostics"]) {
     const start = scriptMatch[1].indexOf(`${functionName}: function`);
     const end = scriptMatch[1].indexOf("\n                },", start);

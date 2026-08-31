@@ -9153,6 +9153,44 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task SceneSchedules_DuplicateCaseVariantIdFailsClosedForRunAndDelete()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "api-duplicate-cue",
+                    Name = "API first duplicate cue",
+                    Enabled = true
+                },
+                new()
+                {
+                    Id = "API-DUPLICATE-CUE",
+                    Name = "API second duplicate cue",
+                    Enabled = false
+                }
+            }
+        });
+        var controller = CreateController();
+
+        var runAction = await controller.RunSceneSchedule(" api-duplicate-cue ");
+        var runConflict = Assert.IsType<ConflictObjectResult>(runAction.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, runConflict.StatusCode);
+        Assert.Contains("ambiguous", runConflict.Value?.ToString() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+        var deleteAction = controller.DeleteSceneSchedule("API-DUPLICATE-CUE");
+        var deleteConflict = Assert.IsType<ConflictObjectResult>(deleteAction);
+        Assert.Equal(StatusCodes.Status409Conflict, deleteConflict.StatusCode);
+        Assert.Contains("ambiguous", deleteConflict.Value?.ToString() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Equal(2, configuration.SceneSchedules.Count);
+        Assert.True(configuration.SceneSchedules[0].Enabled);
+        Assert.False(configuration.SceneSchedules[1].Enabled);
+    }
+
+    [Fact]
     public void SceneSchedules_DuplicateCreatesDisabledFreshCueWithUniqueIdentity()
     {
         var configuration = InstallConfiguration(new PluginConfiguration
