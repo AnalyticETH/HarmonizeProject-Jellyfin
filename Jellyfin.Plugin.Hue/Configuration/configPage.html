@@ -14320,6 +14320,11 @@
                 },
 
                 // User Mapping Functions
+                getUserMappingActionAriaLabel: function (action, userDisplayName) {
+                    var actionLabel = String(action || '').trim() || 'Mapping action';
+                    var nameLabel = String(userDisplayName || '').trim() || 'Unknown';
+                    return actionLabel + ' for ' + nameLabel;
+                },
                 loadUsers: function (page) {
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     var selectEl = page.querySelector('#mappingUserSelect');
@@ -14417,11 +14422,12 @@
                             var syncEnabled = typeof mapping.SyncEnabled !== 'undefined'
                                 ? mapping.SyncEnabled !== false
                                 : mapping.syncEnabled !== false;
+                            var userDisplayName = String(mapping.UserName || mapping.userName || userId || 'Unknown');
                             if (bulkSelect && userId) {
                                 var bulkOption = document.createElement('option');
                                 bulkOption.value = userId;
                                 bulkOption.dataset.mappingid = mapping.MappingId || mapping.mappingId || '';
-                                bulkOption.textContent = (mapping.UserName || mapping.userName || userId) + (syncEnabled ? '' : ' (disabled)');
+                                bulkOption.textContent = userDisplayName + (syncEnabled ? '' : ' (disabled)');
                                 bulkSelect.appendChild(bulkOption);
                             }
                             var bridgeIp = mapping.HueBridgeIp || mapping.hueBridgeIp || '';
@@ -14523,7 +14529,7 @@
                                     : String(deviceTargets.length) + (deviceTargets.length === 1 ? ' route' : ' routes');
                             var mappingId = mapping.MappingId || mapping.mappingId || '';
                             html += '<tr style="border-bottom: 1px solid #333;">';
-                            html += '<td style="padding: 8px;">' + escapeHtml(mapping.UserName || mapping.userName || userId || 'Unknown') + '</td>';
+                            html += '<td style="padding: 8px;">' + escapeHtml(userDisplayName) + '</td>';
                             html += '<td style="padding: 8px;">' + (syncEnabled ? 'Enabled' : 'Disabled') + '</td>';
                             html += '<td style="padding: 8px;">' + escapeHtml(bridgeDisplay) + '</td>';
                             html += '<td style="padding: 8px;">' + escapeHtml(areaDisplay) + '</td>';
@@ -14531,9 +14537,9 @@
                             html += '<td style="padding: 8px;">' + (hasProfile ? 'Custom' : 'Global') + '</td>';
                             html += '<td style="padding: 8px;">' + credentialState + '</td>';
                             html += '<td style="padding: 8px; text-align: right;">';
-                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" data-mappingid="' + escapeAttribute(mappingId) + '" onclick="HueConfigurationPage.editUserMapping(this.closest(\'.page\'), this.dataset.userid, this.dataset.mappingid)">Edit</button> ';
-                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" data-mappingid="' + escapeAttribute(mappingId) + '" onclick="HueConfigurationPage.inspectUserMappingDependencies(this.closest(\'.page\'), this.dataset.userid, this.dataset.mappingid)">View References</button> ';
-                            html += '<button is="emby-button" type="button" class="raised" data-userid="' + escapeAttribute(userId) + '" data-mappingid="' + escapeAttribute(mappingId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), this.dataset.userid, this.dataset.mappingid, this)">Delete</button>';
+                            html += '<button is="emby-button" type="button" class="raised" aria-label="' + escapeAttribute(HueConfigurationPage.getUserMappingActionAriaLabel('Edit mapping', userDisplayName)) + '" data-userid="' + escapeAttribute(userId) + '" data-mappingid="' + escapeAttribute(mappingId) + '" onclick="HueConfigurationPage.editUserMapping(this.closest(\'.page\'), this.dataset.userid, this.dataset.mappingid)">Edit</button> ';
+                            html += '<button is="emby-button" type="button" class="raised" aria-label="' + escapeAttribute(HueConfigurationPage.getUserMappingActionAriaLabel('View references', userDisplayName)) + '" data-userid="' + escapeAttribute(userId) + '" data-mappingid="' + escapeAttribute(mappingId) + '" onclick="HueConfigurationPage.inspectUserMappingDependencies(this.closest(\'.page\'), this.dataset.userid, this.dataset.mappingid)">View References</button> ';
+                            html += '<button is="emby-button" type="button" class="raised" aria-label="' + escapeAttribute(HueConfigurationPage.getUserMappingActionAriaLabel('Delete mapping', userDisplayName)) + '" data-userid="' + escapeAttribute(userId) + '" data-mappingid="' + escapeAttribute(mappingId) + '" onclick="HueConfigurationPage.deleteUserMapping(this.closest(\'.page\'), this.dataset.userid, this.dataset.mappingid, this)">Delete</button>';
                             html += '</td></tr>';
                         });
 

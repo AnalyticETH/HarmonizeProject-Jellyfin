@@ -474,6 +474,38 @@ function testMappingDeviceDiscoveryPageOwnershipContract() {
     );
 }
 
+function testUserMappingActionAriaLabelsContract() {
+    assert.ok(
+        scriptMatch[1].includes("var userDisplayName = String(mapping.UserName || mapping.userName || userId || 'Unknown');"),
+        "user mapping actions derive their accessible name from the displayed user name"
+    );
+    for (const action of ["Edit mapping", "View references", "Delete mapping"]) {
+        const marker = "aria-label=\"' + escapeAttribute(HueConfigurationPage.getUserMappingActionAriaLabel('" +
+            action +
+            "', userDisplayName)) + '\"";
+        assert.ok(
+            scriptMatch[1].includes(marker),
+            `${action} user mapping actions escape their row-specific accessible label`
+        );
+    }
+
+    const harness = makeHarness();
+    const { api } = harness;
+    const displayName = 'Alice & "Living Room"';
+    assert.equal(
+        api.getUserMappingActionAriaLabel("Edit mapping", displayName),
+        'Edit mapping for Alice & "Living Room"',
+        "user mapping action labels retain the displayed user name"
+    );
+    const label = api.getUserMappingActionAriaLabel("Delete mapping", displayName);
+    assert.equal(label.includes("mapping-secret"), false, "user mapping action labels do not include mapping IDs or credentials");
+    assert.equal(
+        api.getUserMappingActionAriaLabel("View references", "   "),
+        "View references for Unknown",
+        "user mapping action labels provide a safe fallback for an empty display name"
+    );
+}
+
 function testRetainedPageLifecycleHandlersRegisterOnce() {
     const harness = makeHarness();
     const { document, documentListeners, evaluateScript } = harness;
@@ -7224,6 +7256,7 @@ for (const testCase of exportCases) {
 }
 
 testMappingDeviceDiscoveryPageOwnershipContract();
+testUserMappingActionAriaLabelsContract();
 testRetainedPageLifecycleHandlersRegisterOnce();
 await testSceneScheduleRuntimeStatusManualAnnouncements();
 testFfmpegFlagLengthContracts();
