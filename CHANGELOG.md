@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.440] - 2026-08-31
+
+### Startup playback recovery
+- **Audio-session recovery**: Startup recovery now restores already-playing unpaused audio sessions at Jellyfin's current position when the effective playback scope includes audio, matching existing video recovery.
+- **Regression coverage**: Lifecycle tests verify audio recovery starts synchronization, preserves active user/item telemetry, and still honors media-scope filtering.
+
 ## [1.5.439] - 2026-08-31
 
 ### Light-state malformed-resource safety

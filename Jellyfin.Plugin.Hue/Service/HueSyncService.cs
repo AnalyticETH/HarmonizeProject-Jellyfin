@@ -374,14 +374,14 @@ namespace Jellyfin.Plugin.Hue.Service
             _ffmpegStreamer = new FfmpegStreamer(_loggerFactory.CreateLogger<FfmpegStreamer>());
 
             if (_managesPlaybackEvents)
-                RecoverActiveVideoSession();
+                RecoverActivePlaybackSessions();
 
             return;
         }
 
         /// <summary>
         /// Reconnects Hue synchronization when the plugin is started while Jellyfin is
-        /// already playing supported media. Jellyfin does not replay PlaybackStart for a service
+        /// already playing supported video or audio media. Jellyfin does not replay PlaybackStart for a service
         /// that subscribes after the session began, so without this recovery the viewer
         /// would need to stop and restart playback manually.
         ///
@@ -390,7 +390,7 @@ namespace Jellyfin.Plugin.Hue.Service
         /// targets are distinct. A later playback event still follows the normal lifecycle
         /// arbitration and remains observable in runtime status.
         /// </summary>
-        private void RecoverActiveVideoSession()
+        private void RecoverActivePlaybackSessions()
         {
             try
             {

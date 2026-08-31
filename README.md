@@ -63,7 +63,7 @@ The configuration page starts with a keyboard-friendly **Configuration sections*
 | **Backup and Restore** | Export global settings, per-user profiles, saved scene effects, saved scene playlists with repeat passes and `Sequential`/`Shuffle` playback order, scheduled scene cues, and history-retention preferences—including Solid/Pulse/Rainbow/Candle/Temperature/Aurora/Fire/Ocean/Lightning/Starlight/Matrix metadata, bounded 25-400% rates, optional per-step effect-speed/fade-in/fade-out transitions and fade curves, one-time dates, optional per-cue hold durations, priorities, recurring date windows, and portable Fixed/SolarNoon/Sunrise/Sunset/CivilDawn/CivilDusk/NauticalDawn/NauticalDusk/AstronomicalDawn/AstronomicalDusk timing with bounded offsets and decimal coordinates—as a credential-safe JSON document. **Validate Import** runs the same normalization, dependency, and full-configuration preflight without changing the server, including planned totals, active-playback readiness, and a credential-safe added/removed/changed/unchanged diff for every imported object collection. Import is atomic, preserves matching stored keys only when the global bridge target is unchanged, and requires replacement keys or an explicit clear operation before accepting a changed target; the in-page password-field wizard supplies migration keys without echoing them. |
 | **Live Sync Status** | Show the active Jellyfin user, effective playback media scope, selected bridge/area, captured profiles including effective audio sensitivity, noise gate, low/mid/high band centers and gains, response smoothing, audio-band spread, beat-pulse response, release, and onset threshold, visualizer palette, spatial routing, and Mono/Stereo/Left/Right source-channel mode, effective FPS, sent/skipped/failed stream updates, reconnect attempts, seek-recovery restarts, frame health, cleanup warnings, and safe per-session stop controls while playback is running. Distinct mapped bridges/areas can be streamed concurrently. |
 | **Recent Hue Sessions** | Review and filter the configured 1-25 most recent completed sync sessions, including outcome, target, duration, quality counters, and cleanup/error warnings. Export a credential-free JSON troubleshooting document, clear history without stopping playback, or optionally retain the sanitized window across Jellyfin restarts. The administrator can reduce the retained window without changing active playback. |
-| **Startup recovery** | If the plugin or Jellyfin service starts while an unpaused video is already playing, recover the active session at Jellyfin's current position so viewers do not need to stop and restart playback. |
+| **Startup recovery** | If the plugin or Jellyfin service starts while an unpaused video or audio item is already playing, recover the active session at Jellyfin's current position so viewers do not need to stop and restart playback. |
 | **Completed-session summary** | Keep the most recent media session's outcome, duration, frame/audio telemetry, reconnects, seek recoveries, and cleanup warnings visible after playback ends; summaries never contain bridge credentials or playback tokens. Unsupported media is ignored safely, while Audio and AllMedia scopes process supported audio playback. |
 | **Hue App Key** | "Username" for the REST API. The key is stored server-side and is never returned by the configuration endpoint; leave the field blank to keep it only when retaining the configured bridge target, or use Link Bridge/replacement credentials when changing targets. |
 | **Hue Client Key** | "ClientKey" for the streaming API. The key is stored server-side and is never returned by the configuration endpoint; leave the field blank to keep it only when retaining the configured bridge target, or use Link Bridge/replacement credentials when changing targets. |
@@ -504,7 +504,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.439 (Current)
+### Version 1.5.440 (Current)
+
+- **Audio-session recovery**: Startup recovery now restores already-playing unpaused audio sessions at Jellyfin's current position when the effective playback scope includes audio, matching existing video recovery.
+
+- **Regression coverage**: Lifecycle tests verify audio recovery starts synchronization, preserves active user/item telemetry, and still honors media-scope filtering.
+
+### Version 1.5.439
 
 - **Light-state malformed-resource safety**: Hue light-state capture now reports non-object resources, mismatched identifiers, and invalid required state fields as normal partial-capture warnings instead of emitting exception-path logs.
 

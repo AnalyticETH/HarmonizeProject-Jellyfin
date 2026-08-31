@@ -294,6 +294,51 @@ public sealed class HueSyncServiceLifecycleTests
     }
 
     [Fact]
+    public async Task StartAsync_RecoversAnAlreadyPlayingAudioSession()
+    {
+        var handler = new BlockingHueHandler();
+        using var httpClient = new HttpClient(handler);
+        var sessionManager = new Mock<ISessionManager>();
+        var activeSession = new SessionInfo(sessionManager.Object, Mock.Of<ILogger>())
+        {
+            Id = "client-audio-session-1",
+            UserId = Guid.NewGuid(),
+            UserName = "Already Playing Listener",
+            LastActivityDate = DateTime.UtcNow,
+            FullNowPlayingItem = new MediaBrowser.Controller.Entities.Audio.Audio
+            {
+                Name = "Already playing album track",
+                Path = "/tmp/already-playing-track.flac"
+            },
+            PlayState = new PlayerStateInfo
+            {
+                IsPaused = false,
+                PositionTicks = TimeSpan.FromSeconds(19).Ticks
+            }
+        };
+        sessionManager
+            .SetupGet(manager => manager.Sessions)
+            .Returns(new[] { activeSession });
+        var service = CreateService(httpClient, sessionManager: sessionManager.Object);
+        Plugin.Instance!.Configuration.PlaybackMediaFilter = PluginConfiguration.PlaybackMediaFilterAudio;
+
+        await service.StartAsync(CancellationToken.None);
+        await handler.FirstConfigurationRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var status = service.GetRuntimeStatus();
+        Assert.True(status.IsSyncing);
+        Assert.Equal("Already playing album track", status.CurrentItem);
+        Assert.Equal("Already Playing Listener", status.ActiveUserName);
+        Assert.Equal(19, status.PlaybackPositionSeconds);
+        Assert.Equal(PluginConfiguration.PlaybackMediaFilterAudio, status.ActivePlaybackMediaFilter);
+
+        handler.ReleaseFirstConfiguration();
+        await handler.StopRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        handler.ReleaseStopRequest();
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public void RecoveredPlaybackEventsUseTheStableLifecycleSessionId()
     {
         using var httpClient = new HttpClient(new BlockingHueHandler());
