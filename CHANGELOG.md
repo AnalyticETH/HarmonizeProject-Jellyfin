@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.433] - 2026-08-31
+
+### Retained-page lifecycle and bounded FFmpeg input hardening
+- **Retained-page lifecycle hardening**: document-level `pageshow` and `pagehide` handlers are installed once, so Jellyfin retained-page re-evaluation cannot multiply polling, cancellation, or cleanup callbacks.
+- **Bounded FFmpeg flag inputs**: global and per-user override fields expose the server's 768-character limit directly in the administrator UI while retaining decoder/thread/hardware-only validation.
+- **Regression coverage**: lifecycle singleton registration, FFmpeg input limits, and the existing full configuration-page/browser contracts are covered by automated tests and validators.
+
 ## [1.5.432] - 2026-08-31
 
 ### Saved-playlist playback-device routes

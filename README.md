@@ -504,7 +504,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.432 (Current)
+### Version 1.5.433 (Current)
+
+- **Retained-page lifecycle hardening**: document-level `pageshow` and `pagehide` handlers are installed once, so Jellyfin retained-page re-evaluation cannot multiply polling, cancellation, or cleanup callbacks.
+
+- **Bounded FFmpeg flag inputs**: global and per-user override fields expose the server's 768-character limit directly in the administrator UI while retaining decoder/thread/hardware-only validation.
+
+- **Regression coverage**: lifecycle singleton registration, FFmpeg input limits, and the existing full configuration-page/browser contracts are covered by automated tests and validators.
+
+### Version 1.5.432
 
 - **Saved-playlist playback-device routes**: saved playlists can retain credential-free Jellyfin `userId`/case-sensitive `deviceId` pairs, resolve current nested Hue credentials and channel profiles at run time, and fail closed when a route is missing, disabled, incomplete, ambiguous, or removed.
 
