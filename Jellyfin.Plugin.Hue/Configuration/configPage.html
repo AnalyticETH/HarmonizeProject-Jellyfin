@@ -1086,8 +1086,8 @@
 
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="customFfmpegFlags">Additional FFmpeg Flags</label>
-                            <input id="customFfmpegFlags" name="customFfmpegFlags" type="text" is="emby-input" />
-                            <div class="fieldDescription">Optional decoder, thread, and hardware flags (for example <code>-hwaccel vaapi -threads 2</code> or <code>-c:v h264_cuvid</code>). Extra inputs, outputs, protocols, headers, filters, scripts, and paths are rejected.</div>
+                            <input id="customFfmpegFlags" name="customFfmpegFlags" type="text" is="emby-input" maxlength="768" />
+                            <div class="fieldDescription">Optional decoder, thread, and hardware flags (maximum 768 characters; for example <code>-hwaccel vaapi -threads 2</code> or <code>-c:v h264_cuvid</code>). Extra inputs, outputs, protocols, headers, filters, scripts, and paths are rejected.</div>
                         </div>
 
                         <div class="inputContainer">
@@ -1525,8 +1525,8 @@
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="mappingCustomFfmpegFlagsOverride">Additional FFmpeg Flags Override</label>
-                                    <input id="mappingCustomFfmpegFlagsOverride" type="text" is="emby-input" placeholder="Leave blank to inherit" />
-                                    <div class="fieldDescription">Optional decoder, thread, and hardware flags (for example <code>-hwaccel_device /dev/dri/renderD128</code>). Extra inputs, outputs, protocols, headers, filters, scripts, and paths are rejected; blank inherits the global text.</div>
+                                    <input id="mappingCustomFfmpegFlagsOverride" type="text" is="emby-input" maxlength="768" placeholder="Leave blank to inherit" />
+                                    <div class="fieldDescription">Optional decoder, thread, and hardware flags (maximum 768 characters; for example <code>-hwaccel_device /dev/dri/renderD128</code>). Extra inputs, outputs, protocols, headers, filters, scripts, and paths are rejected; blank inherits the global text.</div>
                                 </div>
 
                                 <div class="inputContainer">
@@ -17619,39 +17619,47 @@
                 ? (document.currentScript.closest('.pluginConfigurationPage') || document)
                 : document);
 
-            document.addEventListener('pageshow', function (e) {
-                if (e.target.classList.contains('pluginConfigurationPage')) {
-                    HueConfigurationPage.beginPageLifecycle(e.target);
-                    HueConfigurationPage.initializePreviewTargetMetadata(e.target);
-                    HueConfigurationPage.initializeSceneScheduleMetadata(e.target);
-                    HueConfigurationPage.loadConfiguration(e.target);
-                    HueConfigurationPage.loadUsers(e.target);
-                    HueConfigurationPage.loadUserMappings(e.target);
-                    HueConfigurationPage.refreshMappingDeviceRoutes(e.target, undefined, true);
-                    HueConfigurationPage.startRuntimeStatusPolling(e.target);
-                    HueConfigurationPage.loadSessionHistory(e.target);
-                    HueConfigurationPage.loadEnvironmentDiagnostics(e.target);
-                }
-            });
+            // Jellyfin may retain a hidden configuration page while evaluating a
+            // newly shown copy. Register document lifecycle listeners once so
+            // repeated inline-script evaluation cannot multiply API polling,
+            // cancellation, or cleanup for every retained page.
+            if (!document.__hueConfigurationPageLifecycleHandlersInstalled) {
+                document.__hueConfigurationPageLifecycleHandlersInstalled = true;
 
-            document.addEventListener('pagehide', function (e) {
-                if (e.target.classList && e.target.classList.contains('pluginConfigurationPage')) {
-                    if (e.target._huePreviewRequest) {
-                        HueConfigurationPage.cancelPreview(e.target);
+                document.addEventListener('pageshow', function (e) {
+                    if (e.target.classList.contains('pluginConfigurationPage')) {
+                        HueConfigurationPage.beginPageLifecycle(e.target);
+                        HueConfigurationPage.initializePreviewTargetMetadata(e.target);
+                        HueConfigurationPage.initializeSceneScheduleMetadata(e.target);
+                        HueConfigurationPage.loadConfiguration(e.target);
+                        HueConfigurationPage.loadUsers(e.target);
+                        HueConfigurationPage.loadUserMappings(e.target);
+                        HueConfigurationPage.refreshMappingDeviceRoutes(e.target, undefined, true);
+                        HueConfigurationPage.startRuntimeStatusPolling(e.target);
+                        HueConfigurationPage.loadSessionHistory(e.target);
+                        HueConfigurationPage.loadEnvironmentDiagnostics(e.target);
                     }
-                    if (e.target._hueSceneScheduleRequest) {
-                        HueConfigurationPage.cancelSceneScheduleRun(e.target);
+                });
+
+                document.addEventListener('pagehide', function (e) {
+                    if (e.target.classList && e.target.classList.contains('pluginConfigurationPage')) {
+                        if (e.target._huePreviewRequest) {
+                            HueConfigurationPage.cancelPreview(e.target);
+                        }
+                        if (e.target._hueSceneScheduleRequest) {
+                            HueConfigurationPage.cancelSceneScheduleRun(e.target);
+                        }
+                        if (e.target._hueSceneScheduleBulkRequest) {
+                            HueConfigurationPage.cancelSceneSchedulesBulk(e.target);
+                        }
+                        if (e.target._hueDiagnosticsRequest || e.target._hueTargetDiagnosticsRequest || e.target._hueSupportBundleRequest) {
+                            HueConfigurationPage.cancelDiagnostics(e.target);
+                        }
+                        HueConfigurationPage.stopRuntimeStatusPolling(e.target);
+                        HueConfigurationPage.invalidatePageLifecycle(e.target);
                     }
-                    if (e.target._hueSceneScheduleBulkRequest) {
-                        HueConfigurationPage.cancelSceneSchedulesBulk(e.target);
-                    }
-                    if (e.target._hueDiagnosticsRequest || e.target._hueTargetDiagnosticsRequest || e.target._hueSupportBundleRequest) {
-                        HueConfigurationPage.cancelDiagnostics(e.target);
-                    }
-                    HueConfigurationPage.stopRuntimeStatusPolling(e.target);
-                    HueConfigurationPage.invalidatePageLifecycle(e.target);
-                }
-            });
+                });
+            }
         </script>
     </div>
 </body>

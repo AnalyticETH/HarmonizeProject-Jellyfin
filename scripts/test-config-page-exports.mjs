@@ -197,6 +197,7 @@ function makeHarness() {
     const blobs = new Map();
     const requests = [];
     const readers = [];
+    const documentListeners = new Map();
     let blobNumber = 0;
     const pageElements = new Map();
     let activePage = null;
@@ -233,7 +234,11 @@ function makeHarness() {
             }
             return element;
         },
-        addEventListener() {}
+        addEventListener(eventName, handler) {
+            const handlers = documentListeners.get(eventName) || [];
+            handlers.push(handler);
+            documentListeners.set(eventName, handlers);
+        }
     };
 
     const url = {
@@ -362,7 +367,11 @@ function makeHarness() {
         AbortController
     });
 
-    new vm.Script(`"use strict";\n${scriptMatch[1]}`, { filename: file }).runInContext(context);
+    const configurationScript = new vm.Script(`"use strict";\n${scriptMatch[1]}`, { filename: file });
+    function evaluateScript() {
+        configurationScript.runInContext(context);
+    }
+    evaluateScript();
 
     function makePage(elements = new Map()) {
         return {
@@ -405,6 +414,9 @@ function makeHarness() {
     return {
         page,
         makePage,
+        document,
+        documentListeners,
+        evaluateScript,
         api: context.HueConfigurationPage,
         requests,
         readers,
@@ -460,6 +472,51 @@ function testMappingDeviceDiscoveryPageOwnershipContract() {
         routeSelect.children.some(option => option.value === "discovered-device"),
         "page-scoped route refresh renders the discovered device on its owning page"
     );
+}
+
+function testRetainedPageLifecycleHandlersRegisterOnce() {
+    const harness = makeHarness();
+    const { document, documentListeners, evaluateScript } = harness;
+
+    assert.equal(
+        document.__hueConfigurationPageLifecycleHandlersInstalled,
+        true,
+        "the configuration document marks retained-page lifecycle handlers as installed"
+    );
+    assert.equal(
+        documentListeners.get("pageshow")?.length,
+        1,
+        "the initial configuration script evaluation installs one pageshow handler"
+    );
+    assert.equal(
+        documentListeners.get("pagehide")?.length,
+        1,
+        "the initial configuration script evaluation installs one pagehide handler"
+    );
+
+    evaluateScript();
+
+    assert.equal(
+        documentListeners.get("pageshow")?.length,
+        1,
+        "re-evaluating a retained configuration page does not duplicate pageshow handling"
+    );
+    assert.equal(
+        documentListeners.get("pagehide")?.length,
+        1,
+        "re-evaluating a retained configuration page does not duplicate pagehide handling"
+    );
+}
+
+function testFfmpegFlagLengthContracts() {
+    for (const id of ["customFfmpegFlags", "mappingCustomFfmpegFlagsOverride"]) {
+        const inputStart = html.indexOf(`id="${id}"`);
+        const fieldEnd = html.indexOf("</div>", inputStart);
+        assert.ok(inputStart >= 0 && fieldEnd > inputStart, `${id} is rendered in a complete input container`);
+        const fieldMarkup = html.slice(inputStart, fieldEnd);
+        assert.match(fieldMarkup, /maxlength="768"/, `${id} enforces the server's 768-character limit`);
+        assert.match(fieldMarkup, /maximum 768 characters/, `${id} explains the maximum length to users`);
+    }
 }
 
 function makeRetainedSectionNavigationPage() {
@@ -7033,6 +7090,8 @@ for (const testCase of exportCases) {
 }
 
 testMappingDeviceDiscoveryPageOwnershipContract();
+testRetainedPageLifecycleHandlersRegisterOnce();
+testFfmpegFlagLengthContracts();
 testSectionNavigationRetainedPageScope();
 await testEditMappingLifecycleGuards();
 await testRetainedMappingPageStateIsolation();

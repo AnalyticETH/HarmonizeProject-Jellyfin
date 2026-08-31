@@ -76,6 +76,8 @@ const requiredMarkup = [
     'id="mappingAudioColorPaletteOverride"',
     'id="mappingAudioSpatialModeOverride"',
     'id="mappingAudioChannelModeOverride"',
+    'id="customFfmpegFlags" name="customFfmpegFlags" type="text" is="emby-input" maxlength="768"',
+    'id="mappingCustomFfmpegFlagsOverride" type="text" is="emby-input" maxlength="768" placeholder="Leave blank to inherit"',
     'value="Left">Left source channel only',
     'value="Right">Right source channel only',
     'value="Audio">Audio only (music)',
@@ -234,6 +236,19 @@ if (html.includes("Enable Real-time Video Sync") ||
 for (const marker of requiredMarkup) {
     if (!html.includes(marker)) {
         throw new Error(`${file} is missing required markup: ${marker}`);
+    }
+}
+
+for (const id of ["customFfmpegFlags", "mappingCustomFfmpegFlagsOverride"]) {
+    const inputIndex = html.indexOf(`id="${id}"`);
+    const containerEnd = html.indexOf("</div>", inputIndex);
+    const fieldMarkup = inputIndex >= 0 && containerEnd > inputIndex
+        ? html.slice(inputIndex, containerEnd)
+        : "";
+    for (const marker of ['maxlength="768"', "maximum 768 characters"]) {
+        if (!fieldMarkup.includes(marker)) {
+            throw new Error(`${file} ${id} must expose the FFmpeg flag limit: ${marker}`);
+        }
     }
 }
 
@@ -912,6 +927,19 @@ for (const forbidden of [
     }
     if (!scopeBody.includes('HueConfigurationPage.bindSectionNavigation(sectionNavigationPage);')) {
         throw new Error(`${file} section navigation must bind against the current page-scoped root`);
+    }
+
+    const lifecycleGuard = "if (!document.__hueConfigurationPageLifecycleHandlersInstalled)";
+    const lifecycleStart = scriptMatch[1].indexOf(lifecycleGuard);
+    const lifecycleEnd = scriptMatch[1].indexOf("\n            }", lifecycleStart);
+    const lifecycleBody = lifecycleStart >= 0 && lifecycleEnd > lifecycleStart
+        ? scriptMatch[1].slice(lifecycleStart, lifecycleEnd)
+        : "";
+    if (lifecycleStart < 0 || lifecycleEnd < 0 ||
+        !lifecycleBody.includes("document.__hueConfigurationPageLifecycleHandlersInstalled = true;") ||
+        !lifecycleBody.includes("document.addEventListener('pageshow'") ||
+        !lifecycleBody.includes("document.addEventListener('pagehide'")) {
+        throw new Error(`${file} retained-page lifecycle handlers must be installed once per document`);
     }
     const sectionNavigationStart = scriptMatch[1].indexOf("bindSectionNavigation: function (page)");
     const sectionNavigationEnd = scriptMatch[1].indexOf("\n                },", sectionNavigationStart);
