@@ -1964,6 +1964,15 @@ for (const channel of ["Red", "Green", "Blue"]) {
         !functionBody.includes("page._hueScenePlaylistEffects[index] = effectSelect.value || null")) {
         throw new Error(`${file} playlist step effect selector is missing null-as-inherit wiring`);
     }
+    for (const marker of [
+        "up.setAttribute('aria-label', 'Move Step ' + (index + 1) + ': ' + name + ' up');",
+        "down.setAttribute('aria-label', 'Move Step ' + (index + 1) + ': ' + name + ' down');",
+        "remove.setAttribute('aria-label', 'Remove Step ' + (index + 1) + ': ' + name + ' from playlist');"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} playlist step controls are missing row-specific accessible labeling: ${marker}`);
+        }
+    }
 }
 
 for (const contract of [

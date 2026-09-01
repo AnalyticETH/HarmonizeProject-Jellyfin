@@ -7558,6 +7558,7 @@
                         up.type = 'button';
                         up.className = 'raised';
                         up.textContent = 'Up';
+                        up.setAttribute('aria-label', 'Move Step ' + (index + 1) + ': ' + name + ' up');
                         up.disabled = index === 0;
                         up.style.marginRight = '0.25em';
                         up.addEventListener('click', function () { HueConfigurationPage.moveScenePlaylistStep(page, index, -1); });
@@ -7566,6 +7567,7 @@
                         down.type = 'button';
                         down.className = 'raised';
                         down.textContent = 'Down';
+                        down.setAttribute('aria-label', 'Move Step ' + (index + 1) + ': ' + name + ' down');
                         down.disabled = index === items.length - 1;
                         down.style.marginRight = '0.25em';
                         down.addEventListener('click', function () { HueConfigurationPage.moveScenePlaylistStep(page, index, 1); });
@@ -7574,6 +7576,7 @@
                         remove.type = 'button';
                         remove.className = 'raised';
                         remove.textContent = 'Remove';
+                        remove.setAttribute('aria-label', 'Remove Step ' + (index + 1) + ': ' + name + ' from playlist');
                         remove.addEventListener('click', function () {
                             page._hueScenePlaylistItems.splice(index, 1);
                             page._hueScenePlaylistDurations.splice(index, 1);

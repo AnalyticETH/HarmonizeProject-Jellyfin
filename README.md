@@ -504,7 +504,17 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.449 (Current)
+### Version 1.5.450 (Current)
+
+- **Playback-policy accounting**: automatic playback-blocked `Skip` cues now consume the occurrence and finite run attempt, while `Defer` remains retryable without counting a failed attempt.
+
+- **Self-hosted runner confinement checks**: the host health check now verifies each runner's dedicated identity and systemd confinement properties instead of trusting enabled/active state alone.
+
+- **Accessible playlist controls**: saved-scene playlist reorder and remove buttons now expose distinct row-specific labels without leaking identifiers or credentials.
+
+- **Regression coverage**: scheduler, configuration-page, workflow-contract, and host-service tests cover the corrected policy, accessible controls, and fail-closed runner boundaries.
+
+### Version 1.5.449
 
 - **Host-side runner service health**: a least-privileged systemd timer verifies all four persistent self-hosted runner services are enabled and active every five minutes.
 

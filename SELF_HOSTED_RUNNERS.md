@@ -113,9 +113,14 @@ sudo systemctl enable --now harmonize-runner-health-check.timer
 sudo systemctl start harmonize-runner-health-check.service
 ```
 
-The oneshot fails if any of these exact services is not both enabled and active:
+The oneshot fails if any of these exact services is not enabled and active with
+its documented dedicated `User`/`Group` and confinement properties:
 `harmonizeproject-jellyfin`, `harmonizeproject-jellyfin-runtime`,
 `harmonizeproject-jellyfin-release`, or `harmonizeproject-jellyfin-dependabot`.
+It verifies `NoNewPrivileges`, private temporary/device namespaces,
+`ProtectSystem=strict`, the expected `ProtectHome` mode, `UMask=0077`, and
+`LimitCORE=0`; a unit that is running but has been weakened therefore fails
+closed before it is treated as healthy.
 The timer runs two minutes after boot and every five minutes thereafter. Inspect
 the live result with `systemctl status harmonize-runner-health-check.service` and
 `journalctl -u harmonize-runner-health-check.service`.

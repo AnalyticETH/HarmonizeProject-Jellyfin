@@ -4209,6 +4209,140 @@ public sealed class HueSceneAutomationServiceTests
     }
 
     [Fact]
+    public async Task RunDueSchedules_SkipPolicyConsumesPlaybackBlockedFiniteOccurrence()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicySkip,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "skip-playback-finite-app-secret",
+            HueClientKey = "skip-playback-finite-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Skip playback scene", Red = 11, Green = 22, Blue = 33, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "skip-playback-finite",
+                    Name = "Skip playback finite cue",
+                    PresetName = "Skip playback scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                    MaxRuns = 1,
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var streamTester = new PlaybackRaceStreamTester(lifecycleGate);
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        // Skip retains the historical immediate attempt semantics: the blocked attempt
+        // consumes the finite execution and its durable recurring occurrence claim.
+        Assert.Equal(1, streamTester.PreviewCount);
+        var saved = Assert.Single(configuration.SceneSchedules);
+        Assert.Equal(1, saved.RunCount);
+        Assert.False(saved.Enabled);
+        Assert.Single(configuration.PersistedSceneAutomationOccurrenceClaims);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        var history = Assert.Single(service.GetHistory());
+        Assert.False(history.Succeeded);
+        Assert.False(history.Skipped);
+        Assert.True(history.BlockedByPlayback);
+
+        // A second poll in the same due minute must not retry the consumed occurrence.
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        Assert.Equal(1, streamTester.PreviewCount);
+        Assert.Single(service.GetHistory());
+        var status = Assert.Single(service.GetStatus().Schedules);
+        Assert.Equal(1, status.RunCount);
+        Assert.False(status.LastSucceeded);
+        Assert.False(status.LastSkipped);
+        streamTester.ReleasePlayback();
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_SkipPolicyAccountsForPlaybackBlockedOneTimeOccurrence()
+    {
+        var configuration = new PluginConfiguration
+        {
+            SceneAutomationEnabled = true,
+            SceneAutomationPlaybackPolicy = PluginConfiguration.SceneAutomationPlaybackPolicySkip,
+            PersistSceneScheduleHistory = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "skip-playback-one-time-app-secret",
+            HueClientKey = "skip-playback-one-time-client-secret",
+            EntertainmentAreaId = "area-1",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Skip playback one-time scene", Red = 44, Green = 55, Blue = 66, BrightnessPercent = 80, DurationSeconds = 1 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "skip-playback-one-time",
+                    Name = "Skip playback one-time cue",
+                    PresetName = "Skip playback one-time scene",
+                    TimeOfDay = "07:05",
+                    TimeZoneId = TimeZoneInfo.Utc.Id,
+                    RunDate = "2026-08-18",
+                    DaysOfWeekMask = 0,
+                    Enabled = true
+                }
+            }
+        };
+        InstallConfiguration(configuration);
+
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var streamTester = new PlaybackRaceStreamTester(lifecycleGate);
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(),
+            lifecycleGate);
+        var dueUtc = new DateTime(2026, 8, 18, 7, 5, 30, DateTimeKind.Utc);
+
+        await service.RunDueSchedulesAsync(dueUtc, CancellationToken.None);
+
+        // The one-time claim is already disabled before bridge work; the blocked Skip
+        // attempt must still be reflected in the execution counter and audit history.
+        Assert.Equal(1, streamTester.PreviewCount);
+        var saved = Assert.Single(configuration.SceneSchedules);
+        Assert.False(saved.Enabled);
+        Assert.Equal(1, saved.RunCount);
+        Assert.Empty(configuration.PersistedSceneAutomationDeferredRuns);
+        var history = Assert.Single(service.GetHistory());
+        Assert.False(history.Succeeded);
+        Assert.False(history.Skipped);
+        Assert.True(history.BlockedByPlayback);
+        var status = Assert.Single(service.GetStatus().Schedules);
+        Assert.Equal(1, status.RunCount);
+        Assert.False(status.LastSucceeded);
+        Assert.False(status.LastSkipped);
+        streamTester.ReleasePlayback();
+    }
+
+    [Fact]
     public async Task RunDueSchedules_MatchingTargetScopeAllowsIndependentRoomDuringPlayback()
     {
         var configuration = new PluginConfiguration

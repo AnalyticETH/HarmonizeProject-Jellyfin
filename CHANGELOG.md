@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.450] - 2026-08-31
+
+### Scheduler correctness, accessibility, and runner hardening
+- **Playback-policy accounting**: automatic playback-blocked `Skip` cues now consume the occurrence and finite run attempt, while `Defer` remains retryable without counting a failed attempt.
+- **Self-hosted runner confinement checks**: the host health check now verifies each runner's dedicated identity and systemd confinement properties instead of trusting enabled/active state alone.
+- **Accessible playlist controls**: saved-scene playlist reorder and remove buttons now expose distinct row-specific labels without leaking identifiers or credentials.
+- **Regression coverage**: scheduler, configuration-page, workflow-contract, and host-service tests cover the corrected policy, accessible controls, and fail-closed runner boundaries.
+
 ## [1.5.449] - 2026-08-31
 
 ### Runner health boundaries

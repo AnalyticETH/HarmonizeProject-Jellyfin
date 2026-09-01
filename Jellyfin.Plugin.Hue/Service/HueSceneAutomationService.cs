@@ -5458,6 +5458,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 wasCatchUp: wasCatchUp,
                 wasDeferred: hasDeferredRun,
                 wasDeferredRestored: wasDeferredRestored,
+                deferPlaybackConflict: deferDuringPlayback,
                 targetScopedPlayback: string.Equals(
                     playbackScope,
                     PluginConfiguration.SceneAutomationPlaybackScopeMatchingTarget,
@@ -6491,6 +6492,7 @@ public sealed class HueSceneAutomationService : BackgroundService
         bool wasCatchUp = false,
         bool wasDeferred = false,
         bool wasDeferredRestored = false,
+        bool deferPlaybackConflict = false,
         bool targetScopedPlayback = false,
         DateTime? runAtUtcOverride = null,
         bool schedulerBarrierHeld = false)
@@ -6582,6 +6584,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 cancellationToken.IsCancellationRequested &&
                 (!runCompleted || result is { Succeeded: false });
             var automaticPlaybackConflictBeforeCompletion = automaticRun &&
+                deferPlaybackConflict &&
                 !automaticCancellationBeforeCompletion &&
                 result is { Succeeded: false, BlockedByPlayback: true };
             if ((automaticCancellationBeforeCompletion || automaticPlaybackConflictBeforeCompletion) &&

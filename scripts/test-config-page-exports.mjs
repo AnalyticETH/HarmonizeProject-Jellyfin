@@ -506,6 +506,64 @@ function testUserMappingActionAriaLabelsContract() {
     );
 }
 
+function testScenePlaylistStepActionAriaLabelsContract() {
+    assert.match(
+        scriptMatch[1],
+        /up\.setAttribute\('aria-label', 'Move Step ' \+ \(index \+ 1\) \+ ': ' \+ name \+ ' up'\);/,
+        "playlist move-up controls derive a row-specific accessible label"
+    );
+    assert.match(
+        scriptMatch[1],
+        /down\.setAttribute\('aria-label', 'Move Step ' \+ \(index \+ 1\) \+ ': ' \+ name \+ ' down'\);/,
+        "playlist move-down controls derive a row-specific accessible label"
+    );
+    assert.match(
+        scriptMatch[1],
+        /remove\.setAttribute\('aria-label', 'Remove Step ' \+ \(index \+ 1\) \+ ': ' \+ name \+ ' from playlist'\);/,
+        "playlist remove controls derive a row-specific accessible label"
+    );
+
+    const harness = makeHarness();
+    const { page, api } = harness;
+    page._hueScenePlaylistItems = ["Movie Night", 'Ambient & "Cozy"'];
+    api.renderScenePlaylistItems(page);
+
+    const list = page.querySelector("#scenePlaylistItems").children[0];
+    assert.equal(list.children.length, 2, "playlist step rendering creates one row per saved scene");
+    const rows = list.children;
+    const getActionLabels = row => row.children
+        .filter(child => child.tagName === "BUTTON")
+        .map(button => button.attributes["aria-label"]);
+    assert.deepEqual(
+        getActionLabels(rows[0]),
+        [
+            "Move Step 1: Movie Night up",
+            "Move Step 1: Movie Night down",
+            "Remove Step 1: Movie Night from playlist"
+        ],
+        "first playlist row actions identify their scene and position"
+    );
+    assert.deepEqual(
+        getActionLabels(rows[1]),
+        [
+            'Move Step 2: Ambient & "Cozy" up',
+            'Move Step 2: Ambient & "Cozy" down',
+            'Remove Step 2: Ambient & "Cozy" from playlist'
+        ],
+        "second playlist row actions retain special characters in accessible names"
+    );
+    assert.notEqual(
+        rows[0].children[rows[0].children.length - 1].attributes["aria-label"],
+        rows[1].children[rows[1].children.length - 1].attributes["aria-label"],
+        "playlist remove actions remain distinguishable across rows"
+    );
+    for (const row of rows) {
+        for (const button of row.children.filter(child => child.tagName === "BUTTON")) {
+            assert.equal(button.attributes["aria-label"].includes("mapping-secret"), false, "playlist action labels do not expose identifiers or credentials");
+        }
+    }
+}
+
 function testRetainedPageLifecycleHandlersRegisterOnce() {
     const harness = makeHarness();
     const { document, documentListeners, evaluateScript } = harness;
@@ -7323,6 +7381,7 @@ for (const testCase of exportCases) {
 
 testMappingDeviceDiscoveryPageOwnershipContract();
 testUserMappingActionAriaLabelsContract();
+testScenePlaylistStepActionAriaLabelsContract();
 testRetainedPageLifecycleHandlersRegisterOnce();
 await testSceneScheduleRuntimeStatusManualAnnouncements();
 testFfmpegFlagLengthContracts();
