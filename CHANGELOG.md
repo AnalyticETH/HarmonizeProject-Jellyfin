@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.454] - 2026-09-01
+
+### Actions storage cost reduction
+- **Remote cache removal**: trusted and pull-request workflows no longer create GitHub Actions NuGet caches; the self-hosted build runner uses its local package cache, and untrusted PR jobs restore directly without accumulating remote cache storage.
+- **Short artifact retention**: all CI and security artifacts now expire after seven days, limiting ongoing Actions storage while preserving recent diagnostic and release evidence; published release assets remain separate and unaffected.
+- **Storage cleanup contract**: the runbook documents the generated-artifact/cache billing boundary and the cleanup scope used for this repository.
+
 ## [1.5.453] - 2026-09-01
 
 ### GitHub Actions billing reduction

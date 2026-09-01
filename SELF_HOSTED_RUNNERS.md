@@ -155,6 +155,21 @@ host-side service check and this read-only queue/label monitor is intentional: i
 avoids storing a long-lived personal token or silently treating an unauthorized
 runner-inventory request as a healthy result.
 
+## Actions storage and billing
+
+Self-hosted execution does not consume GitHub-hosted runner minutes, but generated
+Actions artifacts and remote caches remain separate billing resources. This
+repository therefore does not use `actions/cache`: the build runner's local NuGet
+cache is retained under its locked service account, while pull-request jobs restore
+dependencies directly. Every CI and security artifact declares `retention-days: 7`.
+
+The published GitHub release ZIP, checksums, and manifest are release assets, not
+workflow artifacts; storage cleanup must never delete those assets. When reducing
+existing usage, scope deletion to generated Actions artifacts and caches only,
+preserve the latest release-run evidence when operationally useful, and recheck
+the repository's artifact/cache totals after cleanup. Existing accrued charges do
+not disappear when storage is deleted; deletion only stops future storage accrual.
+
 Untrusted pull requests, including Dependabot update branches, are validated by
 `.github/workflows/pull-request-validation.yml` on the ephemeral GitHub-hosted
 `ubuntu-24.04` runner. That workflow has only `contents: read`, does not receive secrets,

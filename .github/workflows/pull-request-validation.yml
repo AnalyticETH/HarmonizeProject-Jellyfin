@@ -61,14 +61,6 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Cache NuGet packages
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-pr-${{ github.event.pull_request.number }}-${{ hashFiles('**/*.csproj', '**/packages.lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-pr-${{ github.event.pull_request.number }}-
-
       - name: Restore dependencies
         run: dotnet restore --locked-mode
 

@@ -51,14 +51,6 @@ jobs:
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
-    - name: Cache NuGet packages
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-      with:
-        path: ~/.nuget/packages
-        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/packages.lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-nuget-
-
     - name: Restore dependencies
       run: dotnet restore --locked-mode
 
@@ -149,7 +141,7 @@ jobs:
         name: test-results
         path: ./TestResults/*.trx
         if-no-files-found: error
-        retention-days: 30
+        retention-days: 7
 
     - name: Upload code coverage artifact
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -158,7 +150,7 @@ jobs:
         name: code-coverage
         path: ./TestResults/**/coverage.cobertura.xml
         if-no-files-found: error
-        retention-days: 30
+        retention-days: 7
 
     - name: Report coverage publication status
       if: always()
@@ -189,7 +181,7 @@ jobs:
       with:
         name: jellyfin-plugin-hue
         path: ./publish/
-        retention-days: 90
+        retention-days: 7
 
     - name: Generate build summary
       if: always()
@@ -255,7 +247,7 @@ jobs:
       with:
         name: security-scan
         path: vulnerable-packages.json
-        retention-days: 30
+        retention-days: 7
 
   security-analysis:
     name: Blocking Security Analysis
@@ -327,7 +319,7 @@ jobs:
           jellyfin-plugin-hue-release.zip.sha256
           jellyfin-plugin-hue-release.manifest.json
           jellyfin-plugin-hue-release.manifest.json.sha256
-        retention-days: 90
+        retention-days: 7
 
     - name: Generate release notes
       env:
@@ -353,7 +345,7 @@ jobs:
       with:
         name: release-notes
         path: release-notes.md
-        retention-days: 90
+        retention-days: 7
 
   validate-release-helper:
     name: Validate Linux Release Helper

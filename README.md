@@ -504,7 +504,13 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.453 (Current)
+### Version 1.5.454 (Current)
+
+- **Actions storage cost reduction**: trusted and pull-request workflows no longer create remote NuGet caches, and CI/security artifacts expire after seven days; the self-hosted build runner uses its local package cache while published release assets remain available.
+
+- **Storage cleanup contract**: generated CI artifacts and caches are treated separately from published release assets so billing cleanup cannot remove an installable release.
+
+### Version 1.5.453
 
 - **Self-hosted runner health monitor**: the 15-minute queue and trusted-label monitor now runs on the local `harmonizeproject-jellyfin` runner, eliminating its recurring GitHub-hosted Actions usage while the host-side timer remains the independent complete-pool outage detector.
 
