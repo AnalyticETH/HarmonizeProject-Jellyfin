@@ -23,10 +23,13 @@ credentials are `0440` and work/home/cache directories are `0700`. The services 
 namespace and SUID/SGID restrictions, an empty capability set, and bounded resources.
 
 The runtime-smoke identity is intentionally separate because the trusted workflow now
-boots the published `jellyfin-plugin-hue-release.zip` inside an official pinned Jellyfin
-container before publication. Provision it only with the minimum rootless-Docker access
-required to pull `jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123`
-and run a bounded disposable container on localhost. Keep its runner installation
+boots the published `jellyfin-plugin-hue-release.zip` inside official pinned Jellyfin
+containers before publication. Provision it only with the minimum rootless-Docker access
+required to pull the pinned 10.9.0 digest
+`jellyfin/jellyfin@sha256:d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67`
+and 10.10.7 digest
+`jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123`
+and run bounded disposable containers on localhost. Keep its runner installation
 root-owned and read-only, bind only its own socket into the service, and keep it isolated
 from the release runner's GitHub credentials.
 

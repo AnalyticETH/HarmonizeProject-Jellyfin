@@ -281,6 +281,20 @@ for (const name of workflowFiles) {
 
 const pullRequestWorkflow = workflowText("pull-request-validation.yml");
 const runnerHealthWorkflow = workflowText("runner-health.yml");
+const trustedWorkflow = workflowText("dotnet-ci.yml");
+for (const marker of [
+  "jellyfin_version: '10.9.0'",
+  "jellyfin_runtime_image: 'jellyfin/jellyfin@sha256:d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67'",
+  "jellyfin_version: '10.10.7'",
+  "jellyfin_runtime_image: 'jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123'",
+  "JELLYFIN_RUNTIME_IMAGE: ${{ matrix.jellyfin_runtime_image }}",
+  "JELLYFIN_RUNTIME_VERSION: ${{ matrix.jellyfin_version }}",
+  "--container-name-prefix \"jellyfin-hue-runtime-smoke-$JELLYFIN_RUNTIME_VERSION\"",
+]) {
+  if (!trustedWorkflow.includes(marker)) {
+    throw new Error(`dotnet-ci.yml is missing the pinned Jellyfin runtime matrix marker: ${marker}`);
+  }
+}
 for (const workflowName of ["pull-request-validation.yml", "security-scan.yml"]) {
   if (!workflowText(workflowName).includes("node scripts/validate-gitleaks-config.mjs")) {
     throw new Error(`${workflowName} must validate the committed Gitleaks policy before scanning`);

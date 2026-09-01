@@ -15,7 +15,6 @@ using Jellyfin.Plugin.Hue.Hue;
 using Jellyfin.Plugin.Hue.Service;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
-using MediaBrowser.Model.Dto;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -562,15 +561,13 @@ namespace Jellyfin.Plugin.Hue.Api
             if (_sessionManager == null)
                 return Ok(Array.Empty<HuePlaybackDeviceSummary>());
 
-            IReadOnlyList<SessionInfoDto> sessions;
+            IReadOnlyList<SessionInfo> sessions;
             try
             {
-                sessions = _sessionManager.GetSessions(
-                    Guid.Empty,
-                    null,
-                    PlaybackDeviceActivityWindowSeconds,
-                    null,
-                    false) ?? Array.Empty<SessionInfoDto>();
+                // ISessionManager.Sessions is the stable session enumeration exposed
+                // by Jellyfin 10.9+. GetSessions was added later and also applies
+                // non-admin filtering when called without an authenticated user id.
+                sessions = (_sessionManager.Sessions ?? Array.Empty<SessionInfo>()).ToArray();
             }
             catch (Exception ex)
             {
@@ -579,8 +576,10 @@ namespace Jellyfin.Plugin.Hue.Api
             }
 
             var normalizedUserId = PluginConfiguration.NormalizeJellyfinUserId(userId);
+            var minimumActivityDate = DateTime.UtcNow.AddSeconds(-PlaybackDeviceActivityWindowSeconds);
             var devices = sessions
                 .Where(session => session != null &&
+                    session.LastActivityDate >= minimumActivityDate &&
                     !string.IsNullOrWhiteSpace(session.DeviceId) &&
                     (string.IsNullOrWhiteSpace(normalizedUserId) ||
                      PluginConfiguration.AreSameJellyfinUserId(session.UserId.ToString(), normalizedUserId)))

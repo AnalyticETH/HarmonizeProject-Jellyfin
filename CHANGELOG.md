@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.456] - 2026-09-01
+
+### Jellyfin ABI compatibility
+- **Jellyfin 10.9+ compatibility**: playback-device discovery now uses the stable `ISessionManager.Sessions` contract and compiles against the 10.9.0 ABI while retaining the 24-hour activity window.
+- **Pinned runtime compatibility matrix**: trusted `main` release publication boots the canonical ZIP on official digest-pinned Jellyfin 10.9.0 and 10.10.7 linux/amd64 images before publication.
+- **Regression coverage**: focused session-discovery tests and the release gate verify stale-session filtering, credential-free routes, and plugin loading on both supported Jellyfin runtimes.
+
 ## [1.5.455] - 2026-09-01
 
 ### Self-hosted pull-request validation

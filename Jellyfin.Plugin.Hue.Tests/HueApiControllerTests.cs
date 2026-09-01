@@ -11,7 +11,6 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Session;
-using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Serialization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Metadata;
@@ -2362,9 +2361,10 @@ public sealed class HueApiControllerTests : IDisposable
     {
         var userId = Guid.NewGuid();
         var otherUserId = Guid.NewGuid();
+        var sessionManager = new Mock<ISessionManager>();
         var sessions = new[]
         {
-            new SessionInfoDto
+            new SessionInfo(sessionManager.Object, Mock.Of<ILogger>())
             {
                 UserId = userId,
                 UserName = "Viewer",
@@ -2373,34 +2373,44 @@ public sealed class HueApiControllerTests : IDisposable
                 Client = "Jellyfin Web",
                 DeviceType = "Web",
                 ApplicationVersion = "10.10",
-                IsActive = true,
                 LastActivityDate = DateTime.UtcNow
             },
-            new SessionInfoDto
+            new SessionInfo(sessionManager.Object, Mock.Of<ILogger>())
             {
                 UserId = userId,
                 UserName = "Viewer",
                 DeviceId = "Living-Room-TV",
                 DeviceName = "Older name",
-                IsActive = false,
+                SessionControllers = new[]
+                {
+                    Mock.Of<ISessionController>(controller => controller.IsSessionActive == false)
+                },
                 LastActivityDate = DateTime.UtcNow.AddHours(-1)
             },
-            new SessionInfoDto
+            new SessionInfo(sessionManager.Object, Mock.Of<ILogger>())
             {
                 UserId = otherUserId,
                 UserName = "Other",
                 DeviceId = "Other-TV",
-                DeviceName = "Other TV"
+                DeviceName = "Other TV",
+                LastActivityDate = DateTime.UtcNow
             },
-            new SessionInfoDto
+            new SessionInfo(sessionManager.Object, Mock.Of<ILogger>())
             {
                 UserId = userId,
                 DeviceId = "   "
+            },
+            new SessionInfo(sessionManager.Object, Mock.Of<ILogger>())
+            {
+                UserId = userId,
+                UserName = "Expired",
+                DeviceId = "Expired-TV",
+                DeviceName = "Expired TV",
+                LastActivityDate = DateTime.UtcNow.AddDays(-2)
             }
         };
-        var sessionManager = new Mock<ISessionManager>();
         sessionManager
-            .Setup(manager => manager.GetSessions(Guid.Empty, null, 86400, null, false))
+            .SetupGet(manager => manager.Sessions)
             .Returns(sessions);
         var controller = CreateController(sessionManager: sessionManager.Object);
 
@@ -2415,7 +2425,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.True(device.IsActive);
         var serialized = JsonSerializer.Serialize(device);
         Assert.DoesNotContain("app-key", serialized, StringComparison.OrdinalIgnoreCase);
-        sessionManager.Verify(manager => manager.GetSessions(Guid.Empty, null, 86400, null, false), Times.Once);
+        sessionManager.VerifyGet(manager => manager.Sessions, Times.Once);
     }
 
     [Fact]
@@ -2428,9 +2438,7 @@ public sealed class HueApiControllerTests : IDisposable
 
         var response = Assert.IsType<BadRequestObjectResult>(action.Result);
         Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
-        sessionManager.Verify(
-            manager => manager.GetSessions(Guid.Empty, null, 86400, null, false),
-            Times.Never);
+        sessionManager.VerifyGet(manager => manager.Sessions, Times.Never);
     }
 
     [Fact]
@@ -2438,7 +2446,7 @@ public sealed class HueApiControllerTests : IDisposable
     {
         var sessionManager = new Mock<ISessionManager>();
         sessionManager
-            .Setup(manager => manager.GetSessions(Guid.Empty, null, 86400, null, false))
+            .SetupGet(manager => manager.Sessions)
             .Throws(new InvalidOperationException("internal session details"));
         var controller = CreateController(sessionManager: sessionManager.Object);
 
@@ -2457,8 +2465,8 @@ public sealed class HueApiControllerTests : IDisposable
     {
         var sessionManager = new Mock<ISessionManager>();
         sessionManager
-            .Setup(manager => manager.GetSessions(Guid.Empty, null, 86400, null, false))
-            .Returns((IReadOnlyList<SessionInfoDto>)null!);
+            .SetupGet(manager => manager.Sessions)
+            .Returns((IEnumerable<SessionInfo>)null!);
         var controller = CreateController(sessionManager: sessionManager.Object);
 
         var action = controller.GetPlaybackDevices();
@@ -2473,7 +2481,7 @@ public sealed class HueApiControllerTests : IDisposable
     {
         var userId = Guid.NewGuid();
         var sessions = Enumerable.Range(0, 300)
-            .Select(index => new SessionInfoDto
+            .Select(index => new SessionInfo(Mock.Of<ISessionManager>(), Mock.Of<ILogger>())
             {
                 UserId = userId,
                 UserName = "Viewer",
@@ -2484,7 +2492,7 @@ public sealed class HueApiControllerTests : IDisposable
             .ToArray();
         var sessionManager = new Mock<ISessionManager>();
         sessionManager
-            .Setup(manager => manager.GetSessions(Guid.Empty, null, 86400, null, false))
+            .SetupGet(manager => manager.Sessions)
             .Returns(sessions);
         var controller = CreateController(sessionManager: sessionManager.Object);
 

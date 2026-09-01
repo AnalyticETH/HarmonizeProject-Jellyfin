@@ -11,6 +11,39 @@ const releasePackageValidator = fs.readFileSync("scripts/validate-release-packag
 const runtimeSmokeVerifier = fs.readFileSync("scripts/verify-jellyfin-runtime-smoke.py", "utf8");
 const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
 const meta = JSON.parse(fs.readFileSync("meta.json", "utf8"));
+const jellyfinAbiBaseline = "10.9.0";
+const jellyfinPackageProjects = [
+  "Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj",
+  "Jellyfin.Plugin.Hue.Tests/Jellyfin.Plugin.Hue.Tests.csproj",
+  "Jellyfin.Plugin.Hue.Benchmarks/Jellyfin.Plugin.Hue.Benchmarks.csproj",
+];
+const jellyfinLockFiles = [
+  "Jellyfin.Plugin.Hue/packages.lock.json",
+  "Jellyfin.Plugin.Hue.Tests/packages.lock.json",
+  "Jellyfin.Plugin.Hue.Benchmarks/packages.lock.json",
+];
+
+if (String(meta.targetAbi || "") !== `${jellyfinAbiBaseline}.0`) {
+  throw new Error(`meta.json targetAbi must remain ${jellyfinAbiBaseline}.0 for the advertised minimum runtime`);
+}
+for (const projectPath of jellyfinPackageProjects) {
+  const project = fs.readFileSync(projectPath, "utf8");
+  for (const packageName of ["Jellyfin.Model", "Jellyfin.Controller"]) {
+    const marker = `<PackageReference Include="${packageName}" Version="${jellyfinAbiBaseline}"`;
+    if (!project.includes(marker)) {
+      throw new Error(`${projectPath} must compile ${packageName} against Jellyfin ${jellyfinAbiBaseline}`);
+    }
+  }
+}
+for (const lockPath of jellyfinLockFiles) {
+  const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
+  const dependencies = lock.dependencies?.["net8.0"] || {};
+  for (const packageName of ["Jellyfin.Model", "Jellyfin.Controller"]) {
+    if (dependencies[packageName]?.resolved !== jellyfinAbiBaseline) {
+      throw new Error(`${lockPath} must resolve ${packageName} to Jellyfin ${jellyfinAbiBaseline}`);
+    }
+  }
+}
 
 const requiredReadmeMarkers = [
   "jellyfin-plugin-hue-release.zip",
@@ -25,6 +58,10 @@ const requiredReadmeMarkers = [
   "Jellyfin.Plugin.Hue.dll",
   "meta.json",
   "HueSync",
+  "Jellyfin 10.9.0",
+  "Jellyfin 10.10.7",
+  "d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67",
+  "3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123",
 ];
 
 for (const marker of [
@@ -102,12 +139,22 @@ const requiredWorkflowMarkers = [
   "--output jellyfin-plugin-hue-release.manifest.json",
   "path: ${{ runner.temp }}/trusted-release-package",
   "CANONICAL_PACKAGE_DIR=\"$RUNNER_TEMP/trusted-release-package\"",
-  "# Official Jellyfin 10.10.7 linux/amd64 image manifest digest.",
+  "# Official Jellyfin 10.10.7 linux/amd64 image manifest digest (current default).",
   "JELLYFIN_RUNTIME_IMAGE: 'jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123'",
+  "# Official Jellyfin 10.9.0 linux/amd64 image manifest digest (minimum supported ABI).",
+  "JELLYFIN_RUNTIME_IMAGE_10_9: 'jellyfin/jellyfin@sha256:d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67'",
   "runtime-smoke:",
+  "jellyfin_version: '10.9.0'",
+  "jellyfin_runtime_image: 'jellyfin/jellyfin@sha256:d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67'",
+  "jellyfin_version: '10.10.7'",
+  "jellyfin_runtime_image: 'jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123'",
   "path: ${{ runner.temp }}/trusted-runtime-smoke",
   "scripts/verify-jellyfin-runtime-smoke.py",
   "--archive \"$RUNNER_TEMP/trusted-runtime-smoke/jellyfin-plugin-hue-release.zip\"",
+  "JELLYFIN_RUNTIME_IMAGE: ${{ matrix.jellyfin_runtime_image }}",
+  "JELLYFIN_RUNTIME_VERSION: ${{ matrix.jellyfin_version }}",
+  "--image \"$JELLYFIN_RUNTIME_IMAGE\"",
+  "--container-name-prefix \"jellyfin-hue-runtime-smoke-$JELLYFIN_RUNTIME_VERSION\"",
   '"BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "',
 ];
 

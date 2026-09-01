@@ -17,8 +17,10 @@ concurrency:
 env:
   DOTNET_VERSION: '8.0.424'
   BUILD_CONFIGURATION: 'Release'
-  # Official Jellyfin 10.10.7 linux/amd64 image manifest digest.
+  # Official Jellyfin 10.10.7 linux/amd64 image manifest digest (current default).
   JELLYFIN_RUNTIME_IMAGE: 'jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123'
+  # Official Jellyfin 10.9.0 linux/amd64 image manifest digest (minimum supported ABI).
+  JELLYFIN_RUNTIME_IMAGE_10_9: 'jellyfin/jellyfin@sha256:d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67'
   # The self-hosted runner uses the dedicated, least-privileged
   # `harmonize-runner` service account.
   DOTNET_INSTALL_DIR: /var/lib/harmonize-runner/home/.dotnet
@@ -409,10 +411,18 @@ jobs:
         echo "Linux release helper produced a verified ${VERSION} package and matching release manifest."
 
   runtime-smoke:
-    name: Runtime Smoke
+    name: Runtime Smoke (${{ matrix.jellyfin_version }})
     runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-runtime"]
     needs: create-release-package
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - jellyfin_version: '10.9.0'
+            jellyfin_runtime_image: 'jellyfin/jellyfin@sha256:d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67'
+          - jellyfin_version: '10.10.7'
+            jellyfin_runtime_image: 'jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123'
     timeout-minutes: 20
 
     steps:
@@ -434,11 +444,15 @@ jobs:
         path: ${{ runner.temp }}/trusted-runtime-smoke
 
     - name: Verify Jellyfin runtime smoke gate
+      env:
+        JELLYFIN_RUNTIME_IMAGE: ${{ matrix.jellyfin_runtime_image }}
+        JELLYFIN_RUNTIME_VERSION: ${{ matrix.jellyfin_version }}
       run: |
         set -euo pipefail
         python3 scripts/verify-jellyfin-runtime-smoke.py \
           --archive "$RUNNER_TEMP/trusted-runtime-smoke/jellyfin-plugin-hue-release.zip" \
           --image "$JELLYFIN_RUNTIME_IMAGE" \
+          --container-name-prefix "jellyfin-hue-runtime-smoke-$JELLYFIN_RUNTIME_VERSION" \
           --startup-timeout-seconds 150 \
           --http-timeout-seconds 3 \
           --poll-interval-seconds 2

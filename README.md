@@ -355,13 +355,15 @@ file's size and SHA-256 digest, and every resolved package/content hash from the
 lock file. The source-commit binding lets an operator compare the published bytes with the reviewed
 workflow commit before installation.
 
-Trusted `main` CI also boots the canonical published ZIP inside a disposable localhost-only Jellyfin
-container before release publication by running `scripts/verify-jellyfin-runtime-smoke.py` on the
-dedicated `harmonizeproject-jellyfin-runtime` self-hosted label. That smoke gate uses the official
-Jellyfin 10.10.7 linux/amd64 image pinned as
-`jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123`,
-asserts both `/health` readiness and plugin-load markers, and always removes the disposable container.
-It is a pre-publication integrity gate, not proof of a production deployment.
+Trusted `main` CI also boots the canonical published ZIP inside disposable localhost-only Jellyfin
+containers before release publication by running `scripts/verify-jellyfin-runtime-smoke.py` on the
+dedicated `harmonizeproject-jellyfin-runtime` self-hosted label. The runtime matrix covers the
+official Jellyfin 10.9.0 linux/amd64 image pinned as
+`jellyfin/jellyfin@sha256:d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67`
+and Jellyfin 10.10.7 pinned as
+`jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123`.
+Each matrix leg asserts `/health` readiness and plugin-load markers and always removes its
+disposable container. It is a pre-publication integrity gate, not proof of a production deployment.
 
 The local release helpers require a clean Git checkout so uncommitted source cannot be mislabeled with the
 checked-out commit's provenance.
@@ -510,7 +512,15 @@ Benchmarks measure:
 
 - **Storage cleanup contract**: generated CI artifacts and caches are treated separately from published release assets so billing cleanup cannot remove an installable release.
 
-### Version 1.5.455 (Current)
+### Version 1.5.456 (Current)
+
+- **Jellyfin 10.9+ compatibility**: playback-device discovery now uses the stable `ISessionManager.Sessions` contract and compiles against the 10.9.0 ABI while retaining the 24-hour activity window.
+
+- **Pinned runtime compatibility matrix**: trusted `main` release publication boots the canonical ZIP on official digest-pinned Jellyfin 10.9.0 and 10.10.7 linux/amd64 images before publication.
+
+- **Regression coverage**: focused session-discovery tests and the release gate verify stale-session filtering, credential-free routes, and plugin loading on both supported Jellyfin runtimes.
+
+### Version 1.5.455
 
 - **Dedicated PR runner**: pull-request build and security jobs execute on the isolated `harmonizeproject-jellyfin-pr` self-hosted runner, removing the remaining repository-controlled GitHub-hosted workload.
 
@@ -674,7 +684,7 @@ Benchmarks measure:
 
 - **Retained-page section navigation**: configuration section links now resolve and focus only the owning visible page, smoothly scroll the selected section, update the URL without a native global fragment jump, and leave retained hidden pages untouched.
 
-- **Pinned Jellyfin runtime smoke gate**: trusted `main` release publication now boots the canonical ZIP in the digest-pinned official Jellyfin 10.10.7 linux/amd64 image on a separate rootless-Docker self-hosted runtime runner before release publication.
+- **Pinned Jellyfin runtime smoke gate**: trusted `main` release publication now boots the canonical ZIP in digest-pinned official Jellyfin 10.9.0 and 10.10.7 linux/amd64 images on a separate rootless-Docker self-hosted runtime runner before release publication.
 
 - **Regression coverage**: playlist route persistence/resolution, UI retained-page isolation, workflow/package/runtime contracts, and writable disposable-manifest semantics are covered by automated tests and validators.
 
