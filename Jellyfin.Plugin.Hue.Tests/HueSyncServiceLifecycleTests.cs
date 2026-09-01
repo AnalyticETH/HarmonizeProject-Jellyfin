@@ -465,7 +465,8 @@ public sealed class HueSyncServiceLifecycleTests
         using var schedulerLease = gate.TryEnterSchedulerEvaluation();
         Assert.NotNull(playbackLease);
         Assert.NotNull(schedulerLease);
-        Assert.Equal(1, service.ClearSessionHistory());
+        Assert.True(service.TryClearSessionHistory(out var clearedCount));
+        Assert.Equal(1, clearedCount);
         Assert.Empty(service.GetSessionHistory());
         Assert.Null(service.GetRuntimeStatus().LastSession);
         Assert.Empty(Plugin.Instance!.Configuration.PersistedSessionHistory);
@@ -473,6 +474,38 @@ public sealed class HueSyncServiceLifecycleTests
         schedulerLease!.Dispose();
         playbackLease!.Dispose();
         await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public void ClearSessionHistory_RestoresMemoryAndPersistedHistoryWhenSaveFails()
+    {
+        using var httpClient = new HttpClient(new BlockingHueHandler());
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("session history persistence failed"));
+        var service = CreateService(
+            httpClient,
+            persistSessionHistory: true,
+            xmlSerializer: serializer.Object);
+        var configuration = Plugin.Instance!.Configuration;
+        var persistedEntry = new HueSessionHistoryEntry { Item = "Persisted item" };
+        configuration.PersistedSessionHistory = new List<HueSessionHistoryEntry> { persistedEntry };
+
+        var summary = new HueSessionSummary
+        {
+            Item = "In-memory item",
+            Outcome = "Stopped"
+        };
+        var sessionHistory = Assert.IsType<List<HueSessionSummary>>(GetPrivateField(service, "_sessionHistory"));
+        sessionHistory.Add(summary);
+        SetPrivateField(service, "_lastSessionSummary", summary);
+
+        Assert.False(service.TryClearSessionHistory(out var clearedCount));
+        Assert.Equal(0, clearedCount);
+        Assert.Same(summary, Assert.Single(service.GetSessionHistory()));
+        Assert.Same(summary, service.GetRuntimeStatus().LastSession);
+        Assert.Same(persistedEntry, Assert.Single(configuration.PersistedSessionHistory));
     }
 
     [Fact]
@@ -2446,7 +2479,8 @@ public sealed class HueSyncServiceLifecycleTests
         HttpClient httpClient,
         HueBridgeLifecycleGate? bridgeLifecycleGate = null,
         ISessionManager? sessionManager = null,
-        bool persistSessionHistory = false)
+        bool persistSessionHistory = false,
+        IXmlSerializer? xmlSerializer = null)
     {
         var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>());
         var loggerFactory = new Mock<ILoggerFactory>();
@@ -2467,7 +2501,7 @@ public sealed class HueSyncServiceLifecycleTests
         applicationPaths.SetupGet(paths => paths.CachePath).Returns(pluginDataPath);
         applicationPaths.SetupGet(paths => paths.TempDirectory).Returns(pluginDataPath);
         applicationPaths.SetupGet(paths => paths.VirtualDataPath).Returns(pluginDataPath);
-        var plugin = new Plugin(applicationPaths.Object, Mock.Of<IXmlSerializer>());
+        var plugin = new Plugin(applicationPaths.Object, xmlSerializer ?? Mock.Of<IXmlSerializer>());
         var configurationField = plugin.GetType().BaseType!.GetField("_configuration", BindingFlags.Instance | BindingFlags.NonPublic)!;
         configurationField.SetValue(plugin, new PluginConfiguration());
         var configuration = plugin.Configuration;

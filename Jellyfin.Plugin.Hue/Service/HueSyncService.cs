@@ -1191,21 +1191,66 @@ namespace Jellyfin.Plugin.Hue.Service
         /// <summary>
         /// Clears all retained completed-session summaries and the status endpoint's last-session
         /// pointer. Active playback is not stopped or changed.
+        /// Returns zero when the configuration write fails and the clear is rolled back.
         /// </summary>
         public int ClearSessionHistory()
         {
+            return TryClearSessionHistory(out var clearedCount) ? clearedCount : 0;
+        }
+
+        /// <summary>
+        /// Clears retained session history and reports whether the corresponding configuration
+        /// write succeeded. A failed write restores both the in-memory history and the
+        /// configuration's persisted history so a restart cannot resurrect entries that the
+        /// caller was told had been cleared.
+        /// </summary>
+        public bool TryClearSessionHistory(out int clearedCount)
+        {
+            clearedCount = 0;
             lock (_bridgeLifecycleGate.HistorySynchronization)
             {
-                int clearedCount;
+                var config = Plugin.Instance?.Configuration;
+                var previousPersistedSessionHistory = config?.PersistedSessionHistory?.ToList();
+                List<HueSessionSummary> previousSessionHistory;
+                HueSessionSummary? previousLastSessionSummary;
                 lock (_syncLock)
                 {
+                    previousSessionHistory = _sessionHistory.ToList();
+                    previousLastSessionSummary = _lastSessionSummary;
                     clearedCount = _sessionHistory.Count;
                     _sessionHistory.Clear();
                     _lastSessionSummary = null;
                 }
 
-                PersistSessionHistory();
-                return clearedCount;
+                bool persisted;
+                try
+                {
+                    persisted = PersistSessionHistoryCore();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not persist Hue session history clear");
+                    persisted = false;
+                }
+
+                if (persisted)
+                    return true;
+
+                lock (_syncLock)
+                {
+                    _sessionHistory.Clear();
+                    _sessionHistory.AddRange(previousSessionHistory);
+                    _lastSessionSummary = previousLastSessionSummary;
+                }
+
+                if (config != null)
+                {
+                    config.PersistedSessionHistory = previousPersistedSessionHistory?.ToList()
+                        ?? new List<HueSessionHistoryEntry>();
+                }
+
+                clearedCount = 0;
+                return false;
             }
         }
 
@@ -1278,20 +1323,20 @@ namespace Jellyfin.Plugin.Hue.Service
             }
         }
 
-        private void PersistSessionHistory()
+        private bool PersistSessionHistory()
         {
             lock (_bridgeLifecycleGate.HistorySynchronization)
             {
-                PersistSessionHistoryCore();
+                return PersistSessionHistoryCore();
             }
         }
 
-        private void PersistSessionHistoryCore()
+        private bool PersistSessionHistoryCore()
         {
             var plugin = Plugin.Instance;
             var config = plugin?.Configuration;
             if (plugin == null || config == null)
-                return;
+                return false;
 
             HueSessionHistoryEntry[] entries;
             lock (_syncLock)
@@ -1310,24 +1355,30 @@ namespace Jellyfin.Plugin.Hue.Service
             else
             {
                 if (config.PersistedSessionHistory.Count == 0)
-                    return;
+                    return true;
 
                 config.PersistedSessionHistory.Clear();
             }
 
-            SavePersistedSessionHistoryConfiguration();
+            return SavePersistedSessionHistoryConfiguration();
         }
 
-        private void SavePersistedSessionHistoryConfiguration()
+        private bool SavePersistedSessionHistoryConfiguration()
         {
             try
             {
-                Plugin.Instance?.SaveConfiguration();
+                var plugin = Plugin.Instance;
+                if (plugin == null)
+                    return false;
+
+                plugin.SaveConfiguration();
+                return true;
             }
             catch (Exception ex)
             {
                 // Persistence is diagnostic-only and must never interrupt playback cleanup.
                 _logger.LogWarning(ex, "Could not persist Hue session history");
+                return false;
             }
         }
 

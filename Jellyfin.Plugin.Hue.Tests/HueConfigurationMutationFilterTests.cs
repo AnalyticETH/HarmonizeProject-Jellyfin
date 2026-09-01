@@ -146,6 +146,31 @@ public sealed class HueConfigurationMutationFilterTests
     }
 
     [Fact]
+    public async Task HistoryClearRouteReturnsConflictWhenAnotherHistoryMutationIsActive()
+    {
+        var gate = new HueBridgeLifecycleGate();
+        using var activeHistory = gate.TryEnterHistoryMutation();
+        Assert.NotNull(activeHistory);
+
+        var filter = new HueConfigurationMutationFilter(gate);
+        var context = CreateExecutingContext("DELETE", "/HueSync/History");
+        var actionExecuted = false;
+
+        await filter.OnActionExecutionAsync(
+            context,
+            () =>
+            {
+                actionExecuted = true;
+                return Task.FromResult(CreateExecutedContext(context));
+            });
+
+        Assert.False(actionExecuted);
+        var conflict = Assert.IsType<ConflictObjectResult>(context.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+        Assert.Contains("another history clear", Assert.IsType<string>(conflict.Value), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ConfigurationWriterIsRejectedWhileHistoryClearOwnsHistoryMutation()
     {
         var gate = new HueBridgeLifecycleGate();

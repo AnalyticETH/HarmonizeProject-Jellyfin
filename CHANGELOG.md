@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.452] - 2026-09-01
+
+### Durable session-history deletion and admin recovery
+- **Transactional history deletion**: clearing retained session history now rolls back in-memory and persisted state when the configuration write fails, so entries cannot be reported as deleted and then unexpectedly reappear.
+- **Truthful API failure**: the history-clear endpoint returns an explicit server error when durable persistence fails instead of claiming a successful deletion.
+- **Configuration-load recovery**: the administrator page now releases its global loader and reports a sanitized status when the initial configuration request fails during synchronous request construction.
+- **Regression coverage**: service, API, lifecycle-filter, and browser harness tests cover successful deletion, persistence rollback, conflict arbitration, and initial-load failure recovery.
+
 ## [1.5.451] - 2026-08-31
 
 ### Runtime-stop recovery and resilient runner health

@@ -12305,6 +12305,87 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void ClearSessionHistory_ReturnsClearedCountAfterPersistenceSucceeds()
+    {
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            PersistSessionHistory = true,
+            PersistedSessionHistory = new List<HueSessionHistoryEntry>
+            {
+                new() { Item = "Persisted item" }
+            }
+        });
+        var service = new HueSyncService(
+            Mock.Of<ISessionManager>(),
+            Mock.Of<ILogger<HueSyncService>>(),
+            Mock.Of<ILoggerFactory>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<IMediaEncoder>());
+        var summary = new HueSessionSummary
+        {
+            Item = "In-memory item",
+            Outcome = "Stopped"
+        };
+        var sessionHistory = Assert.IsType<List<HueSessionSummary>>(
+            typeof(HueSyncService)
+                .GetField("_sessionHistory", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(service));
+        sessionHistory.Add(summary);
+        SetPrivateField(service, "_lastSessionSummary", summary);
+
+        var action = CreateController(hostedServices: new IHostedService[] { service }).ClearSessionHistory();
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var clear = Assert.IsType<HueSessionHistoryClearResult>(response.Value);
+        Assert.True(clear.ServiceAvailable);
+        Assert.Equal(1, clear.ClearedCount);
+        Assert.Empty(service.GetSessionHistory());
+        Assert.Null(service.GetRuntimeStatus().LastSession);
+        Assert.Empty(configuration.PersistedSessionHistory);
+    }
+
+    [Fact]
+    public void ClearSessionHistory_Returns500AndRestoresStateWhenPersistenceFails()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer
+            .Setup(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("session history persistence failed"));
+        var persistedEntry = new HueSessionHistoryEntry { Item = "Persisted item" };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            PersistSessionHistory = true,
+            PersistedSessionHistory = new List<HueSessionHistoryEntry> { persistedEntry }
+        }, serializer.Object);
+        var service = new HueSyncService(
+            Mock.Of<ISessionManager>(),
+            Mock.Of<ILogger<HueSyncService>>(),
+            Mock.Of<ILoggerFactory>(),
+            new HueClient(_httpClient, _loggerMock.Object),
+            Mock.Of<IMediaEncoder>());
+        var summary = new HueSessionSummary
+        {
+            Item = "In-memory item",
+            Outcome = "Stopped"
+        };
+        var sessionHistory = Assert.IsType<List<HueSessionSummary>>(
+            typeof(HueSyncService)
+                .GetField("_sessionHistory", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(service));
+        sessionHistory.Add(summary);
+        SetPrivateField(service, "_lastSessionSummary", summary);
+
+        var action = CreateController(hostedServices: new IHostedService[] { service }).ClearSessionHistory();
+
+        var response = Assert.IsType<ObjectResult>(action.Result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.Contains("configuration persistence failed", Assert.IsType<string>(response.Value), StringComparison.Ordinal);
+        Assert.Same(summary, Assert.Single(service.GetSessionHistory()));
+        Assert.Same(summary, service.GetRuntimeStatus().LastSession);
+        Assert.Same(persistedEntry, Assert.Single(configuration.PersistedSessionHistory));
+    }
+
+    [Fact]
     public async Task Diagnostics_ReturnsSanitizedPrerequisiteAndLifecycleState()
     {
         InstallConfiguration(new PluginConfiguration

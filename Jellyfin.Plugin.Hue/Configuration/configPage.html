@@ -3911,7 +3911,15 @@
                         dataType: 'json'
                     }, requestOptions || {});
                     if (controller) options.signal = controller.signal;
-                    var request = ApiClient.ajax(options);
+                    var request;
+                    try {
+                        request = ApiClient.ajax(options);
+                    } catch (err) {
+                        // Preserve the lifecycle contract when request creation itself
+                        // fails. Callers can then run their normal catch/finally
+                        // cleanup, including releasing the shared loading indicator.
+                        request = Promise.reject(err);
+                    }
                     var targetFingerprint = target && typeof target === 'object'
                         ? HueConfigurationPage.getMappingTargetFingerprint(target)
                         : String(target || '');

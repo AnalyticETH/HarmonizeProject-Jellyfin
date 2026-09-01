@@ -7362,12 +7362,30 @@ namespace Jellyfin.Plugin.Hue.Api
         [HttpDelete("History")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public ActionResult<HueSessionHistoryClearResult> ClearSessionHistory()
         {
+            if (_syncService == null)
+            {
+                return Ok(new HueSessionHistoryClearResult
+                {
+                    ServiceAvailable = false,
+                    ClearedCount = 0,
+                    ClearedAtUtc = DateTime.UtcNow
+                });
+            }
+
+            if (!_syncService.TryClearSessionHistory(out var clearedCount))
+            {
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "Could not clear Hue session history because configuration persistence failed.");
+            }
+
             return Ok(new HueSessionHistoryClearResult
             {
-                ServiceAvailable = _syncService != null,
-                ClearedCount = _syncService?.ClearSessionHistory() ?? 0,
+                ServiceAvailable = true,
+                ClearedCount = clearedCount,
                 ClearedAtUtc = DateTime.UtcNow
             });
         }

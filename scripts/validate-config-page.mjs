@@ -1054,6 +1054,25 @@ for (const forbidden of [
     }
 }
 
+{
+    const start = scriptMatch[1].indexOf("getPageLifecycleRequest: function");
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    for (const marker of [
+        "var request;",
+        "try {",
+        "request = ApiClient.ajax(options);",
+        "} catch (err) {",
+        "request = Promise.reject(err);",
+        "var record = {",
+        "request: request,"
+    ]) {
+        if (!functionBody.includes(marker)) {
+            throw new Error(`${file} getPageLifecycleRequest must preserve lifecycle cleanup when request construction fails: ${marker}`);
+        }
+    }
+}
+
 for (const [functionName, markers] of [
     ["reconcileUserMappings", [
         "var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);",

@@ -895,6 +895,39 @@ async function testGlobalLoaderOwnershipAcrossConfigurationLoadAndExport() {
     assert.equal(loadingVisible, false, "configuration export completion releases the shared loader");
 }
 
+async function testConfigurationLoadSynchronousRequestFailure() {
+    const harness = makeHarness();
+    const { page, api, apiClient, requests, dashboard } = harness;
+    let loadingShown = 0;
+    let loadingHidden = 0;
+    dashboard.showLoadingMsg = () => { loadingShown += 1; };
+    dashboard.hideLoadingMsg = () => { loadingHidden += 1; };
+    apiClient.ajax = () => {
+        throw new Error("synchronous request construction failure");
+    };
+
+    let operation;
+    assert.doesNotThrow(() => {
+        operation = api.loadConfiguration(page);
+    }, "configuration loading contains synchronous request-construction failures");
+    assert.ok(
+        operation && typeof operation.then === "function",
+        "configuration loading returns a promise after request construction failure");
+    await operation;
+
+    assert.equal(requests.length, 0, "configuration loading does not publish a request after synchronous construction failure");
+    assert.equal(loadingShown, 1, "configuration loading shows the global loader once");
+    assert.equal(loadingHidden, 1, "configuration loading releases the global loader after synchronous construction failure");
+    assert.equal(
+        page.querySelector("#bridgeStatus").textContent,
+        "Unable to load plugin configuration.",
+        "configuration loading reports synchronous construction failure in the page status");
+    assert.equal(
+        api._hueGlobalLoadingOwner,
+        null,
+        "configuration loading clears the global loader owner after synchronous construction failure");
+}
+
 async function testGlobalLoaderOwnershipAcrossConfigurationSaveAndExport() {
     const harness = makeHarness();
     const { page, api, requests, dashboard } = harness;
@@ -7501,6 +7534,7 @@ await testRuntimeStopLoaderOwnershipAcrossRetainedPages();
 await testConfigurationExportLoaderOwnershipAcrossRetainedPages();
 await testGlobalLoaderOwnershipAcrossRuntimeStopAndConfigurationExport();
 await testGlobalLoaderOwnershipAcrossConfigurationLoadAndExport();
+await testConfigurationLoadSynchronousRequestFailure();
 await testGlobalLoaderOwnershipAcrossConfigurationSaveAndExport();
 await testGlobalLoaderOwnershipAcrossConfigurationImportValidationAndExport();
 await testGlobalLoaderOwnershipAcrossConfigurationImportSubmitAndExport();

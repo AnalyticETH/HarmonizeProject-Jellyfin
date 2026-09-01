@@ -504,7 +504,17 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.451 (Current)
+### Version 1.5.452 (Current)
+
+- **Transactional session-history deletion**: clearing retained history now restores in-memory and persisted entries when configuration persistence fails, preventing a restart from resurrecting data that was reported as deleted.
+
+- **Truthful history-clear API**: the administrator endpoint returns an explicit server error when durable persistence fails instead of returning a false cleared count.
+
+- **Initial-load recovery**: synchronous configuration-request construction failures now settle through the normal page lifecycle, release the global loader, and report an actionable sanitized status.
+
+- **Regression coverage**: service, API, lifecycle-filter, and browser harness tests cover durable deletion, rollback, conflict arbitration, and initial-load recovery.
+
+### Version 1.5.451
 
 - **Runtime-stop request recovery**: global and per-session stop actions now clear their busy state, release the shared loader, and report an administrator-visible error when request construction throws synchronously.
 
