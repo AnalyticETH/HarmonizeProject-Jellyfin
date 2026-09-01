@@ -438,6 +438,9 @@ Every trusted build also retains its Cobertura coverage artifact. Codecov public
 `CODECOV_TOKEN` is not configured, CI records an explicit skip in the run summary; when it is configured,
 an authenticated upload is required to succeed.
 
+Generated CI and security artifacts expire after one day to bound Actions storage; release assets are
+separate and are never part of artifact cleanup.
+
 Dependabot update jobs use a third, dedicated `harmonize-dependabot-runner` identity with
 rootless Docker, the `dependabot` label, isolated state, and bounded resources. Enable GitHub's
 **Dependabot on self-hosted runners** repository setting only after that runner is online; the
@@ -513,6 +516,10 @@ Benchmarks measure:
 - **Storage cleanup contract**: generated CI artifacts and caches are treated separately from published release assets so billing cleanup cannot remove an installable release.
 
 ### Version 1.5.457 (Current)
+
+- **Actions billing guard**: all CI and security workflow artifacts now expire after one day; self-hosted execution remains the only runner path and published release assets remain unaffected.
+
+- **Storage cleanup boundary**: generated Actions artifacts are explicitly separated from release assets so billing cleanup cannot remove an installable release.
 
 - **Configuration save race**: global configuration Save preserves the persisted entertainment area while bridge metadata is loading instead of submitting a blank ID.
 

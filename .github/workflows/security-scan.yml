@@ -111,7 +111,7 @@ jobs:
           name: gitleaks-report
           path: gitleaks.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 1
 
   semgrep:
     name: Static analysis (semgrep)
@@ -358,4 +358,4 @@ jobs:
             ${{ runner.temp }}/semgrep-${{ github.run_id }}-${{ github.run_attempt }}/semgrep-python.json
             ${{ runner.temp }}/semgrep-${{ github.run_id }}-${{ github.run_attempt }}/semgrep-config-page.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 1

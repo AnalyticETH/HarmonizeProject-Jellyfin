@@ -177,7 +177,7 @@ Self-hosted execution does not consume GitHub-hosted runner minutes, but generat
 Actions artifacts and remote caches remain separate billing resources. This
 repository therefore does not use `actions/cache`: the build runner's local NuGet
 cache is retained under its locked service account, while pull-request jobs restore
-dependencies directly. Every CI and security artifact declares `retention-days: 7`.
+dependencies directly. Every CI and security artifact declares `retention-days: 1`.
 
 The published GitHub release ZIP, checksums, and manifest are release assets, not
 workflow artifacts; storage cleanup must never delete those assets. When reducing
