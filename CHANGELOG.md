@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.455] - 2026-09-01
+
+### Self-hosted pull-request validation
+- **Dedicated PR runner**: pull-request build and security jobs now execute on the isolated `harmonizeproject-jellyfin-pr` self-hosted runner, removing the remaining repository-controlled GitHub-hosted workload.
+- **Runner isolation**: the PR service uses a dedicated locked account, read-only runner installation, `ProtectHome=tmpfs`, no secrets/write permissions/Docker socket, bounded resources, and a post-job work-tree cleanup hook.
+- **Operational coverage**: host health and version checks, workflow validators, negative fixtures, and the self-hosted runbook now cover all five repository runners.
+
 ## [1.5.454] - 2026-09-01
 
 ### Actions storage cost reduction

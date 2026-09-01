@@ -102,6 +102,7 @@ for (const runnerUnit of [
   "actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-runtime.service",
   "actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-release.service",
   "actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-dependabot.service",
+  "actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-pr.service",
 ]) {
   assert.match(hostHealthScript, new RegExp(runnerUnit.replaceAll(".", "\\.")));
 }
@@ -125,6 +126,7 @@ for (const expectedServiceProperty of [
   "harmonize-runtime-runner",
   "harmonize-release-runner",
   "harmonize-dependabot-runner",
+  "harmonize-pr-runner",
 ]) {
   assert.match(
     hostHealthScript,
@@ -134,7 +136,7 @@ for (const expectedServiceProperty of [
 }
 assert.match(
   hostHealthScript,
-  /All four Harmonize self-hosted runner services are enabled, active, correctly owned, and confined/,
+  /All five Harmonize self-hosted runner services are enabled, active, correctly owned, and confined/,
 );
 
 function runHostHealthStub(overrides = {}, failures = {}) {
@@ -181,6 +183,17 @@ function runHostHealthStub(overrides = {}, failures = {}) {
     "actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-dependabot.service": {
       User: "harmonize-dependabot-runner",
       Group: "harmonize-dependabot-runner",
+      NoNewPrivileges: "yes",
+      PrivateTmp: "yes",
+      PrivateDevices: "yes",
+      ProtectSystem: "strict",
+      ProtectHome: "tmpfs",
+      UMask: "0077",
+      LimitCORE: "0",
+    },
+    "actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-pr.service": {
+      User: "harmonize-pr-runner",
+      Group: "harmonize-pr-runner",
       NoNewPrivileges: "yes",
       PrivateTmp: "yes",
       PrivateDevices: "yes",
@@ -303,6 +316,41 @@ for (const unitFile of [
   assert.match(unitText, /harmonize-runner-health-check/);
   assert.match(unitText, /Timeout|OnUnitActiveSec/);
 }
+const prRunnerUnit = fs.readFileSync(
+  path.join(
+    repositoryRoot,
+    "ops/systemd/actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-pr.service",
+  ),
+  "utf8",
+);
+for (const marker of [
+  "User=harmonize-pr-runner",
+  "Group=harmonize-pr-runner",
+  "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/local/sbin/harmonize-pr-runner-clean",
+  "NoNewPrivileges=true",
+  "PrivateTmp=true",
+  "PrivateDevices=true",
+  "ProtectSystem=strict",
+  "ProtectHome=tmpfs",
+  "CapabilityBoundingSet=",
+  "ReadOnlyPaths=/var/lib/harmonize-pr-runner/actions-runner",
+  "MemoryMax=8G",
+  "CPUQuota=400%",
+  "LimitCORE=0",
+]) {
+  assert.match(prRunnerUnit, new RegExp(marker.replaceAll(".", "\\.")));
+}
+const prRunnerCleanup = fs.readFileSync(
+  path.join(repositoryRoot, "scripts/cleanup-pr-runner.sh"),
+  "utf8",
+);
+assert.match(prRunnerCleanup, /RUNNER_ROOT/);
+assert.match(prRunnerCleanup, /find \"\$work_root\" -depth -mindepth 1 -delete/);
+const runnerVersionScript = fs.readFileSync(
+  path.join(repositoryRoot, "scripts/check-runner-versions.sh"),
+  "utf8",
+);
+assert.match(runnerVersionScript, /\/var\/lib\/harmonize-pr-runner\/actions-runner/);
 
 runNegativeFixture(
   "dotnet-ci.yml",
@@ -383,6 +431,20 @@ runNegativeFixture(
   ),
   ["inventory", "pullRequest"],
   /must not grant write permissions/,
+);
+
+runNegativeFixture(
+  "pull-request-validation.yml",
+  fixtureRoot => mutateWorkflow(
+    fixtureRoot,
+    "pull-request-validation.yml",
+    workflow => workflow.replaceAll(
+      '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-pr"]',
+      '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]',
+    ),
+  ),
+  ["inventory", "pullRequest"],
+  /dedicated PR runner|harmonizeproject-jellyfin-pr/,
 );
 
 runNegativeFixture(

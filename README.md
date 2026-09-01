@@ -504,11 +504,19 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.454 (Current)
+### Version 1.5.454
 
 - **Actions storage cost reduction**: trusted and pull-request workflows no longer create remote NuGet caches, and CI/security artifacts expire after seven days; the self-hosted build runner uses its local package cache while published release assets remain available.
 
 - **Storage cleanup contract**: generated CI artifacts and caches are treated separately from published release assets so billing cleanup cannot remove an installable release.
+
+### Version 1.5.455 (Current)
+
+- **Dedicated PR runner**: pull-request build and security jobs execute on the isolated `harmonizeproject-jellyfin-pr` self-hosted runner, removing the remaining repository-controlled GitHub-hosted workload.
+
+- **Runner isolation**: the PR service uses a dedicated locked account, read-only runner installation, `ProtectHome=tmpfs`, no secrets/write permissions/Docker socket, bounded resources, and a post-job work-tree cleanup hook.
+
+- **Operational coverage**: host health and version checks, workflow validators, negative fixtures, and the self-hosted runbook cover all five repository runners.
 
 ### Version 1.5.453
 

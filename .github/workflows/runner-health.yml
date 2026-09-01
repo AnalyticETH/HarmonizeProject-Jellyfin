@@ -148,7 +148,7 @@ jobs:
             echo
             echo "Checked at $(date -u +%Y-%m-%dT%H:%M:%SZ)."
             echo
-            echo "The host-side harmonize-runner-health-check systemd timer checks current service state for all four runners, including the harmonizeproject-jellyfin-dependabot runner."
+            echo "The host-side harmonize-runner-health-check systemd timer checks current service state for all five runners, including the harmonizeproject-jellyfin-dependabot and harmonizeproject-jellyfin-pr runners."
             echo
             echo "Latest successful trusted main run: ${latest_trusted_run_id:-none} (${latest_trusted_head_sha:-none})."
             echo

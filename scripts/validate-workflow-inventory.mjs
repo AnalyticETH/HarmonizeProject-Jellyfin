@@ -12,6 +12,7 @@ const expectedWorkflows = new Set([
 const trustedBuildRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]';
 const trustedRuntimeRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-runtime"]';
 const trustedReleaseRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]';
+const pullRequestRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-pr"]';
 const allowedActionRepositories = new Set([
   "actions/checkout",
   "actions/setup-dotnet",
@@ -255,15 +256,20 @@ for (const name of workflowFiles) {
     const selfHosted = runsOnValues.some(value => /\bself-hosted\b/.test(value));
     const hasJobMainGuard = job.lines.some(line =>
       /^\s{4}if:\s*.*github\.ref\s*==\s*['"]refs\/heads\/main['"]/.test(withoutComment(line)));
-    if (selfHosted && !["dotnet-ci.yml", "security-scan.yml", "runner-health.yml"].includes(name)) {
+    if (selfHosted && name === "pull-request-validation.yml" &&
+        (runsOnValues.length !== 1 || runsOnValues[0] !== pullRequestRunner)) {
+      throw new Error(`${name} job ${job.name} must use dedicated PR runner ${pullRequestRunner}`);
+    }
+    if (selfHosted && !["dotnet-ci.yml", "security-scan.yml", "runner-health.yml", "pull-request-validation.yml"].includes(name)) {
       throw new Error(`${name} job ${job.name} routes code to a persistent runner outside the trusted workflow set`);
     }
-    if (selfHosted && !hasJobMainGuard) {
+    if (selfHosted && name !== "pull-request-validation.yml" && !hasJobMainGuard) {
       throw new Error(`${name} job ${job.name} has a self-hosted runner without a default-branch guard`);
     }
 
-    if (name === "pull-request-validation.yml" && runsOnValues.some(value => value !== "ubuntu-24.04")) {
-      throw new Error(`${name} job ${job.name} must run on the fixed ubuntu-24.04 runner`);
+    if (name === "pull-request-validation.yml" &&
+        (runsOnValues.length !== 1 || runsOnValues[0] !== pullRequestRunner)) {
+      throw new Error(`${name} job ${job.name} must use dedicated PR runner ${pullRequestRunner}`);
     }
 
     if (name === "runner-health.yml" &&
@@ -308,15 +314,19 @@ for (const marker of [
   "harmonizeproject-jellyfin",
   "harmonizeproject-jellyfin-runtime",
   "harmonizeproject-jellyfin-release",
-  "harmonizeproject-jellyfin-dependabot"
+  "harmonizeproject-jellyfin-dependabot",
+  "harmonizeproject-jellyfin-pr"
 ]) {
   if (!runnerHealthWorkflow.includes(marker)) {
     throw new Error(`runner-health.yml is missing health contract marker: ${marker}`);
   }
 }
 if (getJobBlocks(pullRequestWorkflow, "pull-request-validation.yml")
-  .some(job => getRunsOnValues(job).some(value => /\bself-hosted\b/.test(value)))) {
-  throw new Error("pull-request-validation.yml must never use a persistent self-hosted runner");
+  .some(job => {
+    const runners = getRunsOnValues(job);
+    return runners.length !== 1 || runners[0] !== pullRequestRunner;
+  })) {
+  throw new Error(`pull-request-validation.yml must use only the dedicated PR runner ${pullRequestRunner}`);
 }
 if (/\$\{\{[^}]*\bsecrets\./.test(pullRequestWorkflow)) {
   throw new Error("pull-request-validation.yml must not access repository secrets");

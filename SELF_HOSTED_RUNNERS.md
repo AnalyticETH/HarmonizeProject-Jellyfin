@@ -10,8 +10,9 @@ separate build state from release authority.
 | Disposable Jellyfin runtime smoke verification for the canonical ZIP (provisioned and online on the Jellyfin host) | `harmonizeproject-jellyfin-runtime` | `harmonize-runtime-runner` | `/var/lib/harmonize-runtime-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache/rootless-Docker state |
 | GitHub Release publication only | `harmonizeproject-jellyfin-release` | `harmonize-release-runner` | `/var/lib/harmonize-release-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache |
 | Dependabot update jobs | `dependabot` (with GitHub's default `self-hosted`, `Linux`, and `X64` labels) | `harmonize-dependabot-runner` | `/var/lib/harmonize-dependabot-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache/rootless-Docker state |
+| Pull-request validation | `harmonizeproject-jellyfin-pr` (with GitHub's default `self-hosted`, `Linux`, and `X64` labels) | `harmonize-pr-runner` | `/var/lib/harmonize-pr-runner/actions-runner/_work`, `_diag`, `_temp`, dedicated home/cache |
 
-All four identities are locked system users with `nologin`, no sudo, no privileged Docker
+All five identities are locked system users with `nologin`, no sudo, no privileged Docker
 access, no LXD access, and no supplementary groups, and no access to the interactive user's home or
 GitHub CLI credentials. The build and release identities have no Docker daemon or socket
 access. The runtime-smoke and Dependabot identities use separate rootless Docker sockets
@@ -44,7 +45,17 @@ the `dependabot` label; do not enable that setting until an online runner with t
 available, or jobs will remain queued indefinitely. The setting is owner-controlled and is
 not represented in `.github/dependabot.yml`.
 
-Persistent runners accept only repository-controlled trusted `main` pushes, the main-only
+The PR identity is intentionally separate because pull-request code is untrusted. It has no
+repository secrets, no write permissions, no Docker socket, and no access to the other runner
+accounts. Its root-owned runner installation is read-only inside systemd, and
+`ACTIONS_RUNNER_HOOK_JOB_COMPLETED` invokes `/usr/local/sbin/harmonize-pr-runner-clean` after
+each job. That hook removes every entry below the PR runner's `_work` directory before the next
+job; diagnostics remain outside that disposable tree for incident review. The service uses the
+same namespace, capability, resource, and `ProtectHome=tmpfs` restrictions as the Dependabot
+runner. Never route PR jobs to `harmonizeproject-jellyfin`, `harmonizeproject-jellyfin-runtime`,
+`harmonizeproject-jellyfin-release`, or `dependabot`.
+
+The build, runtime, release, and Dependabot persistent runners accept only repository-controlled trusted `main` pushes, the main-only
 operator recovery dispatch, and scheduled default-branch security scans. The trusted main
 and scheduled security workflows expose no pull-request or non-main push triggers, and every self-hosted
 job has a `github.ref == 'refs/heads/main'` guard as defense in depth. Pull-request and non-main code
@@ -95,7 +106,7 @@ personal access tokens, or runner credentials into the incident record.
 
 ## Host-side runner service health
 
-The current online state of the four persistent runners is checked on this host,
+The current online state of all five repository runners is checked on this host,
 not inferred from a GitHub-hosted workflow. Install the versioned script and
 systemd units from `scripts/check-runner-services.sh` and `ops/systemd/` as root:
 
@@ -117,6 +128,8 @@ The oneshot fails if any of these exact services is not enabled and active with
 its documented dedicated `User`/`Group` and confinement properties:
 `harmonizeproject-jellyfin`, `harmonizeproject-jellyfin-runtime`,
 `harmonizeproject-jellyfin-release`, or `harmonizeproject-jellyfin-dependabot`.
+The PR service `harmonizeproject-jellyfin-pr` is checked with its dedicated
+`harmonize-pr-runner` identity and `ProtectHome=tmpfs` confinement as well.
 It verifies `NoNewPrivileges`, private temporary/device namespaces,
 `ProtectSystem=strict`, the expected `ProtectHome` mode, `UMask=0077`, and
 `LimitCORE=0`; a unit that is running but has been weakened therefore fails
@@ -143,8 +156,8 @@ The workflow fails closed when the Actions API reports a queued workflow run old
 than one hour, or when the latest successful trusted `main` run no longer shows
 the required `harmonizeproject-jellyfin`, `harmonizeproject-jellyfin-runtime`,
 and `harmonizeproject-jellyfin-release` labels on successful jobs. The host-side
-timer above checks current service state for all four runners, including the
-`harmonizeproject-jellyfin-dependabot` service. A failure is an operator signal;
+timer above checks current service state for all five runners, including the
+`harmonizeproject-jellyfin-dependabot` and `harmonizeproject-jellyfin-pr` services. A failure is an operator signal;
 follow the stale queued-run procedure above after checking the run's ref, jobs,
 and runner use. Because this monitor shares the trusted runner pool, the
 host-side timer is the detector to use during a complete pool outage.
@@ -171,11 +184,12 @@ the repository's artifact/cache totals after cleanup. Existing accrued charges d
 not disappear when storage is deleted; deletion only stops future storage accrual.
 
 Untrusted pull requests, including Dependabot update branches, are validated by
-`.github/workflows/pull-request-validation.yml` on the ephemeral GitHub-hosted
-`ubuntu-24.04` runner. That workflow has only `contents: read`, does not receive secrets,
-and never publishes packages, creates tags, or invokes any persistent identity. Do not
-add a pull-request trigger to the trusted main workflow or route pull-request code to the
-`harmonizeproject-jellyfin` or `harmonizeproject-jellyfin-release` labels.
+`.github/workflows/pull-request-validation.yml` on the dedicated self-hosted
+`harmonizeproject-jellyfin-pr` runner. That workflow has only `contents: read`, does not receive
+secrets, and never publishes packages, creates tags, or invokes a trusted persistent identity.
+The PR service resets its work tree after every job. Do not add a pull-request trigger to the
+trusted main workflow or route pull-request code to any runner label other than
+`harmonizeproject-jellyfin-pr`.
 
 The repository Actions policy is selected-only with full-commit-SHA pinning required. Its
 allowlist contains only `actions/checkout`, `actions/setup-dotnet`, `actions/cache`,
@@ -204,8 +218,10 @@ This keeps the runner-boundary invariant enforceable when workflows change.
 ## Version maintenance
 
 Automatic in-place updates are disabled because the application directories are
-root-owned. `harmonize-runner-version-check.timer` checks every installed runner version against
-the latest official `actions/runner` release every day. A mismatch leaves the oneshot
+root-owned. Install the checked-in version check with
+`sudo install -o root -g root -m 0755 scripts/check-runner-versions.sh
+/usr/local/sbin/harmonize-runner-version-check`. `harmonize-runner-version-check.timer`
+checks every installed runner version against the latest official `actions/runner` release every day. A mismatch leaves the oneshot
 service failed and records every installed version in the system journal:
 
 ```bash
@@ -231,10 +247,12 @@ systemctl is-enabled actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmon
 systemctl is-enabled actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-runtime.service
 systemctl is-enabled actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-release.service
 systemctl is-enabled actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-dependabot.service
+systemctl is-enabled actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-pr.service
 systemd-analyze security actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin.service
 systemd-analyze security actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-runtime.service
 systemd-analyze security actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-release.service
 systemd-analyze security actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-dependabot.service
+systemd-analyze security actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-pr.service
 gh api repos/AnalyticETH/HarmonizeProject-Jellyfin/actions/runners
 sudo -u harmonize-runtime-runner env \
   HOME=/var/lib/harmonize-runtime-runner/home \

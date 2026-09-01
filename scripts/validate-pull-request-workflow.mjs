@@ -95,7 +95,7 @@ for (const marker of [
   "pull_request:",
   "types: [opened, synchronize, reopened, ready_for_review]",
   "permissions:\n  contents: read",
-  "runs-on: ubuntu-24.04",
+  "runs-on: [\"self-hosted\", \"Linux\", \"X64\", \"harmonizeproject-jellyfin-pr\"]",
   "github.event.pull_request.number",
   "Validate pinned .NET SDK parity",
   "node scripts/validate-dotnet-sdk.mjs",
@@ -149,8 +149,10 @@ if (jobWrites.length > 0) {
 }
 
 const runnerLines = [...workflow.matchAll(/^\s*runs-on:\s*(.+)$/gm)].map(match => match[1].trim());
-if (runnerLines.length === 0 || runnerLines.some(runner => runner !== "ubuntu-24.04")) {
-  throw new Error(`${file} must run every PR job on ubuntu-24.04, never a persistent runner`);
+if (runnerLines.length === 0 || runnerLines.some(
+  runner => runner !== "[\"self-hosted\", \"Linux\", \"X64\", \"harmonizeproject-jellyfin-pr\"]",
+)) {
+  throw new Error(`${file} must run every PR job on the dedicated harmonizeproject-jellyfin-pr runner`);
 }
 
 for (const match of workflow.matchAll(/^\s*uses:\s*([^\s#]+)$/gm)) {

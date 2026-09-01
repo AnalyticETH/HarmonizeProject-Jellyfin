@@ -94,10 +94,13 @@ check_runner_service \
 check_runner_service \
     actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-dependabot.service \
     harmonize-dependabot-runner harmonize-dependabot-runner tmpfs
+check_runner_service \
+    actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-pr.service \
+    harmonize-pr-runner harmonize-pr-runner tmpfs
 
 if [ "$status" -ne 0 ]; then
     echo "One or more Harmonize self-hosted runner services is not enabled, active, correctly owned, and confined." >&2
     exit "$status"
 fi
 
-echo "All four Harmonize self-hosted runner services are enabled, active, correctly owned, and confined."
+echo "All five Harmonize self-hosted runner services are enabled, active, correctly owned, and confined."
