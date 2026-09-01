@@ -55,7 +55,7 @@ jobs:
             type == "object" and
             (.total_count | type == "number") and
             (.workflow_runs | type == "array") and
-            (.total_count == (.workflow_runs | length)) and
+            ((.workflow_runs | length) <= .total_count) and
             all(.workflow_runs[]?;
               (.id | type == "number") and
               (.name | type == "string") and
@@ -67,6 +67,7 @@ jobs:
             type == "object" and
             (.total_count | type == "number") and
             (.workflow_runs | type == "array") and
+            ((.workflow_runs | length) <= .total_count) and
             all(.workflow_runs[]?;
               (.id | type == "number") and
               (.status | type == "string") and
@@ -84,11 +85,13 @@ jobs:
             | last
             | .id // empty
           ' "$trusted_runs_json")"
-          latest_trusted_head_sha="$(jq -r --argjson run_id "$latest_trusted_run_id" '
-            [.workflow_runs[] | select(.id == $run_id) | .head_sha] | first // empty
+          latest_trusted_head_sha="$(jq -r --arg run_id "$latest_trusted_run_id" '
+            [.workflow_runs[] | select((.id | tostring) == $run_id) | .head_sha] | first // empty
           ' "$trusted_runs_json")"
 
           runner_health_ok=true
+          echo "Runner-health API counts: queued=$(jq -r '.total_count' "$queued_json"), trusted-main=$(jq -r '.total_count' "$trusted_runs_json")."
+          echo "Latest successful trusted main run candidate: ${latest_trusted_run_id:-none}."
           if [ -z "$latest_trusted_run_id" ] || [ -z "$latest_trusted_head_sha" ]; then
             runner_health_ok=false
             echo "No successful trusted main run is available for runner-label verification." >&2
@@ -100,7 +103,7 @@ jobs:
               type == "object" and
               (.total_count | type == "number") and
               (.jobs | type == "array") and
-              (.total_count == (.jobs | length)) and
+              ((.jobs | length) <= .total_count) and
               all(.jobs[]?;
                 (.id | type == "number") and
                 (.name | type == "string") and
