@@ -6,6 +6,7 @@ const MAX_TIMEOUT_MINUTES = 30;
 const expectedWorkflows = new Set([
   "dotnet-ci.yml",
   "pull-request-validation.yml",
+  "runner-health.yml",
   "security-scan.yml",
 ]);
 const trustedBuildRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]';
@@ -263,13 +264,52 @@ for (const name of workflowFiles) {
     if (name === "pull-request-validation.yml" && runsOnValues.some(value => value !== "ubuntu-24.04")) {
       throw new Error(`${name} job ${job.name} must run on the fixed ubuntu-24.04 runner`);
     }
+
+    if (name === "runner-health.yml" &&
+        (runsOnValues.length !== 1 || runsOnValues[0] !== "ubuntu-24.04")) {
+      throw new Error(`${name} job ${job.name} must run on the fixed ubuntu-24.04 runner`);
+    }
   }
 }
 
 const pullRequestWorkflow = workflowText("pull-request-validation.yml");
+const runnerHealthWorkflow = workflowText("runner-health.yml");
 for (const workflowName of ["pull-request-validation.yml", "security-scan.yml"]) {
   if (!workflowText(workflowName).includes("node scripts/validate-gitleaks-config.mjs")) {
     throw new Error(`${workflowName} must validate the committed Gitleaks policy before scanning`);
+  }
+}
+
+if (!runnerHealthWorkflow.includes("schedule:\n    - cron: '*/15 * * * *'") ||
+    !runnerHealthWorkflow.includes("workflow_dispatch:")) {
+  throw new Error("runner-health.yml must run on the 15-minute schedule and support workflow_dispatch");
+}
+if (/^\s*(push|pull_request|pull_request_target):\s*$/m.test(runnerHealthWorkflow)) {
+  throw new Error("runner-health.yml must not run for pushes or pull requests");
+}
+const runnerHealthTopLevelPermissions = getPermissionLines(runnerHealthWorkflow);
+if (!runnerHealthTopLevelPermissions.some(line => /\bactions\s*:\s*read\b/.test(line)) ||
+    !runnerHealthTopLevelPermissions.some(line => /\bcontents\s*:\s*read\b/.test(line)) ||
+    getWritePermissionNames(runnerHealthTopLevelPermissions).length > 0) {
+  throw new Error("runner-health.yml must declare read-only actions and contents permissions");
+}
+if (/\$\{\{[^}]*\bsecrets\./.test(runnerHealthWorkflow)) {
+  throw new Error("runner-health.yml must not access repository secrets");
+}
+for (const marker of [
+  "actions/runners?per_page=100",
+  "actions/runs?status=queued&per_page=100",
+  "status == \"online\"",
+  "stale_cutoff=$((now_epoch - 3600))",
+  "runner_health_ok=false",
+  "exit 1",
+  "harmonizeproject-jellyfin",
+  "harmonizeproject-jellyfin-runtime",
+  "harmonizeproject-jellyfin-release",
+  '"labels": ["self-hosted", "Linux", "X64", "dependabot"]'
+]) {
+  if (!runnerHealthWorkflow.includes(marker)) {
+    throw new Error(`runner-health.yml is missing health contract marker: ${marker}`);
   }
 }
 if (getJobBlocks(pullRequestWorkflow, "pull-request-validation.yml")

@@ -93,6 +93,24 @@ After reconciliation, verify that no queued run older than one hour remains and 
 trusted `main` push executes on the expected runner labels. Never paste registration tokens,
 personal access tokens, or runner credentials into the incident record.
 
+## Independent runner-health monitoring
+
+`.github/workflows/runner-health.yml` is the one intentional exception to the
+self-hosted runner rule. It runs every 15 minutes, and on `workflow_dispatch`, on
+the ephemeral GitHub-hosted `ubuntu-24.04` runner so it can still report an outage
+of the persistent pool. It has only `actions: read` and `contents: read`
+permissions, does not check out repository code, uses no secrets, and cannot
+modify or cancel runs.
+
+The monitor checks that all four expected repository runners are online and still
+carry their complete labels: `harmonizeproject-jellyfin`,
+`harmonizeproject-jellyfin-runtime`, `harmonizeproject-jellyfin-release`, and
+`harmonizeproject-jellyfin-dependabot` with `dependabot`. It also fails closed when
+the Actions API reports any queued workflow run older than one hour. A failure is
+an operator signal; follow the stale queued-run procedure above after checking
+the run's ref, jobs, and runner use. Do not move this monitor to a self-hosted
+label, because doing so would hide the outage it is intended to detect.
+
 Untrusted pull requests, including Dependabot update branches, are validated by
 `.github/workflows/pull-request-validation.yml` on the ephemeral GitHub-hosted
 `ubuntu-24.04` runner. That workflow has only `contents: read`, does not receive secrets,

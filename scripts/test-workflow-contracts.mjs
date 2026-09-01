@@ -9,6 +9,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const workflowNames = [
   "dotnet-ci.yml",
   "pull-request-validation.yml",
+  "runner-health.yml",
   "security-scan.yml",
 ];
 const validatorPaths = {
@@ -227,6 +228,48 @@ runNegativeFixture(
   ),
   ["inventory", "trusted"],
   /must use runner|missing trusted-workflow marker/,
+);
+
+runNegativeFixture(
+  "runner-health.yml",
+  fixtureRoot => mutateWorkflow(
+    fixtureRoot,
+    "runner-health.yml",
+    workflow => workflow.replace(
+      "    runs-on: ubuntu-24.04\n",
+      '    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]\n',
+    ),
+  ),
+  ["inventory"],
+  /runner-health\.yml job runner-health (?:must run on the fixed ubuntu-24\.04 runner|routes code to a persistent runner outside the trusted workflow set)/,
+);
+
+runNegativeFixture(
+  "runner-health.yml",
+  fixtureRoot => mutateWorkflow(
+    fixtureRoot,
+    "runner-health.yml",
+    workflow => workflow.replace(
+      "permissions:\n  actions: read\n  contents: read",
+      "permissions:\n  actions: write\n  contents: read",
+    ),
+  ),
+  ["inventory"],
+  /runner-health\.yml must declare read-only actions and contents permissions/,
+);
+
+runNegativeFixture(
+  "runner-health.yml",
+  fixtureRoot => mutateWorkflow(
+    fixtureRoot,
+    "runner-health.yml",
+    workflow => workflow.replace(
+      '["self-hosted", "Linux", "X64", "dependabot"]',
+      '["self-hosted", "Linux", "X64", "missing-label"]',
+    ),
+  ),
+  ["inventory"],
+  /runner-health\.yml is missing health contract marker: "labels": \["self-hosted", "Linux", "X64", "dependabot"\]/,
 );
 
 runNegativeFixture(
