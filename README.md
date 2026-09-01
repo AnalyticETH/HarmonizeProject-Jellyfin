@@ -504,7 +504,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.446 (Current)
+### Version 1.5.447 (Current)
+
+- **Inherited channel profiles**: broadcast scene targets now retain enabled user mappings that inherit the global bridge while selecting a distinct channel profile, so previews, playlists, schedules, and conflict diagnostics reach every configured channel set.
+
+- **Independent runner-health monitoring**: a read-only 15-minute monitor now verifies all four self-hosted runner identities and labels and flags queued Actions runs older than one hour without depending on the pool it monitors.
+
+- **Regression coverage**: scheduler target-resolution tests cover inherited channel overrides and deduplication, while workflow contracts cover the monitor's fixed ephemeral runner, read-only permissions, schedule, and failure boundaries.
+
+### Version 1.5.446
 
 - **Accessible runtime controls**: active Hue session Stop buttons now expose row-specific accessible names using the already displayed playback, user, state, device, and target context without including session IDs or credentials.
 

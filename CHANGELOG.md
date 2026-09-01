@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.447] - 2026-08-31
+
+### Target resolution and runner operations
+- **Inherited channel profiles**: broadcast scene targets now retain enabled user mappings that inherit the global bridge while selecting a distinct channel profile, so previews, playlists, schedules, and conflict diagnostics reach every configured channel set.
+- **Independent runner-health monitoring**: a read-only 15-minute monitor now verifies all four self-hosted runner identities and labels and flags queued Actions runs older than one hour without depending on the pool it monitors.
+- **Regression coverage**: scheduler target-resolution tests cover inherited channel overrides and deduplication, while workflow contracts cover the monitor's fixed ephemeral runner, read-only permissions, schedule, and failure boundaries.
+
 ## [1.5.446] - 2026-08-31
 
 ### Runtime session accessibility
