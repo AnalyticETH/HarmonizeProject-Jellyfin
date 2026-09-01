@@ -255,7 +255,7 @@ for (const name of workflowFiles) {
     const selfHosted = runsOnValues.some(value => /\bself-hosted\b/.test(value));
     const hasJobMainGuard = job.lines.some(line =>
       /^\s{4}if:\s*.*github\.ref\s*==\s*['"]refs\/heads\/main['"]/.test(withoutComment(line)));
-    if (selfHosted && name !== "dotnet-ci.yml" && name !== "security-scan.yml") {
+    if (selfHosted && !["dotnet-ci.yml", "security-scan.yml", "runner-health.yml"].includes(name)) {
       throw new Error(`${name} job ${job.name} routes code to a persistent runner outside the trusted workflow set`);
     }
     if (selfHosted && !hasJobMainGuard) {
@@ -267,8 +267,8 @@ for (const name of workflowFiles) {
     }
 
     if (name === "runner-health.yml" &&
-        (runsOnValues.length !== 1 || runsOnValues[0] !== "ubuntu-24.04")) {
-      throw new Error(`${name} job ${job.name} must run on the fixed ubuntu-24.04 runner`);
+        (runsOnValues.length !== 1 || runsOnValues[0] !== trustedBuildRunner)) {
+      throw new Error(`${name} job ${job.name} must use runner ${trustedBuildRunner}`);
     }
   }
 }

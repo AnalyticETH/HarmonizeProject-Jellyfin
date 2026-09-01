@@ -447,12 +447,26 @@ runNegativeFixture(
     fixtureRoot,
     "runner-health.yml",
     workflow => workflow.replace(
-      "    runs-on: ubuntu-24.04\n",
       '    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]\n',
+      "    runs-on: ubuntu-24.04\n",
     ),
   ),
   ["inventory"],
-  /runner-health\.yml job runner-health (?:must run on the fixed ubuntu-24\.04 runner|routes code to a persistent runner outside the trusted workflow set)/,
+  /runner-health\.yml job runner-health must use runner \["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"\]/,
+);
+
+runNegativeFixture(
+  "runner-health.yml",
+  fixtureRoot => mutateWorkflow(
+    fixtureRoot,
+    "runner-health.yml",
+    workflow => workflow.replace(
+      "    if: github.ref == 'refs/heads/main'\n",
+      "",
+    ),
+  ),
+  ["inventory"],
+  /runner-health\.yml job runner-health has a self-hosted runner without a default-branch guard/,
 );
 
 runNegativeFixture(

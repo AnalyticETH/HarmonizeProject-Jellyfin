@@ -130,12 +130,14 @@ the live result with `systemctl status harmonize-runner-health-check.service` an
 
 ## Independent runner-health monitoring
 
-`.github/workflows/runner-health.yml` is the one intentional exception to the
-self-hosted runner rule. It runs every 15 minutes, and on `workflow_dispatch`, on
-the ephemeral GitHub-hosted `ubuntu-24.04` runner so it can still report a queue
-outage while the persistent pool is offline. It has only `actions: read` and
-`contents: read` permissions, does not check out repository code, uses no secrets,
-and cannot modify or cancel runs.
+`.github/workflows/runner-health.yml` runs every 15 minutes, and on
+`workflow_dispatch`, on the trusted `harmonizeproject-jellyfin` self-hosted
+runner. Keeping this read-only monitor on the local runner removes recurring
+GitHub-hosted Actions usage. It has only `actions: read` and `contents: read`
+permissions, does not check out repository code, uses no secrets, and cannot
+modify or cancel runs. The host-side systemd timer remains independent: it is the
+source of truth for current service state and detects a total runner-pool outage
+when this Actions monitor cannot start.
 
 The workflow fails closed when the Actions API reports a queued workflow run older
 than one hour, or when the latest successful trusted `main` run no longer shows
@@ -144,8 +146,8 @@ and `harmonizeproject-jellyfin-release` labels on successful jobs. The host-side
 timer above checks current service state for all four runners, including the
 `harmonizeproject-jellyfin-dependabot` service. A failure is an operator signal;
 follow the stale queued-run procedure above after checking the run's ref, jobs,
-and runner use. Do not move this monitor to a self-hosted label, because doing so
-would hide the outage it is intended to detect.
+and runner use. Because this monitor shares the trusted runner pool, the
+host-side timer is the detector to use during a complete pool outage.
 
 The repository runner inventory endpoint requires repository-administration access
 that the read-only workflow `GITHUB_TOKEN` cannot receive. The split between the

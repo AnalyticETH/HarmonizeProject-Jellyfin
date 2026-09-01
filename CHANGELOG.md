@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.453] - 2026-09-01
+
+### GitHub Actions billing reduction
+- **Self-hosted runner health monitor**: the 15-minute queue and trusted-label monitor now runs on the local `harmonizeproject-jellyfin` runner, eliminating its recurring GitHub-hosted Actions usage while retaining the independent host-side outage check.
+- **Runner-boundary contract**: workflow inventory and executable negative fixtures require the monitor's main-only guard and trusted self-hosted label; pull-request validation remains on the ephemeral hosted runner because it executes untrusted code.
+- **Operational documentation**: the self-hosted runbook documents the billing tradeoff and the host timer's role during a complete runner-pool outage.
+
 ## [1.5.452] - 2026-09-01
 
 ### Durable session-history deletion and admin recovery

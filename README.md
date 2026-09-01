@@ -504,7 +504,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.452 (Current)
+### Version 1.5.453 (Current)
+
+- **Self-hosted runner health monitor**: the 15-minute queue and trusted-label monitor now runs on the local `harmonizeproject-jellyfin` runner, eliminating its recurring GitHub-hosted Actions usage while the host-side timer remains the independent complete-pool outage detector.
+
+- **Runner-boundary contract**: workflow inventory and executable negative fixtures require the monitor's main-only guard and trusted self-hosted label; pull-request validation remains on the ephemeral hosted runner because it executes untrusted code.
+
+- **Operational documentation**: the self-hosted runbook records the billing tradeoff, native Dependabot setting boundary, and host timer recovery path.
+
+### Version 1.5.452
 
 - **Transactional session-history deletion**: clearing retained history now restores in-memory and persisted entries when configuration persistence fails, preventing a restart from resurrecting data that was reported as deleted.
 
