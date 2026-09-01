@@ -4416,7 +4416,7 @@
                         HueAppKey: page.querySelector('#hueAppKey').value,
                         HueClientKey: page.querySelector('#hueClientKey').value,
                         ClearStoredCredentials: !!(clearCredentialsCheckbox && clearCredentialsCheckbox.checked),
-                        EntertainmentAreaId: HueConfigurationPage.getSelectedAreaId(page),
+                        EntertainmentAreaId: HueConfigurationPage.getPageSelectedAreaId(page),
                         ChannelIds: page.querySelector('#channelIds').value,
                         PlaybackMediaFilter: page.querySelector('#playbackMediaFilter').value,
                         AudioSensitivityPercent: parseNumberOrDefault('#audioSensitivityPercent', 100),

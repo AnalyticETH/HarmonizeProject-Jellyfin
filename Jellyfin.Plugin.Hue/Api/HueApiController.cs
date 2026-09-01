@@ -146,6 +146,18 @@ namespace Jellyfin.Plugin.Hue.Api
             return Guid.TryParse(value?.Trim(), out userId) && userId != Guid.Empty;
         }
 
+        private static IReadOnlySet<int>? ResolvePersistedChannelIds(string? userId, string? deviceId)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+                return null;
+
+            if (TryParsePlaybackUserId(userId, out var parsedUserId))
+                return config.GetChannelIdsForPlayback(parsedUserId, deviceId);
+
+            return config.GetGlobalChannelIds();
+        }
+
         private static Guid[] GetUsersWhoseSyncWasDisabled(
             PluginConfiguration existingConfiguration,
             IEnumerable<UserBridgeMapping> existingMappings,
@@ -1634,6 +1646,7 @@ namespace Jellyfin.Plugin.Hue.Api
             string bridgeIp;
             string appKey;
             string clientKey;
+            IReadOnlySet<int>? requestedChannelIds = null;
             using (var configurationReadLease = _bridgeLifecycleGate.TryEnterConfigurationRead())
             {
                 if (configurationReadLease == null)
@@ -1654,9 +1667,11 @@ namespace Jellyfin.Plugin.Hue.Api
                 {
                     return BadRequest("A valid private bridge address and app key are required.");
                 }
+
+                if (string.IsNullOrWhiteSpace(request.ChannelIds))
+                    requestedChannelIds = ResolvePersistedChannelIds(request.UserId, request.DeviceId);
             }
 
-            HashSet<int>? requestedChannelIds = null;
             if (!string.IsNullOrWhiteSpace(request.ChannelIds))
             {
                 if (!PluginConfiguration.TryParseChannelIds(request.ChannelIds, out var parsedChannelIds) ||
@@ -1992,6 +2007,7 @@ namespace Jellyfin.Plugin.Hue.Api
             var bridgeIp = string.Empty;
             var appKey = string.Empty;
             var clientKey = string.Empty;
+            IReadOnlySet<int>? requestedChannelIds = null;
             if (!multiTarget)
             {
                 // Stored credentials for a redacted request are configuration data. Take
@@ -2017,6 +2033,9 @@ namespace Jellyfin.Plugin.Hue.Api
                 {
                     return BadRequest("A valid bridge address, app key, client key, and entertainment area ID are required.");
                 }
+
+                if (string.IsNullOrWhiteSpace(request.ChannelIds))
+                    requestedChannelIds = ResolvePersistedChannelIds(request.UserId, request.DeviceId);
             }
 
             if (request.Red < 0 || request.Red > 255 ||
@@ -2160,7 +2179,6 @@ namespace Jellyfin.Plugin.Hue.Api
                     selectedTargetRoutes));
             }
 
-            HashSet<int>? requestedChannelIds = null;
             if (!string.IsNullOrWhiteSpace(request.ChannelIds))
             {
                 if (!PluginConfiguration.TryParseChannelIds(request.ChannelIds, out var parsedChannelIds) ||

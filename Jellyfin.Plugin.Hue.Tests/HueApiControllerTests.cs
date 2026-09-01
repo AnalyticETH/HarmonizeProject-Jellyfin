@@ -4080,6 +4080,98 @@ public sealed class HueApiControllerTests : IDisposable
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Theory]
+    [InlineData(null, null, 3)]
+    [InlineData("00000000-0000-0000-0000-000000000001", null, 2)]
+    [InlineData("00000000-0000-0000-0000-000000000001", "tv-1", 1)]
+    public async Task TestConnection_OmittedChannelProfileUsesPersistedTargetPrecedence(
+        string? userId,
+        string? deviceId,
+        int expectedChannelId)
+    {
+        InstallConfiguration(new PluginConfiguration
+        {
+            ChannelIds = "3",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = CreateDeterministicUserId(1),
+                    ChannelIdsOverride = "2",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "tv-1",
+                            HueBridgeIp = "192.168.1.100",
+                            ChannelIdsOverride = "1"
+                        }
+                    }
+                }
+            }
+        });
+        _httpHandlerMock
+            .Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"id\":\"area-1\",\"metadata\":{\"name\":\"Living Room\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            })
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"data\":[{\"channels\":[{\"channel_id\":1},{\"channel_id\":2},{\"channel_id\":3}]}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.TestAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "DTLS probe succeeded."
+            });
+        var controller = CreateController(streamTester.Object);
+
+        var action = await controller.TestConnection(new HueConnectionTestRequest
+        {
+            UserId = userId,
+            DeviceId = deviceId,
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            ClientKey = "client-key",
+            EntertainmentAreaId = "area-1"
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HueConnectionTestResult>(response.Value);
+        Assert.True(result.ChannelProfileValid);
+        Assert.Equal(3, result.AvailableChannelCount);
+        Assert.Equal(1, result.SelectedChannelCount);
+        streamTester.Verify(tester => tester.TestAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-1",
+            It.IsAny<JsonElement>(),
+            It.Is<IReadOnlySet<int>?>(ids => ids != null && ids.Count == 1 && ids.Contains(expectedChannelId)),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     [Fact]
     public async Task TestConnection_WithStaleChannelProfileReportsMissingIdsWithoutProbing()
     {
@@ -4217,6 +4309,95 @@ public sealed class HueApiControllerTests : IDisposable
             It.IsAny<CancellationToken>(),
             2,
             1,
+            PluginConfiguration.ColorPresetEffectSolid,
+            PluginConfiguration.DefaultColorPresetEffectSpeedPercent), Times.Once);
+    }
+
+    [Fact]
+    public async Task Preview_OmittedChannelProfileUsesPersistedDeviceRoute()
+    {
+        var userId = CreateDeterministicUserId(1);
+        InstallConfiguration(new PluginConfiguration
+        {
+            ChannelIds = "3",
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = userId,
+                    ChannelIdsOverride = "2",
+                    DeviceTargets = new List<UserDeviceBridgeTarget>
+                    {
+                        new()
+                        {
+                            DeviceId = "tv-1",
+                            HueBridgeIp = "192.168.1.100",
+                            ChannelIdsOverride = "1"
+                        }
+                    }
+                }
+            }
+        });
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            "{\"data\":[{\"channels\":[{\"channel_id\":1},{\"channel_id\":2},{\"channel_id\":3}]}]}");
+        var streamTester = new Mock<IHueStreamTester>();
+        streamTester
+            .Setup(tester => tester.PreviewAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<JsonElement>(),
+                It.IsAny<IReadOnlySet<int>?>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                PluginConfiguration.ColorPresetEffectSolid,
+                PluginConfiguration.DefaultColorPresetEffectSpeedPercent))
+            .ReturnsAsync(new HueStreamProbeResult
+            {
+                Succeeded = true,
+                Message = "Preview sent."
+            });
+        var controller = CreateController(streamTester.Object);
+
+        var action = await controller.Preview(new HuePreviewRequest
+        {
+            UserId = userId,
+            DeviceId = "tv-1",
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            ClientKey = "client-key",
+            EntertainmentAreaId = "area-1",
+            DurationSeconds = 3
+        });
+
+        var response = Assert.IsType<OkObjectResult>(action.Result);
+        var result = Assert.IsType<HuePreviewResult>(response.Value);
+        Assert.True(result.Succeeded);
+        Assert.Equal(3, result.AvailableChannelCount);
+        Assert.Equal(1, result.SelectedChannelCount);
+        streamTester.Verify(tester => tester.PreviewAsync(
+            "192.168.1.100",
+            "app-key",
+            "client-key",
+            "area-1",
+            It.IsAny<JsonElement>(),
+            It.Is<IReadOnlySet<int>?>(ids => ids != null && ids.Count == 1 && ids.Contains(1)),
+            It.IsAny<int>(),
+            It.IsAny<int>(),
+            It.IsAny<int>(),
+            It.IsAny<int>(),
+            3,
+            It.IsAny<CancellationToken>(),
+            It.IsAny<int>(),
+            It.IsAny<int>(),
             PluginConfiguration.ColorPresetEffectSolid,
             PluginConfiguration.DefaultColorPresetEffectSpeedPercent), Times.Once);
     }

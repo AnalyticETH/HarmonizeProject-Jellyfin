@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.457] - 2026-09-01
+
+### Diagnostics and configuration race safety
+- **Configuration save race**: global configuration Save preserves the persisted entertainment area while bridge metadata is loading instead of submitting a blank ID.
+- **Persisted channel profiles**: direct Test Connection and Preview diagnostics now honor device, user, and global channel-profile inheritance when channelIds is omitted.
+- **Regression coverage**: API and administrator-page tests cover loading-state fallback and persisted channel-profile precedence.
+
 ## [1.5.456] - 2026-09-01
 
 ### Jellyfin ABI compatibility

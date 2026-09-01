@@ -3804,6 +3804,28 @@ async function testConfigurationSaveSuppressesStaleConfigurationLoad() {
     assert.equal(page.querySelector('#saveConfigurationBtn').disabled, false, "configuration save re-enables its button");
 }
 
+async function testConfigurationSavePreservesAreaWhileAreasLoad() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    const areaSelect = page.querySelector('#entertainmentAreaSelect');
+    page._hueSelectedAreaId = 'persisted-area';
+    areaSelect.value = '';
+    areaSelect.disabled = true;
+
+    const save = api.saveConfiguration(page);
+    assert.equal(requests.length, 1, 'configuration save starts while entertainment areas are loading');
+    const payload = JSON.parse(requests[0].options.data);
+    assert.equal(
+        payload.EntertainmentAreaId,
+        'persisted-area',
+        'configuration save preserves the persisted area while the select is disabled and empty'
+    );
+    assert.equal(page._hueSelectedAreaId, 'persisted-area', 'configuration save does not replace the persisted area with an empty value');
+
+    requests[0].resolve({ HueBridgeIp: '', HasAppKey: false, HasClientKey: false });
+    await save;
+}
+
 async function testSelectedAreaSnapshotPageIsolation() {
     const harness = makeHarness();
     const { page, makePage, api, requests } = harness;
@@ -7493,6 +7515,7 @@ await testMappingDeviceDiscoveryLifecycleGuards();
 await testBridgeDiscoveryLifecycleGuards();
 await testConfigurationImportSubmitLifecycleGuards();
 await testConfigurationSaveSuppressesStaleConfigurationLoad();
+await testConfigurationSavePreservesAreaWhileAreasLoad();
 await testSelectedAreaSnapshotPageIsolation();
 await testGlobalCredentialSnapshotPageIsolation();
 await testConfigurationSaveInvalidationSuppressesCallbacks();
