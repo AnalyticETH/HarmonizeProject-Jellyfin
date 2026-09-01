@@ -1,9 +1,10 @@
 name: Self-hosted Runner Health
 
 # This is the one intentional GitHub-hosted job in the trusted operations set.
-# It must keep running when the persistent self-hosted pool is offline; every
-# workload, security, packaging, release, and Dependabot job remains bound to
-# its documented self-hosted label.
+# It must keep running when the persistent self-hosted pool is offline. The
+# host-side systemd check is the source of truth for current service state;
+# this job independently checks the Actions queue and the runner labels used
+# by the latest successful trusted main run.
 on:
   schedule:
     - cron: '*/15 * * * *'
@@ -20,12 +21,12 @@ concurrency:
 jobs:
   runner-health:
     name: Runner health
-    # Do not move this detector onto the pool it monitors: that would hide an
-    # outage by leaving the health check queued with the workload jobs.
+    # Do not move this detector onto the pool it monitors: doing so would hide
+    # an outage by leaving the health check queued with the workload jobs.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Check self-hosted runners and queued runs
+      - name: Check trusted queue and recent runner usage
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -37,28 +38,19 @@ jobs:
           command -v date >/dev/null
           test -n "${GITHUB_REPOSITORY:-}"
 
-          runner_json="$RUNNER_TEMP/harmonize-runner-health-runners.json"
           queued_json="$RUNNER_TEMP/harmonize-runner-health-queued.json"
-          gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/runners?per_page=100" \
-            > "$runner_json"
+          trusted_runs_json="$RUNNER_TEMP/harmonize-runner-health-trusted-runs.json"
+          trusted_jobs_json="$RUNNER_TEMP/harmonize-runner-health-trusted-jobs.json"
+
           gh api \
             "repos/${GITHUB_REPOSITORY}/actions/runs?status=queued&per_page=100" \
             > "$queued_json"
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/dotnet-ci.yml/runs?branch=main&event=push&per_page=20" \
+            > "$trusted_runs_json"
 
-          # A truncated or malformed API response is a failed health check, not
-          # an opportunity to report a false-green result.
-          jq -e '
-            type == "object" and
-            (.total_count | type == "number") and
-            (.runners | type == "array") and
-            (.total_count == (.runners | length)) and
-            all(.runners[]?;
-              (.name | type == "string") and
-              (.status | type == "string") and
-              (.labels | type == "array") and
-              all(.labels[]?; (.name | type == "string")))
-          ' "$runner_json" >/dev/null
+          # A truncated or malformed API response is a failed health check,
+          # not an opportunity to report a false-green result.
           jq -e '
             type == "object" and
             (.total_count | type == "number") and
@@ -71,40 +63,70 @@ jobs:
               (.head_sha | type == "string")
             )
           ' "$queued_json" >/dev/null
+          jq -e '
+            type == "object" and
+            (.total_count | type == "number") and
+            (.workflow_runs | type == "array") and
+            all(.workflow_runs[]?;
+              (.id | type == "number") and
+              (.status | type == "string") and
+              ((.conclusion == null) or (.conclusion | type == "string")) and
+              (.created_at | type == "string") and
+              (.head_sha | type == "string")
+            )
+          ' "$trusted_runs_json" >/dev/null
 
-          expected_runners='[
-            {
-              "name": "harmonizeproject-jellyfin",
-              "labels": ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
-            },
-            {
-              "name": "harmonizeproject-jellyfin-runtime",
-              "labels": ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-runtime"]
-            },
-            {
-              "name": "harmonizeproject-jellyfin-release",
-              "labels": ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]
-            },
-            {
-              "name": "harmonizeproject-jellyfin-dependabot",
-              "labels": ["self-hosted", "Linux", "X64", "dependabot"]
-            }
-          ]'
+          latest_trusted_run_id="$(jq -r '
+            [.workflow_runs[]
+              | select(.status == "completed" and .conclusion == "success")
+              | {id, head_sha, created_at}]
+            | sort_by(.created_at)
+            | last
+            | .id // empty
+          ' "$trusted_runs_json")"
+          latest_trusted_head_sha="$(jq -r --argjson run_id "$latest_trusted_run_id" '
+            [.workflow_runs[] | select(.id == $run_id) | .head_sha] | first // empty
+          ' "$trusted_runs_json")"
 
           runner_health_ok=true
-          if ! jq -e --argjson expected "$expected_runners" '
-            . as $root |
-            all($expected[];
-              . as $want |
-              any($root.runners[]?;
-                .name == $want.name and
-                .status == "online" and
-                (($want.labels - ([.labels[]?.name])) | length == 0)
-              )
-            )
-          ' "$runner_json" >/dev/null; then
+          if [ -z "$latest_trusted_run_id" ] || [ -z "$latest_trusted_head_sha" ]; then
             runner_health_ok=false
-            echo "One or more expected self-hosted runners is missing, offline, or missing a required label." >&2
+            echo "No successful trusted main run is available for runner-label verification." >&2
+          else
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${latest_trusted_run_id}/jobs?per_page=100" \
+              > "$trusted_jobs_json"
+            jq -e '
+              type == "object" and
+              (.total_count | type == "number") and
+              (.jobs | type == "array") and
+              (.total_count == (.jobs | length)) and
+              all(.jobs[]?;
+                (.id | type == "number") and
+                (.name | type == "string") and
+                ((.runner_name == null) or (.runner_name | type == "string")) and
+                (.labels | type == "array") and
+                all(.labels[]?; (. | type == "string"))
+              )
+            ' "$trusted_jobs_json" >/dev/null
+
+            expected_labels='[
+              "harmonizeproject-jellyfin",
+              "harmonizeproject-jellyfin-runtime",
+              "harmonizeproject-jellyfin-release"
+            ]'
+            if ! jq -e --argjson expected "$expected_labels" '
+              . as $root |
+              all($expected[]; . as $label |
+                any($root.jobs[]?;
+                  .conclusion == "success" and
+                  (((.labels // []) | index($label)) != null)
+                )
+              )
+            ' "$trusted_jobs_json" >/dev/null; then
+              runner_health_ok=false
+              echo "The latest successful trusted main run did not use every required persistent runner label." >&2
+            fi
           fi
 
           now_epoch="$(date -u +%s)"
@@ -125,16 +147,22 @@ jobs:
             echo
             echo "Checked at $(date -u +%Y-%m-%dT%H:%M:%SZ)."
             echo
-            echo "| Runner | Status | Labels |"
+            echo "The host-side harmonize-runner-health-check systemd timer checks current service state for all four runners, including the harmonizeproject-jellyfin-dependabot runner."
+            echo
+            echo "Latest successful trusted main run: ${latest_trusted_run_id:-none} (${latest_trusted_head_sha:-none})."
+            echo
+            echo "| Job | Runner | Labels |"
             echo "| --- | --- | --- |"
-            jq -r --argjson expected "$expected_runners" '
-              . as $root |
-              $expected[] as $want |
-              (first($root.runners[]? | select(.name == $want.name)) // {}) as $actual |
-              ([$actual.labels[]?.name] | join(", ")) as $labels |
-              [$want.name, ($actual.status // "missing"), (if $labels == "" then "none" else $labels end)] |
-              "| `\(.[0])` | \(.[1]) | \(.[2]) |"
-            ' "$runner_json"
+            if [ -n "$latest_trusted_run_id" ] && [ -f "$trusted_jobs_json" ]; then
+              jq -r '
+                .jobs[]
+                | select(.conclusion == "success")
+                | [(.name), (.runner_name // "unknown"), ((.labels // []) | join(", "))]
+                | "| `\(.[0])` | `\(.[1])` | \(.[2]) |"
+              ' "$trusted_jobs_json"
+            else
+              echo "| none | none | none |"
+            fi
             echo
             echo "Queued workflow runs: $(jq -r '.total_count' "$queued_json")."
             echo "Queued runs older than one hour: $stale_count."
@@ -151,7 +179,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$runner_health_ok" != true ]; then
-            echo "Self-hosted runner health failed; inspect the step summary and runner API response." >&2
+            echo "Self-hosted runner health failed; inspect the step summary and host-side service journal." >&2
             exit 1
           fi
-          echo "Self-hosted runner health passed: all expected runners are online with required labels; no queued run is older than one hour."
+          echo "Self-hosted runner health passed: trusted runner labels are observed and no queued run is older than one hour."

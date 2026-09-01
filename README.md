@@ -504,7 +504,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.447 (Current)
+### Version 1.5.448 (Current)
+
+- **Host-side runner service health**: a least-privileged systemd timer now verifies all four persistent self-hosted runner services are enabled and active every five minutes.
+
+- **Credential-safe independent monitoring**: the GitHub-hosted detector now checks stale Actions queues and recent trusted-main runner labels using read-only APIs that do not require a long-lived administrator token.
+
+- **Regression coverage**: workflow, host-script, unit-file, and live runner checks cover the fixed ephemeral detector, service-state contract, read-only permissions, and failure boundaries.
+
+### Version 1.5.447
 
 - **Inherited channel profiles**: broadcast scene targets now retain enabled user mappings that inherit the global bridge while selecting a distinct channel profile, so previews, playlists, schedules, and conflict diagnostics reach every configured channel set.
 

@@ -93,6 +93,31 @@ try {
   fs.rmSync(baselineFixture, { recursive: true, force: true });
 }
 
+const hostHealthScript = fs.readFileSync(
+  path.join(repositoryRoot, "scripts/check-runner-services.sh"),
+  "utf8",
+);
+for (const runnerUnit of [
+  "actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin.service",
+  "actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-runtime.service",
+  "actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-release.service",
+  "actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin-dependabot.service",
+]) {
+  assert.match(hostHealthScript, new RegExp(runnerUnit.replaceAll(".", "\\.")));
+}
+assert.match(hostHealthScript, /is-enabled --quiet/);
+assert.match(hostHealthScript, /is-active --quiet/);
+assert.match(hostHealthScript, /All four Harmonize self-hosted runner services are enabled and active/);
+
+for (const unitFile of [
+  "ops/systemd/harmonize-runner-health-check.service",
+  "ops/systemd/harmonize-runner-health-check.timer",
+]) {
+  const unitText = fs.readFileSync(path.join(repositoryRoot, unitFile), "utf8");
+  assert.match(unitText, /harmonize-runner-health-check/);
+  assert.match(unitText, /Timeout|OnUnitActiveSec/);
+}
+
 runNegativeFixture(
   "dotnet-ci.yml",
   fixtureRoot => mutateWorkflow(
@@ -264,12 +289,12 @@ runNegativeFixture(
     fixtureRoot,
     "runner-health.yml",
     workflow => workflow.replace(
-      '["self-hosted", "Linux", "X64", "dependabot"]',
-      '["self-hosted", "Linux", "X64", "missing-label"]',
+      "harmonizeproject-jellyfin-dependabot",
+      "harmonizeproject-jellyfin-missing",
     ),
   ),
   ["inventory"],
-  /runner-health\.yml is missing health contract marker: "labels": \["self-hosted", "Linux", "X64", "dependabot"\]/,
+  /runner-health\.yml is missing health contract marker: harmonizeproject-jellyfin-dependabot/,
 );
 
 runNegativeFixture(

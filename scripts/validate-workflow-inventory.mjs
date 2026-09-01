@@ -28,6 +28,7 @@ for (const requiredEntry of [
   "/.github/dependabot.yml @AnalyticETH",
   "/.github/semgrep/ @AnalyticETH",
   "/.github/workflows/ @AnalyticETH",
+  "/ops/ @AnalyticETH",
   "/build-release.sh @AnalyticETH",
   "/build-release.ps1 @AnalyticETH",
   "/Directory.Build.props @AnalyticETH",
@@ -297,16 +298,17 @@ if (/\$\{\{[^}]*\bsecrets\./.test(runnerHealthWorkflow)) {
   throw new Error("runner-health.yml must not access repository secrets");
 }
 for (const marker of [
-  "actions/runners?per_page=100",
   "actions/runs?status=queued&per_page=100",
-  "status == \"online\"",
+  "actions/workflows/dotnet-ci.yml/runs?branch=main&event=push&per_page=20",
+  "actions/runs/${latest_trusted_run_id}/jobs?per_page=100",
+  "Latest successful trusted main run",
   "stale_cutoff=$((now_epoch - 3600))",
   "runner_health_ok=false",
   "exit 1",
   "harmonizeproject-jellyfin",
   "harmonizeproject-jellyfin-runtime",
   "harmonizeproject-jellyfin-release",
-  '"labels": ["self-hosted", "Linux", "X64", "dependabot"]'
+  "harmonizeproject-jellyfin-dependabot"
 ]) {
   if (!runnerHealthWorkflow.includes(marker)) {
     throw new Error(`runner-health.yml is missing health contract marker: ${marker}`);

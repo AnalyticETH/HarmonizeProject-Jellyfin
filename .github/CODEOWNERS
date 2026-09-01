@@ -3,6 +3,7 @@
 /.github/dependabot.yml @AnalyticETH
 /.github/semgrep/ @AnalyticETH
 /.github/workflows/ @AnalyticETH
+/ops/ @AnalyticETH
 
 # Keep the release, build, dependency, and security contracts owner-reviewed.
 /build-release.sh @AnalyticETH

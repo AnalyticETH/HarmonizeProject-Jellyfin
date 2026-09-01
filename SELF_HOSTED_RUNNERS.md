@@ -93,23 +93,57 @@ After reconciliation, verify that no queued run older than one hour remains and 
 trusted `main` push executes on the expected runner labels. Never paste registration tokens,
 personal access tokens, or runner credentials into the incident record.
 
+## Host-side runner service health
+
+The current online state of the four persistent runners is checked on this host,
+not inferred from a GitHub-hosted workflow. Install the versioned script and
+systemd units from `scripts/check-runner-services.sh` and `ops/systemd/` as root:
+
+```bash
+sudo install -o root -g root -m 0755 scripts/check-runner-services.sh \
+  /usr/local/sbin/harmonize-runner-health-check
+sudo install -o root -g root -m 0644 \
+  ops/systemd/harmonize-runner-health-check.service \
+  /etc/systemd/system/harmonize-runner-health-check.service
+sudo install -o root -g root -m 0644 \
+  ops/systemd/harmonize-runner-health-check.timer \
+  /etc/systemd/system/harmonize-runner-health-check.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now harmonize-runner-health-check.timer
+sudo systemctl start harmonize-runner-health-check.service
+```
+
+The oneshot fails if any of these exact services is not both enabled and active:
+`harmonizeproject-jellyfin`, `harmonizeproject-jellyfin-runtime`,
+`harmonizeproject-jellyfin-release`, or `harmonizeproject-jellyfin-dependabot`.
+The timer runs two minutes after boot and every five minutes thereafter. Inspect
+the live result with `systemctl status harmonize-runner-health-check.service` and
+`journalctl -u harmonize-runner-health-check.service`.
+
 ## Independent runner-health monitoring
 
 `.github/workflows/runner-health.yml` is the one intentional exception to the
 self-hosted runner rule. It runs every 15 minutes, and on `workflow_dispatch`, on
-the ephemeral GitHub-hosted `ubuntu-24.04` runner so it can still report an outage
-of the persistent pool. It has only `actions: read` and `contents: read`
-permissions, does not check out repository code, uses no secrets, and cannot
-modify or cancel runs.
+the ephemeral GitHub-hosted `ubuntu-24.04` runner so it can still report a queue
+outage while the persistent pool is offline. It has only `actions: read` and
+`contents: read` permissions, does not check out repository code, uses no secrets,
+and cannot modify or cancel runs.
 
-The monitor checks that all four expected repository runners are online and still
-carry their complete labels: `harmonizeproject-jellyfin`,
-`harmonizeproject-jellyfin-runtime`, `harmonizeproject-jellyfin-release`, and
-`harmonizeproject-jellyfin-dependabot` with `dependabot`. It also fails closed when
-the Actions API reports any queued workflow run older than one hour. A failure is
-an operator signal; follow the stale queued-run procedure above after checking
-the run's ref, jobs, and runner use. Do not move this monitor to a self-hosted
-label, because doing so would hide the outage it is intended to detect.
+The workflow fails closed when the Actions API reports a queued workflow run older
+than one hour, or when the latest successful trusted `main` run no longer shows
+the required `harmonizeproject-jellyfin`, `harmonizeproject-jellyfin-runtime`,
+and `harmonizeproject-jellyfin-release` labels on successful jobs. The host-side
+timer above checks current service state for all four runners, including the
+`harmonizeproject-jellyfin-dependabot` service. A failure is an operator signal;
+follow the stale queued-run procedure above after checking the run's ref, jobs,
+and runner use. Do not move this monitor to a self-hosted label, because doing so
+would hide the outage it is intended to detect.
+
+The repository runner inventory endpoint requires repository-administration access
+that the read-only workflow `GITHUB_TOKEN` cannot receive. The split between the
+host-side service check and this read-only queue/label monitor is intentional: it
+avoids storing a long-lived personal token or silently treating an unauthorized
+runner-inventory request as a healthy result.
 
 Untrusted pull requests, including Dependabot update branches, are validated by
 `.github/workflows/pull-request-validation.yml` on the ephemeral GitHub-hosted
