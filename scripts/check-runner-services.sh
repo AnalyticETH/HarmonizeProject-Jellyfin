@@ -5,12 +5,30 @@ set -eu
 # to the self-hosted runner runbook before it is considered production-ready.
 status=0
 
+systemctl_retry() {
+    attempt=1
+    while :; do
+        if systemctl "$@"; then
+            return 0
+        fi
+
+        if [ "$attempt" -ge 3 ]; then
+            return 1
+        fi
+
+        # A transient systemd D-Bus endpoint failure should not turn into a
+        # false runner outage, but keep the retry budget short and bounded.
+        sleep "$attempt"
+        attempt=$((attempt + 1))
+    done
+}
+
 check_property() {
     unit=$1
     property=$2
     expected=$3
 
-    if actual=$(systemctl show "$unit" --property="$property" --value --no-pager 2>/dev/null); then
+    if actual=$(systemctl_retry show "$unit" --property="$property" --value --no-pager 2>/dev/null); then
         :
     else
         actual='<unavailable>'
@@ -29,14 +47,14 @@ check_runner_service() {
     expected_group=$3
     expected_protect_home=$4
 
-    if systemctl is-enabled --quiet "$unit"; then
+    if systemctl_retry is-enabled --quiet "$unit"; then
         enabled=enabled
     else
         enabled=disabled
         status=1
     fi
 
-    if systemctl is-active --quiet "$unit"; then
+    if systemctl_retry is-active --quiet "$unit"; then
         active=active
     else
         active=inactive
@@ -45,16 +63,20 @@ check_runner_service() {
 
     # Verify the service identity and confinement as well as its lifecycle.
     # These values mirror the provisioned runner unit files and fail closed if
-    # an operator weakens a unit without updating this checked-in contract.
-    check_property "$unit" User "$expected_user"
-    check_property "$unit" Group "$expected_group"
-    check_property "$unit" NoNewPrivileges yes
-    check_property "$unit" PrivateTmp yes
-    check_property "$unit" PrivateDevices yes
-    check_property "$unit" ProtectSystem strict
-    check_property "$unit" ProtectHome "$expected_protect_home"
-    check_property "$unit" UMask 0077
-    check_property "$unit" LimitCORE 0
+    # an operator weakens a unit without updating this checked-in contract. If
+    # lifecycle state is already unavailable, skip the dependent property
+    # queries so a D-Bus outage cannot consume the whole oneshot timeout.
+    if [ "$enabled" = enabled ] && [ "$active" = active ]; then
+        check_property "$unit" User "$expected_user"
+        check_property "$unit" Group "$expected_group"
+        check_property "$unit" NoNewPrivileges yes
+        check_property "$unit" PrivateTmp yes
+        check_property "$unit" PrivateDevices yes
+        check_property "$unit" ProtectSystem strict
+        check_property "$unit" ProtectHome "$expected_protect_home"
+        check_property "$unit" UMask 0077
+        check_property "$unit" LimitCORE 0
+    fi
 
     printf '%s enabled=%s active=%s user=%s group=%s protect_home=%s\n' \
         "$unit" "$enabled" "$active" "$expected_user" "$expected_group" "$expected_protect_home"

@@ -120,7 +120,10 @@ its documented dedicated `User`/`Group` and confinement properties:
 It verifies `NoNewPrivileges`, private temporary/device namespaces,
 `ProtectSystem=strict`, the expected `ProtectHome` mode, `UMask=0077`, and
 `LimitCORE=0`; a unit that is running but has been weakened therefore fails
-closed before it is treated as healthy.
+closed before it is treated as healthy. Each read-only `systemctl` query is
+retried at most three times with a one- and two-second backoff to tolerate a
+transient systemd D-Bus endpoint failure; an exhausted query still fails
+closed.
 The timer runs two minutes after boot and every five minutes thereafter. Inspect
 the live result with `systemctl status harmonize-runner-health-check.service` and
 `journalctl -u harmonize-runner-health-check.service`.

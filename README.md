@@ -504,7 +504,15 @@ Benchmarks measure:
 
 ## Recent Changes
 
-### Version 1.5.450 (Current)
+### Version 1.5.451 (Current)
+
+- **Runtime-stop request recovery**: global and per-session stop actions now clear their busy state, release the shared loader, and report an administrator-visible error when request construction throws synchronously.
+
+- **Transient runner-health resilience**: the host check retries read-only systemd queries with a bounded backoff, while still failing closed after exhausted retries and avoiding redundant property probes when lifecycle state is unavailable.
+
+- **Regression coverage**: browser lifecycle and workflow-contract tests cover synchronous request failures, transient systemd recovery, persistent systemd failures, and the existing confinement checks.
+
+### Version 1.5.450
 
 - **Playback-policy accounting**: automatic playback-blocked `Skip` cues now consume the occurrence and finite run attempt, while `Defer` remains retryable without counting a failed attempt.
 

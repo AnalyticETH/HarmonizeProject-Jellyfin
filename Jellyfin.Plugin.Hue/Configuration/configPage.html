@@ -13937,12 +13937,26 @@
                     if (stopButton) stopButton.disabled = true;
                     Dashboard.showLoadingMsg();
 
-                    var request = ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("HueSync/Stop"),
-                        dataType: "json"
-                    });
-                    var loadingOwner = HueConfigurationPage.claimRuntimeStopLoading(page, request);
+                    // Claim the loader before request construction so a synchronous
+                    // ApiClient failure can release the same owner safely.
+                    var loadingOwner = HueConfigurationPage.claimRuntimeStopLoading(page, null);
+                    var request;
+                    try {
+                        request = Promise.resolve(ApiClient.ajax({
+                            type: "POST",
+                            url: ApiClient.getUrl("HueSync/Stop"),
+                            dataType: "json"
+                        }));
+                    } catch (err) {
+                        page._hueRuntimeStopRequest = null;
+                        page._hueRuntimeStopInFlight = false;
+                        if (stopButton) stopButton.disabled = false;
+                        HueConfigurationPage.releaseRuntimeStopLoading(loadingOwner);
+                        console.error("Failed to create Hue sync stop request:", err);
+                        Dashboard.alert("Unable to stop Hue sync: request could not be created.");
+                        return Promise.resolve();
+                    }
+                    loadingOwner.request = request;
                     page._hueRuntimeStopRequest = request;
                     var isCurrent = function () {
                         return HueConfigurationPage.isPageLifecycleCurrent(page, lifecycleGeneration) &&
@@ -13973,12 +13987,25 @@
 
                     page._hueRuntimeStopInFlight = true;
                     Dashboard.showLoadingMsg();
-                    var request = ApiClient.ajax({
-                        type: "POST",
-                        url: ApiClient.getUrl("HueSync/Stop") + "?playSessionId=" + encodeURIComponent(playSessionId),
-                        dataType: "json"
-                    });
-                    var loadingOwner = HueConfigurationPage.claimRuntimeStopLoading(page, request);
+                    // Claim the loader before request construction so a synchronous
+                    // ApiClient failure can release the same owner safely.
+                    var loadingOwner = HueConfigurationPage.claimRuntimeStopLoading(page, null);
+                    var request;
+                    try {
+                        request = Promise.resolve(ApiClient.ajax({
+                            type: "POST",
+                            url: ApiClient.getUrl("HueSync/Stop") + "?playSessionId=" + encodeURIComponent(playSessionId),
+                            dataType: "json"
+                        }));
+                    } catch (err) {
+                        page._hueRuntimeStopRequest = null;
+                        page._hueRuntimeStopInFlight = false;
+                        HueConfigurationPage.releaseRuntimeStopLoading(loadingOwner);
+                        console.error("Failed to create concurrent Hue sync stop request:", err);
+                        Dashboard.alert("Unable to stop the selected Hue sync session: request could not be created.");
+                        return Promise.resolve();
+                    }
+                    loadingOwner.request = request;
                     page._hueRuntimeStopRequest = request;
                     var isCurrent = function () {
                         return HueConfigurationPage.isPageLifecycleCurrent(page, lifecycleGeneration) &&

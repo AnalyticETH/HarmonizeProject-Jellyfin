@@ -1206,7 +1206,7 @@ for (const [functionName, markers] of [
         const end = scriptMatch[1].indexOf("\n                },", start);
         const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
         for (const marker of [
-            "var loadingOwner = HueConfigurationPage.claimRuntimeStopLoading(page, request);",
+            "var loadingOwner = HueConfigurationPage.claimRuntimeStopLoading(page, null);",
             "HueConfigurationPage.releaseRuntimeStopLoading(loadingOwner);"
         ]) {
             if (!functionBody.includes(marker)) {
@@ -1930,6 +1930,30 @@ for (const [functionName, requestKey, queryMarker] of [
     ]) {
         if (!pollingBody.includes(marker)) {
             throw new Error(`${file} stopRuntimeStatusPolling must release runtime requests: ${marker}`);
+        }
+    }
+
+    for (const methodName of ["stopRuntimeSync", "stopRuntimeSession"]) {
+        const stopStart = scriptMatch[1].indexOf(`${methodName}: function`);
+        const stopEnd = scriptMatch[1].indexOf("\n                },", stopStart);
+        const stopBody = stopStart >= 0 && stopEnd > stopStart
+            ? scriptMatch[1].slice(stopStart, stopEnd)
+            : "";
+        for (const marker of [
+            "var loadingOwner = HueConfigurationPage.claimRuntimeStopLoading(page, null);",
+            "var request;",
+            "try {",
+            "request = Promise.resolve(ApiClient.ajax({",
+            "} catch (err) {",
+            "page._hueRuntimeStopRequest = null;",
+            "page._hueRuntimeStopInFlight = false;",
+            "HueConfigurationPage.releaseRuntimeStopLoading(loadingOwner);",
+            "return Promise.resolve();",
+            "loadingOwner.request = request;"
+        ]) {
+            if (!stopBody.includes(marker)) {
+                throw new Error(`${file} ${methodName} must recover from synchronous request construction failure: ${marker}`);
+            }
         }
     }
 }

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.451] - 2026-08-31
+
+### Runtime-stop recovery and resilient runner health
+- **Runtime-stop request recovery**: global and per-session stop actions now clear their busy state, release the shared loader, and report an administrator-visible error when request construction throws synchronously.
+- **Transient runner-health resilience**: the host check retries read-only systemd queries with a bounded backoff, while still failing closed after exhausted retries and avoiding redundant property probes when lifecycle state is unavailable.
+- **Regression coverage**: browser lifecycle and workflow-contract tests cover synchronous request failures, transient systemd recovery, persistent systemd failures, and the existing confinement checks.
+
 ## [1.5.450] - 2026-08-31
 
 ### Scheduler correctness, accessibility, and runner hardening

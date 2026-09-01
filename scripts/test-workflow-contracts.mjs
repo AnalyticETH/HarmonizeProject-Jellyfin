@@ -107,7 +107,10 @@ for (const runnerUnit of [
 }
 assert.match(hostHealthScript, /is-enabled --quiet/);
 assert.match(hostHealthScript, /is-active --quiet/);
-assert.match(hostHealthScript, /systemctl show/);
+assert.match(hostHealthScript, /systemctl_retry/);
+assert.match(hostHealthScript, /attempt.*-ge 3/);
+assert.match(hostHealthScript, /sleep \"\$attempt\"/);
+assert.match(hostHealthScript, /systemctl_retry show/);
 for (const expectedServiceProperty of [
   "User",
   "Group",
@@ -134,11 +137,13 @@ assert.match(
   /All four Harmonize self-hosted runner services are enabled, active, correctly owned, and confined/,
 );
 
-function runHostHealthStub(overrides = {}) {
+function runHostHealthStub(overrides = {}, failures = {}) {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hue-runner-health-"));
   const fixtureBin = path.join(fixtureRoot, "bin");
   fs.mkdirSync(fixtureBin, { recursive: true });
   const systemctlPath = path.join(fixtureBin, "systemctl");
+  const failureStatePath = path.join(fixtureRoot, "failure-state.json");
+  fs.writeFileSync(failureStatePath, JSON.stringify(failures));
   const values = {
     "actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin.service": {
       User: "harmonize-runner",
@@ -188,18 +193,34 @@ function runHostHealthStub(overrides = {}) {
   fs.writeFileSync(
     systemctlPath,
     `#!/usr/bin/env node
+const fs = require("node:fs");
 const args = process.argv.slice(2);
 const values = ${JSON.stringify(values)};
 const overrides = ${JSON.stringify(overrides)};
+const failureStatePath = process.env.HUE_RUNNER_HEALTH_FAILURE_STATE;
+let failureState = {};
+try {
+  failureState = JSON.parse(fs.readFileSync(failureStatePath, "utf8"));
+} catch {
+  process.exit(1);
+}
+const unit = args[0] === "show" ? args[1] : args[2];
+const propertyArg = args.find(arg => arg.startsWith("--property="));
+const property = propertyArg ? propertyArg.slice("--property=".length) : "";
+const failureKey = args[0] === "show"
+  ? args[0] + "|" + unit + "|" + property
+  : args[0] + "|" + unit;
+if (Number(failureState[failureKey] || 0) > 0) {
+  failureState[failureKey] -= 1;
+  fs.writeFileSync(failureStatePath, JSON.stringify(failureState));
+  process.exit(1);
+}
 if (args[0] === "is-enabled" || args[0] === "is-active") {
   process.exit(0);
 }
 if (args[0] !== "show") {
   process.exit(1);
 }
-const unit = args[1];
-const propertyArg = args.find(arg => arg.startsWith("--property="));
-const property = propertyArg ? propertyArg.slice("--property=".length) : "";
 const key = unit + "|" + property;
 const value = Object.prototype.hasOwnProperty.call(overrides, key)
   ? overrides[key]
@@ -218,6 +239,7 @@ process.stdout.write(String(value) + "\\n");
       env: {
         ...process.env,
         PATH: `${fixtureBin}${path.delimiter}${process.env.PATH || ""}`,
+        HUE_RUNNER_HEALTH_FAILURE_STATE: failureStatePath,
       },
     });
     return {
@@ -244,6 +266,25 @@ assert.notEqual(
   "host runner health check passed after service identity was weakened",
 );
 assert.match(compromisedHostHealth.output, /property=User expected=harmonize-runner actual=root/);
+const transientHostHealth = runHostHealthStub({}, {
+  "is-enabled|actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin.service": 1,
+  "is-active|actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin.service": 1,
+  "show|actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin.service|User": 1,
+});
+assert.equal(
+  transientHostHealth.status,
+  0,
+  `host runner health check did not recover from a transient systemd query failure:\n${transientHostHealth.output}`,
+);
+const persistentHostHealth = runHostHealthStub({}, {
+  "show|actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin.service|User": 3,
+});
+assert.notEqual(
+  persistentHostHealth.status,
+  0,
+  "host runner health check passed after a systemd query failed through all retries",
+);
+assert.match(persistentHostHealth.output, /property=User expected=harmonize-runner actual=<unavailable>/);
 const unconstrainedHostHealth = runHostHealthStub({
   "actions.runner.AnalyticETH-HarmonizeProject-Jellyfin.harmonizeproject-jellyfin.service|ProtectSystem": "no",
 });

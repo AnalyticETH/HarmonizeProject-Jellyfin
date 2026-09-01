@@ -416,6 +416,7 @@ function makeHarness() {
         makePage,
         document,
         documentListeners,
+        apiClient,
         evaluateScript,
         api: context.HueConfigurationPage,
         requests,
@@ -1705,6 +1706,49 @@ async function testRuntimeStopLifecycleGuards() {
         assert.equal(statusLoads, 0, `${testCase.method} cannot restart runtime polling after pagehide`);
         assert.equal(dashboard.alerts.length, 0, `${testCase.method} suppresses stale pagehide alerts`);
         assert.equal(page._hueRuntimeStopInFlight, false, `${testCase.method} clears stop state after completion`);
+    }
+}
+
+async function testRuntimeStopSynchronousRequestFailure() {
+    const cases = [
+        {
+            method: "stopRuntimeSync",
+            arguments: [],
+            expectedAlert: "Unable to stop Hue sync: request could not be created."
+        },
+        {
+            method: "stopRuntimeSession",
+            arguments: ["play-session-1"],
+            expectedAlert: "Unable to stop the selected Hue sync session: request could not be created."
+        }
+    ];
+
+    for (const testCase of cases) {
+        const harness = makeHarness();
+        const { page, api, apiClient, dashboard, requests } = harness;
+        let loadingShown = 0;
+        let loadingHidden = 0;
+        dashboard.showLoadingMsg = () => { loadingShown += 1; };
+        dashboard.hideLoadingMsg = () => { loadingHidden += 1; };
+        api.loadRuntimeStatus = () => Promise.resolve();
+        apiClient.ajax = () => {
+            throw new Error("synchronous request construction failure");
+        };
+
+        let operation;
+        assert.doesNotThrow(() => {
+            operation = api[testCase.method](page, ...testCase.arguments);
+        }, `${testCase.method} contains synchronous request-construction failures`);
+        assert.ok(operation && typeof operation.then === "function", `${testCase.method} returns a settled promise after request construction failure`);
+        await operation;
+
+        assert.equal(requests.length, 0, `${testCase.method} does not publish a request after synchronous construction failure`);
+        assert.equal(page._hueRuntimeStopInFlight, false, `${testCase.method} clears its busy state after synchronous construction failure`);
+        assert.equal(page._hueRuntimeStopRequest, null, `${testCase.method} clears its request state after synchronous construction failure`);
+        assert.equal(page.querySelector("#stopRuntimeSyncBtn").disabled, false, `${testCase.method} leaves the global stop control enabled after synchronous construction failure`);
+        assert.equal(loadingShown, 1, `${testCase.method} shows the global loader once`);
+        assert.equal(loadingHidden, 1, `${testCase.method} releases the global loader after synchronous construction failure`);
+        assert.deepEqual(dashboard.alerts, [testCase.expectedAlert], `${testCase.method} reports synchronous construction failure to the administrator`);
     }
 }
 
@@ -7451,6 +7495,7 @@ await testDuplicateTargetNormalizationAndGuard();
 await testDuplicateMappingResolutionLifecycleGuards();
 await testUserMappingReconciliationLifecycleGuards();
 await testRuntimeStopLifecycleGuards();
+await testRuntimeStopSynchronousRequestFailure();
 await testRuntimeSessionStopAccessibleLabels();
 await testRuntimeStopLoaderOwnershipAcrossRetainedPages();
 await testConfigurationExportLoaderOwnershipAcrossRetainedPages();
