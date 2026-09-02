@@ -169,11 +169,25 @@ const requiredWorkflowMarkers = [
   "--image \"$JELLYFIN_RUNTIME_IMAGE\"",
   "--container-name-prefix \"jellyfin-hue-runtime-smoke-$JELLYFIN_RUNTIME_VERSION\"",
   '"BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "',
+  'plugin_directory="HueSync_${RELEASE_VERSION}"',
+  "printf '   - **Linux**: `/var/lib/jellyfin/plugins/%s/`\\n' \"$plugin_directory\"",
+  "printf '   - **Windows**: `%s\\Jellyfin\\Server\\plugins\\%s\\`\\n' '%ProgramData%' \"$plugin_directory\"",
+  "printf '   - **Docker**: `/config/plugins/%s/`\\n' \"$plugin_directory\"",
 ];
 
 for (const marker of requiredWorkflowMarkers) {
   if (!workflow.includes(marker)) {
     throw new Error(`Release workflow is missing package-integrity marker: ${marker}`);
+  }
+}
+
+for (const stalePath of [
+  "/var/lib/jellyfin/plugins/HueSync/",
+  "%ProgramData%\\Jellyfin\\Server\\plugins\\HueSync\\",
+  "/config/plugins/HueSync/",
+]) {
+  if (workflow.includes(stalePath)) {
+    throw new Error(`Release notes still contain a non-versioned plugin path: ${stalePath}`);
   }
 }
 

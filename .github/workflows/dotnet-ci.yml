@@ -615,16 +615,18 @@ jobs:
         }
 
         body_file="$RUNNER_TEMP/hue-release-body.md"
+        plugin_directory="HueSync_${RELEASE_VERSION}"
         {
           printf '## Jellyfin Philips Hue Sync Plugin v%s\n\n' "$RELEASE_VERSION"
           printf '### Changes\n\n%s\n\n' "$CHANGELOG_TEXT"
           printf '%s\n' \
             '### Installation' \
             '1. Download `jellyfin-plugin-hue-release.zip`' \
-            '2. Extract to your Jellyfin plugins directory:' \
-            '   - **Linux**: `/var/lib/jellyfin/plugins/HueSync/`' \
-            '   - **Windows**: `%ProgramData%\Jellyfin\Server\plugins\HueSync\`' \
-            '   - **Docker**: `/config/plugins/HueSync/`' \
+            '2. Extract to the versioned directory in your Jellyfin plugins directory:'
+          printf '   - **Linux**: `/var/lib/jellyfin/plugins/%s/`\n' "$plugin_directory"
+          printf '   - **Windows**: `%s\Jellyfin\Server\plugins\%s\`\n' '%ProgramData%' "$plugin_directory"
+          printf '   - **Docker**: `/config/plugins/%s/`\n' "$plugin_directory"
+          printf '%s\n' \
             '3. Restart Jellyfin' \
             '4. Configure the plugin in Dashboard → Plugins → Philips Hue Sync' \
             '' \
