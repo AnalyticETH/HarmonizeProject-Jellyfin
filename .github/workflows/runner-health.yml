@@ -109,11 +109,11 @@ jobs:
           trusted_count="$(jq -r '.total_count // "unknown"' "$trusted_runs_json" 2>/dev/null || echo unknown)"
           echo "Runner-health API counts: queued=$queued_count, trusted-main=$trusted_count."
           echo "Latest successful trusted main run candidate: ${latest_trusted_run_id:-none}."
+          jobs_ready=false
           if [ -z "$latest_trusted_run_id" ]; then
             echo "No successful trusted main run metadata is available; current runner context remains authoritative." >&2
           else
             expected_labels='["local-docker"]'
-            jobs_ready=false
             for attempt in 1 2 3 4 5; do
               if ! gh api \
                 "repos/${GITHUB_REPOSITORY}/actions/runs/${latest_trusted_run_id}/jobs?per_page=100" \
