@@ -194,7 +194,7 @@ jobs:
             echo
             echo "Queued workflow runs: $queued_count."
             echo "Queued runs older than one hour: $stale_count."
-            if [ "$stale_count" -gt 0 ]; then
+            if [[ "$stale_count" =~ ^[0-9]+$ ]] && [ "$stale_count" -gt 0 ]; then
               echo
               echo "Stale queued runs:"
               jq -r --argjson cutoff "$stale_cutoff" '
