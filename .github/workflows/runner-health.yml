@@ -94,35 +94,45 @@ jobs:
             runner_health_ok=false
             echo "No successful trusted main run is available for runner-label verification." >&2
           else
-            gh api \
-              "repos/${GITHUB_REPOSITORY}/actions/runs/${latest_trusted_run_id}/jobs?per_page=100" \
-              > "$trusted_jobs_json"
-            jq -e '
-              type == "object" and
-              (.total_count | type == "number") and
-              (.jobs | type == "array") and
-              ((.jobs | length) <= .total_count) and
-              all(.jobs[]?;
-                (.id | type == "number") and
-                (.name | type == "string") and
-                ((.runner_name == null) or (.runner_name | type == "string")) and
-                (.labels | type == "array") and
-                all(.labels[]?; (. | type == "string"))
-              )
-            ' "$trusted_jobs_json" >/dev/null
-
             expected_labels='["local-docker"]'
-            if ! jq -e --argjson expected "$expected_labels" '
-              . as $root |
-              all($expected[]; . as $label |
-                any($root.jobs[]?;
-                  .conclusion == "success" and
-                  (((.labels // []) | index($label)) != null)
+            jobs_ready=false
+            for attempt in 1 2 3 4 5; do
+              gh api \
+                "repos/${GITHUB_REPOSITORY}/actions/runs/${latest_trusted_run_id}/jobs?per_page=100" \
+                > "$trusted_jobs_json"
+              if jq -e '
+                type == "object" and
+                (.total_count | type == "number") and
+                (.jobs | type == "array") and
+                ((.jobs | length) <= .total_count) and
+                all(.jobs[]?;
+                  (.id | type == "number") and
+                  (.name | type == "string") and
+                  ((.runner_name == null) or (.runner_name | type == "string")) and
+                  ((.labels == null) or (.labels | type == "array")) and
+                  all((.labels // [])[]?; (. | type == "string"))
                 )
-              )
-            ' "$trusted_jobs_json" >/dev/null; then
+              ' "$trusted_jobs_json" >/dev/null &&
+                jq -e --argjson expected "$expected_labels" '
+                  . as $root |
+                  all($expected[]; . as $label |
+                    any($root.jobs[]?;
+                      .conclusion == "success" and
+                      (((.labels // []) | index($label)) != null)
+                    )
+                  )
+                ' "$trusted_jobs_json" >/dev/null; then
+                jobs_ready=true
+                break
+              fi
+              if [ "$attempt" -lt 5 ]; then
+                echo "Trusted job metadata is not ready; retrying ($attempt/5)." >&2
+                sleep 10
+              fi
+            done
+            if [ "$jobs_ready" != true ]; then
               runner_health_ok=false
-              echo "The latest successful trusted main run did not use the replacement local-docker runner label." >&2
+              echo "The latest successful trusted main run did not expose a successful job with the replacement local-docker runner label." >&2
             fi
           fi
 

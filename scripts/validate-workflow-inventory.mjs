@@ -318,6 +318,8 @@ for (const marker of [
   "actions/workflows/dotnet-ci.yml/runs?branch=main&per_page=20",
   "actions/runs/${latest_trusted_run_id}/jobs?per_page=100",
   "Latest successful trusted main run",
+  "jobs_ready=false",
+  "retrying ($attempt/5)",
   "stale_cutoff=$((now_epoch - 3600))",
   "runner_health_ok=false",
   "exit 1",
