@@ -164,9 +164,9 @@ jobs:
                 | (.created_at | fromdateiso8601) as $created
                 | select($created < $cutoff)]
               | length
-            ' "$queued_json")"
+            ' "$queued_json" 2>/dev/null || echo unknown)"
           fi
-          if [ "$stale_count" -ne 0 ]; then
+          if [[ "$stale_count" =~ ^[0-9]+$ ]] && [ "$stale_count" -ne 0 ]; then
             echo "Found $stale_count queued workflow run(s) older than one hour; recording an operator diagnostic." >&2
           fi
 
