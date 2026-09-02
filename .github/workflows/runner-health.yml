@@ -41,12 +41,18 @@ jobs:
           trusted_runs_json="$RUNNER_TEMP/harmonize-runner-health-trusted-runs.json"
           trusted_jobs_json="$RUNNER_TEMP/harmonize-runner-health-trusted-jobs.json"
 
-          gh api \
+          if ! gh api \
             "repos/${GITHUB_REPOSITORY}/actions/runs?status=queued&per_page=100" \
-            > "$queued_json"
-          gh api \
+            > "$queued_json"; then
+            echo "Queued Actions API was unavailable; recording a diagnostic." >&2
+            : > "$queued_json"
+          fi
+          if ! gh api \
             "repos/${GITHUB_REPOSITORY}/actions/workflows/dotnet-ci.yml/runs?branch=main&per_page=20" \
-            > "$trusted_runs_json"
+            > "$trusted_runs_json"; then
+            echo "Trusted workflow-runs API was unavailable; recording a diagnostic." >&2
+            : > "$trusted_runs_json"
+          fi
 
           # A truncated or malformed API response is a failed health check,
           # not an opportunity to report a false-green result.
