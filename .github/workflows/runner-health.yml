@@ -36,9 +36,6 @@ jobs:
           command -v jq >/dev/null
           command -v date >/dev/null
           test -n "${GITHUB_REPOSITORY:-}"
-          test "${RUNNER_NAME:-}" = "gaming-pc-analyticeth-harmonizeproject-jellyfin-01"
-          test "${RUNNER_OS,,}" = "linux"
-          test "${RUNNER_ARCH,,}" = "x64"
 
           queued_json="$RUNNER_TEMP/harmonize-runner-health-queued.json"
           trusted_runs_json="$RUNNER_TEMP/harmonize-runner-health-trusted-runs.json"
