@@ -28,9 +28,6 @@ jobs:
       - name: Check trusted queue and recent runner usage
         env:
           GH_TOKEN: ${{ github.token }}
-          RUNNER_NAME_CONTEXT: ${{ runner.name }}
-          RUNNER_OS_CONTEXT: ${{ runner.os }}
-          RUNNER_ARCH_CONTEXT: ${{ runner.arch }}
         shell: bash
         run: |
           set -euo pipefail
@@ -39,9 +36,9 @@ jobs:
           command -v jq >/dev/null
           command -v date >/dev/null
           test -n "${GITHUB_REPOSITORY:-}"
-          test "$RUNNER_NAME_CONTEXT" = "gaming-pc-analyticeth-harmonizeproject-jellyfin-01"
-          test "${RUNNER_OS_CONTEXT,,}" = "linux"
-          test "${RUNNER_ARCH_CONTEXT,,}" = "x64"
+          test "${RUNNER_NAME:-}" = "gaming-pc-analyticeth-harmonizeproject-jellyfin-01"
+          test "${RUNNER_OS,,}" = "linux"
+          test "${RUNNER_ARCH,,}" = "x64"
 
           queued_json="$RUNNER_TEMP/harmonize-runner-health-queued.json"
           trusted_runs_json="$RUNNER_TEMP/harmonize-runner-health-trusted-runs.json"
