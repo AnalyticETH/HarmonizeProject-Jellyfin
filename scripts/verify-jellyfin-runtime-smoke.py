@@ -23,6 +23,7 @@ EXPECTED_ARCHIVE_ENTRIES = (
     "Jellyfin.Plugin.Hue.dll",
     "meta.json",
 )
+EXPECTED_ASSEMBLIES = ("Jellyfin.Plugin.Hue.dll",)
 REQUIRED_LOG_MARKERS = (
     "Loaded plugin: Philips Hue Sync",
 )
@@ -152,6 +153,13 @@ def validate_archive_entries(archive_path: Path) -> dict[str, bytes]:
             extracted[info.filename] = archive.read(info.filename)
     meta = json.loads(extracted["meta.json"].decode("utf8"))
     require(meta.get("version"), "meta.json version is required for runtime smoke verification")
+    assemblies = meta.get("assemblies")
+    require(
+        isinstance(assemblies, list)
+        and tuple(assemblies) == EXPECTED_ASSEMBLIES
+        and all(isinstance(assembly, str) and assembly.strip() for assembly in assemblies),
+        "meta.json assemblies must be the Jellyfin-compatible string filename list",
+    )
     return extracted
 
 
@@ -326,7 +334,7 @@ def run_self_test() -> None:
             for name, payload in {
                 "BouncyCastle.Cryptography.dll": b"bc",
                 "Jellyfin.Plugin.Hue.dll": b"dll",
-                "meta.json": b'{"version":"1.5.456.0"}\n',
+                "meta.json": b'{"version":"1.5.456.0","assemblies":["Jellyfin.Plugin.Hue.dll"]}\n',
             }.items():
                 info = zipfile.ZipInfo(filename=name, date_time=(1980, 1, 1, 0, 0, 0))
                 info.create_system = 0

@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Reject extreme Hue `xy` coordinates whose intermediate XYZ ratios overflow, preventing non-finite RGB values from being treated as valid captured colors.
 - Add regression coverage for subnormal-coordinate conversion safety.
+- Fix the Jellyfin plugin manifest `assemblies` field to use the runtime-compatible string filename schema.
+- Add release and runtime smoke validation so incompatible manifest shapes fail before publication.
 
 ## [1.5.457] - 2026-09-01
 

@@ -12,6 +12,13 @@ const runtimeSmokeVerifier = fs.readFileSync("scripts/verify-jellyfin-runtime-sm
 const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
 const meta = JSON.parse(fs.readFileSync("meta.json", "utf8"));
 const jellyfinAbiBaseline = "10.9.0";
+if (
+  !Array.isArray(meta.assemblies)
+  || meta.assemblies.length !== 1
+  || meta.assemblies[0] !== "Jellyfin.Plugin.Hue.dll"
+) {
+  throw new Error("meta.json assemblies must contain the Jellyfin-compatible string plugin filename");
+}
 const jellyfinPackageProjects = [
   "Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj",
   "Jellyfin.Plugin.Hue.Tests/Jellyfin.Plugin.Hue.Tests.csproj",
@@ -266,6 +273,7 @@ for (const marker of [
 
 for (const marker of [
   "EXPECTED_ARCHIVE_ENTRIES = (",
+  'EXPECTED_ASSEMBLIES = ("Jellyfin.Plugin.Hue.dll",)',
   '# Official Jellyfin 10.10.7 linux/amd64 image manifest digest.',
   'DEFAULT_IMAGE = "jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123"',
   "def resolve_runtime_temp_dir() -> Path:",
@@ -284,6 +292,7 @@ for (const marker of [
   "def resolve_container_user() -> str:",
   "def set_owner_mode(path: Path, mode: int) -> None:",
   "path.chmod(mode)",
+  "meta.json assemblies must be the Jellyfin-compatible string filename list",
   "\"--user\", runtime_user",
   "return \"0:0\"",
   "fetch_health(",

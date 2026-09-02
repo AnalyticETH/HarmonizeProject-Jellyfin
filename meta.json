@@ -9,8 +9,6 @@
   "autoUpdate": false,
   "images": [],
   "assemblies": [
-    {
-      "filename": "Jellyfin.Plugin.Hue.dll"
-    }
+    "Jellyfin.Plugin.Hue.dll"
   ]
 }
