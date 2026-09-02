@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const workflowDirectory = ".github/workflows";
-const MAX_TIMEOUT_MINUTES = 30;
+const MAX_TIMEOUT_MINUTES = 40;
 const expectedWorkflows = new Set([
   "dotnet-ci.yml",
   "pull-request-validation.yml",

@@ -117,7 +117,10 @@ jobs:
     name: Static analysis (semgrep)
     if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, linux, x64, local-docker]
-    timeout-minutes: 30
+    # The replacement Docker-backed runner measured a full cold Semgrep pass
+    # at just over 30 minutes; keep a bounded 40-minute ceiling for its first
+    # run while still failing closed on a stalled scanner.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

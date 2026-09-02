@@ -2,7 +2,7 @@ import fs from "node:fs";
 
 const ciPath = ".github/workflows/dotnet-ci.yml";
 const securityPath = ".github/workflows/security-scan.yml";
-const MAX_TIMEOUT_MINUTES = 30;
+const MAX_TIMEOUT_MINUTES = 40;
 const replacementRunner = '[self-hosted, linux, x64, local-docker]';
 const trustedBuildRunner = replacementRunner;
 const trustedRuntimeRunner = replacementRunner;
