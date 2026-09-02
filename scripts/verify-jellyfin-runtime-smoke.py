@@ -273,6 +273,36 @@ def fetch_health(port: int, timeout_seconds: int) -> bool:
         return False
 
 
+def fetch_container_health(container_name: str, timeout_seconds: int) -> bool:
+    """Probe the runtime from its own network namespace for remote Docker daemons."""
+    bounded_timeout = max(1, timeout_seconds)
+    command = [
+        "docker",
+        "exec",
+        container_name,
+        "/usr/bin/curl",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--connect-timeout",
+        str(bounded_timeout),
+        "--max-time",
+        str(bounded_timeout),
+        "http://127.0.0.1:8096/health",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=max(3, bounded_timeout + 2),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
 def wait_for_runtime(container_name: str, port: int, timeout_seconds: int, http_timeout_seconds: int, poll_interval_seconds: int) -> str:
     deadline = time.monotonic() + timeout_seconds
     last_logs = ""
@@ -294,6 +324,11 @@ def wait_for_runtime(container_name: str, port: int, timeout_seconds: int, http_
             )
         if not health_passed:
             health_passed = fetch_health(port, http_timeout_seconds)
+        if not health_passed:
+            # A Docker CLI inside a runner container may target a separate
+            # daemon, making the daemon's loopback-published port unreachable
+            # from this process. Probe through the runtime container itself.
+            health_passed = fetch_container_health(container_name, http_timeout_seconds)
         has_required_logs = all(marker in last_logs for marker in REQUIRED_LOG_MARKERS)
         if health_passed and has_required_logs:
             return last_logs

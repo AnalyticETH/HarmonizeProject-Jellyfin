@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add regression coverage for subnormal-coordinate conversion safety.
 - Fix the Jellyfin plugin manifest `assemblies` field to use the runtime-compatible string filename schema.
 - Add release and runtime smoke validation so incompatible manifest shapes fail before publication.
+- Probe Jellyfin health inside the disposable runtime when a Docker-backed runner publishes ports through a separate daemon namespace.
 
 ## [1.5.457] - 2026-09-01
 

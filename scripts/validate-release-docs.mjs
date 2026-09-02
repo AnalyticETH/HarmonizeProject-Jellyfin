@@ -307,6 +307,7 @@ for (const marker of [
   "\"--user\", runtime_user",
   "return \"0:0\"",
   "fetch_health(",
+  "def fetch_container_health(container_name: str, timeout_seconds: int) -> bool:",
   "wait_for_runtime(",
   "cleanup_container(",
   "def run_self_test()",
