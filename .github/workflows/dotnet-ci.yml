@@ -62,14 +62,28 @@ jobs:
       run: |
         set -euo pipefail
         ffmpeg_path="$(command -v ffmpeg || true)"
-        if [ -z "$ffmpeg_path" ]; then
-          echo "FFmpeg is required on the self-hosted runner but was not found on PATH." >&2
-          exit 1
+        if [ -n "$ffmpeg_path" ]; then
+          ffmpeg_command=("$ffmpeg_path")
+          ffmpeg_source="$ffmpeg_path"
+        else
+          if ! command -v docker >/dev/null; then
+            echo "FFmpeg is absent from the replacement runner PATH and Docker is unavailable for the pinned runtime probe." >&2
+            exit 1
+          fi
+          # The replacement runner is Docker-backed. Use the same digest-pinned
+          # Jellyfin runtime image used by the smoke gate when the runner image
+          # does not carry a host ffmpeg executable.
+          ffmpeg_command=(
+            docker run --rm
+            --entrypoint /usr/lib/jellyfin-ffmpeg/ffmpeg
+            "$JELLYFIN_RUNTIME_IMAGE"
+          )
+          ffmpeg_source="Docker image $JELLYFIN_RUNTIME_IMAGE (/usr/lib/jellyfin-ffmpeg/ffmpeg)"
         fi
-        timeout --kill-after=5s 15s "$ffmpeg_path" -version >/dev/null 2>&1
+        timeout --kill-after=5s 15s "${ffmpeg_command[@]}" -version >/dev/null 2>&1
         pcm_path="$RUNNER_TEMP/hue-audio-preflight.pcm"
         error_path="$RUNNER_TEMP/hue-audio-preflight.err"
-        timeout --kill-after=5s 15s "$ffmpeg_path" \
+        timeout --kill-after=5s 15s "${ffmpeg_command[@]}" \
           -hide_banner -loglevel error -nostdin \
           -f lavfi -i "sine=frequency=440:sample_rate=8000:duration=0.15" \
           -map 0:a:0 -vn -sn -dn -ar 8000 -ac 2 -c:a pcm_s16le \
@@ -80,7 +94,7 @@ jobs:
           sed -n '1,20p' "$error_path" >&2 || true
           exit 1
         fi
-        echo "FFmpeg preflight passed: $ffmpeg_path ($pcm_bytes PCM bytes)."
+        echo "FFmpeg preflight passed: $ffmpeg_source ($pcm_bytes PCM bytes)."
 
     - name: Run tests
       run: dotnet test --configuration ${{ env.BUILD_CONFIGURATION }} --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage" --results-directory ./TestResults
