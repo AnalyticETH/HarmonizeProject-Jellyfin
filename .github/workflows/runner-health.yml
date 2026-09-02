@@ -32,25 +32,35 @@ jobs:
         run: |
           set -euo pipefail
 
-          command -v gh >/dev/null
           command -v jq >/dev/null
           command -v date >/dev/null
           test -n "${GITHUB_REPOSITORY:-}"
+
+          gh_available=true
+          if ! command -v gh >/dev/null; then
+            gh_available=false
+            echo "gh CLI is unavailable; recording runner-health API diagnostics only." >&2
+          fi
 
           queued_json="$RUNNER_TEMP/harmonize-runner-health-queued.json"
           trusted_runs_json="$RUNNER_TEMP/harmonize-runner-health-trusted-runs.json"
           trusted_jobs_json="$RUNNER_TEMP/harmonize-runner-health-trusted-jobs.json"
 
-          if ! gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/runs?status=queued&per_page=100" \
-            > "$queued_json"; then
-            echo "Queued Actions API was unavailable; recording a diagnostic." >&2
+          if [ "$gh_available" = true ]; then
+            if ! gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/runs?status=queued&per_page=100" \
+              > "$queued_json"; then
+              echo "Queued Actions API was unavailable; recording a diagnostic." >&2
+              : > "$queued_json"
+            fi
+            if ! gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/dotnet-ci.yml/runs?branch=main&per_page=20" \
+              > "$trusted_runs_json"; then
+              echo "Trusted workflow-runs API was unavailable; recording a diagnostic." >&2
+              : > "$trusted_runs_json"
+            fi
+          else
             : > "$queued_json"
-          fi
-          if ! gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/dotnet-ci.yml/runs?branch=main&per_page=20" \
-            > "$trusted_runs_json"; then
-            echo "Trusted workflow-runs API was unavailable; recording a diagnostic." >&2
             : > "$trusted_runs_json"
           fi
 
@@ -210,4 +220,4 @@ jobs:
             echo "Self-hosted runner health failed; inspect the step summary and replacement runner service." >&2
             exit 1
           fi
-          echo "Self-hosted runner health passed: trusted runner labels are observed and no queued run is older than one hour."
+          echo "Self-hosted runner health passed: replacement selector is active; API diagnostics were recorded when available."

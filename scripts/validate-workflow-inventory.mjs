@@ -316,6 +316,7 @@ if (/\$\{\{[^}]*\bsecrets\./.test(runnerHealthWorkflow)) {
 for (const marker of [
   "actions/runs?status=queued&per_page=100",
   "actions/workflows/dotnet-ci.yml/runs?branch=main&per_page=20",
+  "gh_available=true",
   "Queued Actions API was unavailable; recording a diagnostic.",
   "Trusted workflow-runs API was unavailable; recording a diagnostic.",
   "actions/runs/${latest_trusted_run_id}/jobs?per_page=100",
