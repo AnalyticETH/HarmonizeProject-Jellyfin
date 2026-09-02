@@ -519,7 +519,10 @@ namespace Jellyfin.Plugin.Hue.Hue
                         {
                             var usernameValue = username.GetString() ?? string.Empty;
                             var clientKeyValue = clientKey.GetString() ?? string.Empty;
-                            if (!string.IsNullOrWhiteSpace(usernameValue) && !string.IsNullOrWhiteSpace(clientKeyValue))
+                            if (!string.IsNullOrWhiteSpace(usernameValue) &&
+                                !string.IsNullOrWhiteSpace(clientKeyValue) &&
+                                PluginConfiguration.IsHueCredentialSafe(usernameValue) &&
+                                PluginConfiguration.IsHueCredentialSafe(clientKeyValue))
                             {
                                 return new Api.HueRegistrationResult
                                 {

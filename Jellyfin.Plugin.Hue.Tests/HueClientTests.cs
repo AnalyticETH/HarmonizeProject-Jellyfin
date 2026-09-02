@@ -2395,6 +2395,23 @@ public class HueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task RegisterWithBridge_RejectsOversizedCredentialsFromBridge()
+    {
+        SetupHttpResponse(
+            HttpStatusCode.OK,
+            $"[{{\"success\":{{\"username\":\"{new string('a', PluginConfiguration.MaxHueCredentialLength + 1)}\",\"clientkey\":\"client-key\"}}}}]");
+
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.RegisterWithBridge("192.168.1.100");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public async Task RegisterWithBridge_LinkButtonNotPressed_ReturnsNull()
     {
         // Arrange

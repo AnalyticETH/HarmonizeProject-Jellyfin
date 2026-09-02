@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Probe Jellyfin health inside the disposable runtime when a Docker-backed runner publishes ports through a separate daemon namespace.
 - Bound Hue App Key and Client Key inputs and reject control characters before persistence, HTTP headers, or DTLS parsing.
 - Add regression coverage for oversized and control-character credentials across configuration, REST, and DTLS boundaries.
+- Reject oversized or control-character credentials returned by bridge registration before they reach the administrator configuration page.
 
 ## [1.5.457] - 2026-09-01
 
