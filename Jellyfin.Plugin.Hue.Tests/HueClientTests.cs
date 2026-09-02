@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Jellyfin.Plugin.Hue.Api;
+using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
 using Jellyfin.Plugin.Hue.Service;
 using Microsoft.Extensions.Logging;
@@ -391,6 +392,28 @@ public class HueClientTests : IDisposable
         Assert.Equal("Living Room", result[0].Name);
         Assert.Equal("area-2", result[1].Id);
         Assert.Equal("Bedroom", result[1].Name);
+    }
+
+    [Fact]
+    public async Task GetEntertainmentAreas_RejectsOversizedAppKeyBeforeSending()
+    {
+        var client = new HueClient(_httpClient, _loggerMock.Object)
+        {
+            RetryAttempts = 0
+        };
+
+        var result = await client.GetEntertainmentAreas(
+            "192.168.1.100",
+            new string('a', PluginConfiguration.MaxHueCredentialLength + 1));
+
+        Assert.Null(result);
+        _httpHandlerMock
+            .Protected()
+            .Verify(
+                "SendAsync",
+                Times.Never(),
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>());
     }
 
     [Fact]

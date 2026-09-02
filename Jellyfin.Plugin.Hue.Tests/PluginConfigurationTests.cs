@@ -2301,6 +2301,66 @@ public class PluginConfigurationTests
     }
 
     [Fact]
+    public void Validate_WhenGlobalHueCredentialsExceedSafetyLimits_ReturnsErrors()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = new string('a', PluginConfiguration.MaxHueCredentialLength + 1),
+            HueClientKey = "client\nkey",
+            EntertainmentAreaId = "area-id"
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains(
+            $"Hue App Key must be {PluginConfiguration.MaxHueCredentialLength} characters or fewer and contain no control characters",
+            errors);
+        Assert.Contains(
+            $"Hue Client Key must be {PluginConfiguration.MaxHueCredentialLength} characters or fewer and contain no control characters",
+            errors);
+    }
+
+    [Fact]
+    public void Validate_WhenDisabledMappingRetainsUnsafeCredentials_ReturnsErrors()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncEnabled = false,
+            UserMappings = new List<UserBridgeMapping>
+            {
+                new()
+                {
+                    UserId = "user-1",
+                    SyncEnabled = false,
+                    HueAppKey = new string('a', PluginConfiguration.MaxHueCredentialLength + 1),
+                    HueClientKey = "client\rkey"
+                }
+            }
+        };
+
+        var errors = config.Validate();
+
+        Assert.Contains(
+            $"User mapping 1 Hue App Key must be {PluginConfiguration.MaxHueCredentialLength} characters or fewer and contain no control characters",
+            errors);
+        Assert.Contains(
+            $"User mapping 1 Hue Client Key must be {PluginConfiguration.MaxHueCredentialLength} characters or fewer and contain no control characters",
+            errors);
+    }
+
+    [Fact]
+    public void IsHueCredentialSafe_AllowsNormalValuesAndRejectsOversizedOrControlValues()
+    {
+        Assert.True(PluginConfiguration.IsHueCredentialSafe("bridge-app-key"));
+        Assert.True(PluginConfiguration.IsHueCredentialSafe(string.Empty));
+        Assert.False(PluginConfiguration.IsHueCredentialSafe(
+            new string('a', PluginConfiguration.MaxHueCredentialLength + 1)));
+        Assert.False(PluginConfiguration.IsHueCredentialSafe("bridge\nkey"));
+    }
+
+    [Fact]
     public void Validate_WhenHueBridgeIpMissing_ReturnsError()
     {
         // Arrange

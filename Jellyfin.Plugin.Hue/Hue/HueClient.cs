@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Service;
 using Microsoft.Extensions.Logging;
 
@@ -215,6 +216,14 @@ namespace Jellyfin.Plugin.Hue.Hue
             CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(request);
+            if (request.Headers.TryGetValues("hue-application-key", out var applicationKeys) &&
+                applicationKeys.Any(key => !PluginConfiguration.IsHueCredentialSafe(key)))
+            {
+                throw new ArgumentException(
+                    $"The Hue App Key must be {PluginConfiguration.MaxHueCredentialLength} characters or fewer and contain no control characters.",
+                    "appKey");
+            }
+
             if (request.RequestUri is not { } requestUri)
             {
                 throw new InvalidOperationException("Hue bridge requests require an absolute URI.");

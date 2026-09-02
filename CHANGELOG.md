@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix the Jellyfin plugin manifest `assemblies` field to use the runtime-compatible string filename schema.
 - Add release and runtime smoke validation so incompatible manifest shapes fail before publication.
 - Probe Jellyfin health inside the disposable runtime when a Docker-backed runner publishes ports through a separate daemon namespace.
+- Bound Hue App Key and Client Key inputs and reject control characters before persistence, HTTP headers, or DTLS parsing.
+- Add regression coverage for oversized and control-character credentials across configuration, REST, and DTLS boundaries.
 
 ## [1.5.457] - 2026-09-01
 

@@ -342,7 +342,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 bridgeIp = config?.HueBridgeIp?.Trim() ?? string.Empty;
 
             if (config == null || !IsSameBridgeTarget(bridgeIp, config.HueBridgeIp))
-                return !string.IsNullOrWhiteSpace(bridgeIp) && !string.IsNullOrWhiteSpace(appKey);
+                return !string.IsNullOrWhiteSpace(bridgeIp) &&
+                    !string.IsNullOrWhiteSpace(appKey) &&
+                    PluginConfiguration.IsHueCredentialSafe(appKey) &&
+                    PluginConfiguration.IsHueCredentialSafe(clientKey);
 
             if (string.IsNullOrWhiteSpace(appKey))
                 appKey = config.HueAppKey?.Trim() ?? string.Empty;
@@ -350,7 +353,10 @@ namespace Jellyfin.Plugin.Hue.Api
             if (allowStoredClientKey && string.IsNullOrWhiteSpace(clientKey))
                 clientKey = config.HueClientKey?.Trim() ?? string.Empty;
 
-            return !string.IsNullOrWhiteSpace(bridgeIp) && !string.IsNullOrWhiteSpace(appKey);
+            return !string.IsNullOrWhiteSpace(bridgeIp) &&
+                !string.IsNullOrWhiteSpace(appKey) &&
+                PluginConfiguration.IsHueCredentialSafe(appKey) &&
+                PluginConfiguration.IsHueCredentialSafe(clientKey);
         }
 
         private static bool IsSameBridgeTarget(string? left, string? right)
@@ -515,7 +521,10 @@ namespace Jellyfin.Plugin.Hue.Api
 
                 // An explicit device route must never fall through to the global or
                 // outer-user mapping when its stored route is missing or mismatched.
-                return !string.IsNullOrWhiteSpace(bridgeIp) && !string.IsNullOrWhiteSpace(appKey);
+                return !string.IsNullOrWhiteSpace(bridgeIp) &&
+                    !string.IsNullOrWhiteSpace(appKey) &&
+                    PluginConfiguration.IsHueCredentialSafe(appKey) &&
+                    PluginConfiguration.IsHueCredentialSafe(clientKey);
             }
 
             var matchingMappings = config?.UserMappings?
@@ -538,7 +547,10 @@ namespace Jellyfin.Plugin.Hue.Api
                 if (allowStoredClientKey && string.IsNullOrWhiteSpace(clientKey))
                     clientKey = mapping.HueClientKey?.Trim() ?? string.Empty;
 
-                return !string.IsNullOrWhiteSpace(bridgeIp) && !string.IsNullOrWhiteSpace(appKey);
+                return !string.IsNullOrWhiteSpace(bridgeIp) &&
+                    !string.IsNullOrWhiteSpace(appKey) &&
+                    PluginConfiguration.IsHueCredentialSafe(appKey) &&
+                    PluginConfiguration.IsHueCredentialSafe(clientKey);
             }
 
             var resolved = TryResolveGlobalCredentials(

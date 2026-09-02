@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
 using Org.BouncyCastle.Security;
 using Org.BouncyCastle.Tls;
@@ -95,6 +96,27 @@ public sealed class HueDtlsConnectionTests
                 // Preserve the assertion failure while ensuring the handshake worker is observed.
             }
         }
+    }
+
+    [Fact]
+    public void ParseClientKey_RejectsOversizedInputBeforeHexDecoding()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            HueDtlsConnection.ParseClientKey(
+                new string('a', PluginConfiguration.MaxHueCredentialLength + 1)));
+
+        Assert.Contains(
+            $"{PluginConfiguration.MaxHueCredentialLength} characters or fewer",
+            exception.Message);
+    }
+
+    [Fact]
+    public void ParseClientKey_RejectsControlCharacters()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            HueDtlsConnection.ParseClientKey("00112233\n44556677"));
+
+        Assert.Contains("control characters", exception.Message);
     }
 
     private sealed class TestDtlsServer : IAsyncDisposable

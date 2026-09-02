@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.Hue.Configuration;
 using Org.BouncyCastle.Security;
 using Org.BouncyCastle.Tls;
 using Org.BouncyCastle.Tls.Crypto.Impl.BC;
@@ -205,8 +206,15 @@ internal sealed class HueDtlsConnection : IHueDtlsConnection
             .ConfigureAwait(false);
     }
 
-    private static byte[] ParseClientKey(string clientKey)
+    internal static byte[] ParseClientKey(string clientKey)
     {
+        if (!PluginConfiguration.IsHueCredentialSafe(clientKey))
+        {
+            throw new ArgumentException(
+                $"The Hue Client Key must be {PluginConfiguration.MaxHueCredentialLength} characters or fewer and contain no control characters.",
+                nameof(clientKey));
+        }
+
         var normalized = clientKey.Replace("-", string.Empty, StringComparison.Ordinal).Trim();
         if (normalized.Length == 0 || normalized.Length % 2 != 0)
         {

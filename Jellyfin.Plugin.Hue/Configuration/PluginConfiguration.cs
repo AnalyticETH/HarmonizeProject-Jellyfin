@@ -730,6 +730,33 @@ namespace Jellyfin.Plugin.Hue.Configuration
             return changed;
         }
 
+        /// <summary>
+        /// Rejects credential values that could create unbounded bridge headers or
+        /// control-character injection when a stored key is sent to the Hue API.
+        /// Blank values remain valid here so callers can report their existing
+        /// required-field errors or intentionally inherit another target.
+        /// </summary>
+        public static bool IsHueCredentialSafe(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return true;
+
+            return value.Length <= MaxHueCredentialLength &&
+                !value.Any(char.IsControl);
+        }
+
+        private static void ValidateHueCredential(
+            string? value,
+            string label,
+            List<string> errors)
+        {
+            if (!string.IsNullOrWhiteSpace(value) && !IsHueCredentialSafe(value))
+            {
+                errors.Add(
+                    $"{label} must be {MaxHueCredentialLength} characters or fewer and contain no control characters");
+            }
+        }
+
         public const string PauseBehaviorKeepLastColors = "KeepLastColors";
         public const string PauseBehaviorRestoreLightState = "RestoreLightState";
         public const string PauseBehaviorDimToCinemaLevel = "DimToCinemaLevel";
@@ -870,6 +897,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         public const int MaxColorPresets = 50;
         public const int MaxColorPresetNameLength = 64;
         public const int MaxUserMappings = 100;
+        public const int MaxHueCredentialLength = 256;
         public const int MaxHueBridgeCertificatePins = 100;
         public const int MaxBulkUserMappingDeletes = 50;
         public const int MaxBulkUserMappingUpdates = 50;
@@ -2976,6 +3004,9 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 if (!Jellyfin.Plugin.Hue.HueBridgeCertificateValidation.IsValidBridgeAddress(target.HueBridgeIp))
                     errors.Add($"{targetLabel} bridge address must be a valid private IP address or .local host name");
 
+                ValidateHueCredential(target.HueAppKey, $"{targetLabel} Hue App Key", errors);
+                ValidateHueCredential(target.HueClientKey, $"{targetLabel} Hue Client Key", errors);
+
                 if (string.IsNullOrWhiteSpace(target.HueAppKey))
                     errors.Add($"{targetLabel} requires a Hue App Key");
 
@@ -4404,6 +4435,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
             errors.AddRange(ValidateColorPresets());
             errors.AddRange(ValidateScenePlaylists());
             errors.AddRange(ValidateSceneSchedules());
+            ValidateHueCredential(HueAppKey, "Hue App Key", errors);
+            ValidateHueCredential(HueClientKey, "Hue Client Key", errors);
 
             if (!TryNormalizePlaybackMediaFilter(PlaybackMediaFilter, out _))
                 errors.Add("Playback media scope must be AllVideo, Movies, Episodes, OtherVideo, Audio, or AllMedia");
@@ -4697,6 +4730,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
                 errors.AddRange(ValidateExecutionOverrides(mapping, label));
                 errors.AddRange(ValidateChannelOverrides(mapping, label));
                 errors.AddRange(ValidateDeviceTargets(mapping, label));
+                ValidateHueCredential(mapping.HueAppKey, $"{label} Hue App Key", errors);
+                ValidateHueCredential(mapping.HueClientKey, $"{label} Hue Client Key", errors);
 
                 var effectiveAudioFrequencies = NormalizeAudioFrequencyProfile(
                     mapping.AudioLowFrequencyHzOverride ?? AudioLowFrequencyHz,
