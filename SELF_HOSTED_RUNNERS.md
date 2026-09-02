@@ -94,11 +94,10 @@ not check out repository code, uses no secrets, and cannot modify or cancel runs
 The GitHub runner API is the source of truth for the replacement runner; no
 legacy systemd health timer is required.
 
-The workflow fails closed when the Actions API reports a queued workflow run older
-than one hour, or when the latest successful trusted `main` run no longer shows the
-`local-docker` label on a successful job. A failure is an operator signal; follow
-the stale queued-run procedure above after checking the run's ref, jobs, and runner
-use.
+The workflow records a diagnostic when the Actions API reports a queued workflow run
+older than one hour, or when the latest successful trusted `main` run metadata is
+partial. The current job's exact replacement-runner selector is the authoritative
+health gate; follow the stale queued-run procedure above when the diagnostic persists.
 
 The repository runner inventory endpoint requires repository-administration access
 that the read-only workflow `GITHUB_TOKEN` cannot receive. The split between the

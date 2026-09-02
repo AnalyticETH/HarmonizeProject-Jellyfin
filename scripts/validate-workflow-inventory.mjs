@@ -325,7 +325,7 @@ for (const marker of [
   "jobs_ready=false",
   "retrying ($attempt/5)",
   "stale_cutoff=$((now_epoch - 3600))",
-  "runner_health_ok=false",
+  "recording an operator diagnostic",
   "exit 1",
   "local-docker"
 ]) {
