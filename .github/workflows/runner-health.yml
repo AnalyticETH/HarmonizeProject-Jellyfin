@@ -44,7 +44,7 @@ jobs:
             "repos/${GITHUB_REPOSITORY}/actions/runs?status=queued&per_page=100" \
             > "$queued_json"
           gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/dotnet-ci.yml/runs?branch=main&event=push&per_page=20" \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/dotnet-ci.yml/runs?branch=main&per_page=20" \
             > "$trusted_runs_json"
 
           # A truncated or malformed API response is a failed health check,

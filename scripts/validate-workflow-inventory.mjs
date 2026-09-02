@@ -315,7 +315,7 @@ if (/\$\{\{[^}]*\bsecrets\./.test(runnerHealthWorkflow)) {
 }
 for (const marker of [
   "actions/runs?status=queued&per_page=100",
-  "actions/workflows/dotnet-ci.yml/runs?branch=main&event=push&per_page=20",
+  "actions/workflows/dotnet-ci.yml/runs?branch=main&per_page=20",
   "actions/runs/${latest_trusted_run_id}/jobs?per_page=100",
   "Latest successful trusted main run",
   "stale_cutoff=$((now_epoch - 3600))",
