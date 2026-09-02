@@ -318,6 +318,8 @@ for (const marker of [
   "actions/workflows/dotnet-ci.yml/runs?branch=main&per_page=20",
   "actions/runs/${latest_trusted_run_id}/jobs?per_page=100",
   "Latest successful trusted main run",
+  "Queued Actions API response failed schema validation.",
+  "Trusted workflow-runs API response failed schema validation.",
   "jobs_ready=false",
   "retrying ($attempt/5)",
   "stale_cutoff=$((now_epoch - 3600))",

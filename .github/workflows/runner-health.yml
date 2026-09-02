@@ -49,7 +49,8 @@ jobs:
 
           # A truncated or malformed API response is a failed health check,
           # not an opportunity to report a false-green result.
-          jq -e '
+          queued_api_ok=true
+          if ! jq -e '
             type == "object" and
             (.total_count | type == "number") and
             (.workflow_runs | type == "array") and
@@ -60,8 +61,13 @@ jobs:
               (.created_at | type == "string") and
               (.head_sha | type == "string")
             )
-          ' "$queued_json" >/dev/null
-          jq -e '
+          ' "$queued_json" >/dev/null; then
+            queued_api_ok=false
+            echo "Queued Actions API response failed schema validation." >&2
+            jq -c '{keys, total_count, workflow_runs: ((.workflow_runs // []) | map({id,name,created_at,head_sha})[:3])}' "$queued_json" >&2 || true
+          fi
+          trusted_api_ok=true
+          if ! jq -e '
             type == "object" and
             (.total_count | type == "number") and
             (.workflow_runs | type == "array") and
@@ -73,7 +79,11 @@ jobs:
               (.created_at | type == "string") and
               (.head_sha | type == "string")
             )
-          ' "$trusted_runs_json" >/dev/null
+          ' "$trusted_runs_json" >/dev/null; then
+            trusted_api_ok=false
+            echo "Trusted workflow-runs API response failed schema validation." >&2
+            jq -c '{keys, total_count, workflow_runs: ((.workflow_runs // []) | map({id,status,conclusion,created_at,head_sha,event})[:3])}' "$trusted_runs_json" >&2 || true
+          fi
 
           latest_trusted_run_id="$(jq -r '
             [.workflow_runs[]
@@ -88,6 +98,9 @@ jobs:
           ' "$trusted_runs_json")"
 
           runner_health_ok=true
+          if [ "$queued_api_ok" != true ] || [ "$trusted_api_ok" != true ]; then
+            runner_health_ok=false
+          fi
           echo "Runner-health API counts: queued=$(jq -r '.total_count' "$queued_json"), trusted-main=$(jq -r '.total_count' "$trusted_runs_json")."
           echo "Latest successful trusted main run candidate: ${latest_trusted_run_id:-none}."
           if [ -z "$latest_trusted_run_id" ] || [ -z "$latest_trusted_head_sha" ]; then
