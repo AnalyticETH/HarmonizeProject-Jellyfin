@@ -14,10 +14,14 @@ const meta = JSON.parse(fs.readFileSync("meta.json", "utf8"));
 const jellyfinAbiBaseline = "10.9.0";
 if (
   !Array.isArray(meta.assemblies)
-  || meta.assemblies.length !== 1
-  || meta.assemblies[0] !== "Jellyfin.Plugin.Hue.dll"
+  || meta.assemblies.length !== 2
+  || meta.assemblies[0] !== "BouncyCastle.Cryptography.dll"
+  || meta.assemblies[1] !== "Jellyfin.Plugin.Hue.dll"
 ) {
-  throw new Error("meta.json assemblies must contain the Jellyfin-compatible string plugin filename");
+  throw new Error("meta.json assemblies must contain the Jellyfin-compatible string assembly filename list");
+}
+if (meta.guid !== "4e078f02-ec43-473e-85f1-98e86eb9a761" || meta.name !== "Philips Hue Sync") {
+  throw new Error("meta.json must declare the plugin assembly GUID and display name");
 }
 const jellyfinPackageProjects = [
   "Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj",
@@ -64,6 +68,8 @@ const requiredReadmeMarkers = [
   "BouncyCastle.Cryptography.dll",
   "Jellyfin.Plugin.Hue.dll",
   "meta.json",
+  "Philips Hue Sync",
+  "HueSync_<version>",
   "HueSync",
   "Jellyfin 10.9.0",
   "Jellyfin 10.10.7",
@@ -273,7 +279,10 @@ for (const marker of [
 
 for (const marker of [
   "EXPECTED_ARCHIVE_ENTRIES = (",
-  'EXPECTED_ASSEMBLIES = ("Jellyfin.Plugin.Hue.dll",)',
+  'EXPECTED_ASSEMBLIES = ("BouncyCastle.Cryptography.dll", "Jellyfin.Plugin.Hue.dll")',
+  'EXPECTED_PLUGIN_GUID = "4e078f02-ec43-473e-85f1-98e86eb9a761"',
+  'EXPECTED_PLUGIN_NAME = "Philips Hue Sync"',
+  'PLUGIN_DIRECTORY_PREFIX = "HueSync_"',
   '# Official Jellyfin 10.10.7 linux/amd64 image manifest digest.',
   'DEFAULT_IMAGE = "jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123"',
   "def resolve_runtime_temp_dir() -> Path:",
@@ -291,6 +300,8 @@ for (const marker of [
   "def parse_security_options(raw_value: str) -> list[str]:",
   "def resolve_container_user() -> str:",
   "def set_owner_mode(path: Path, mode: int) -> None:",
+  "def parse_manifest(archive_entries: dict[str, bytes]) -> dict[str, object]:",
+  "def resolve_plugin_directory_name(archive_entries: dict[str, bytes], requested_name: str | None) -> str:",
   "path.chmod(mode)",
   "meta.json assemblies must be the Jellyfin-compatible string filename list",
   "\"--user\", runtime_user",

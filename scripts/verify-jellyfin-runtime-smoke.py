@@ -7,6 +7,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -23,12 +24,17 @@ EXPECTED_ARCHIVE_ENTRIES = (
     "Jellyfin.Plugin.Hue.dll",
     "meta.json",
 )
-EXPECTED_ASSEMBLIES = ("Jellyfin.Plugin.Hue.dll",)
+EXPECTED_ASSEMBLIES = ("BouncyCastle.Cryptography.dll", "Jellyfin.Plugin.Hue.dll")
+EXPECTED_PLUGIN_GUID = "4e078f02-ec43-473e-85f1-98e86eb9a761"
+EXPECTED_PLUGIN_NAME = "Philips Hue Sync"
+PLUGIN_DIRECTORY_PREFIX = "HueSync_"
+PLUGIN_VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$")
 REQUIRED_LOG_MARKERS = (
     "Loaded plugin: Philips Hue Sync",
 )
 FORBIDDEN_LOG_MARKERS = (
     "Plugin /config/plugins/HueSync has been disabled",
+    "Plugin /config/plugins/HueSync_",
     "Error creating Jellyfin.Plugin.Hue.Plugin",
     "UnauthorizedAccessException",
     "Cannot serialize member Jellyfin.Plugin.Hue.Configuration.PluginConfiguration.HueBridgeCertificatePins",
@@ -60,7 +66,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--startup-timeout-seconds", type=int, default=DEFAULT_STARTUP_TIMEOUT_SECONDS)
     parser.add_argument("--http-timeout-seconds", type=int, default=DEFAULT_HTTP_TIMEOUT_SECONDS)
     parser.add_argument("--poll-interval-seconds", type=int, default=DEFAULT_POLL_INTERVAL_SECONDS)
-    parser.add_argument("--plugin-directory-name", default="HueSync")
+    parser.add_argument("--plugin-directory-name", default=None)
     parser.add_argument("--self-test", action="store_true")
     return parser.parse_args()
 
@@ -140,6 +146,22 @@ def resolve_container_user() -> str:
     return current_runtime_user()
 
 
+def parse_manifest(archive_entries: dict[str, bytes]) -> dict[str, object]:
+    try:
+        manifest = json.loads(archive_entries["meta.json"].decode("utf8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise VerificationError(f"meta.json must be valid UTF-8 JSON: {error}") from error
+    require(isinstance(manifest, dict), "meta.json must contain a JSON object")
+    version = manifest.get("version")
+    require(
+        isinstance(version, str) and PLUGIN_VERSION_PATTERN.fullmatch(version) is not None,
+        "meta.json version must use a four-part numeric version",
+    )
+    require(manifest.get("guid") == EXPECTED_PLUGIN_GUID, "meta.json guid must match the plugin assembly identity")
+    require(manifest.get("name") == EXPECTED_PLUGIN_NAME, "meta.json name must match the plugin display name")
+    return manifest
+
+
 def validate_archive_entries(archive_path: Path) -> dict[str, bytes]:
     extracted: dict[str, bytes] = {}
     with zipfile.ZipFile(archive_path) as archive:
@@ -151,8 +173,7 @@ def validate_archive_entries(archive_path: Path) -> dict[str, bytes]:
             require(info.external_attr == EXPECTED_ENTRY_MODE,
                     f"{info.filename} must use canonical non-executable 0644 ZIP attributes")
             extracted[info.filename] = archive.read(info.filename)
-    meta = json.loads(extracted["meta.json"].decode("utf8"))
-    require(meta.get("version"), "meta.json version is required for runtime smoke verification")
+    meta = parse_manifest(extracted)
     assemblies = meta.get("assemblies")
     require(
         isinstance(assemblies, list)
@@ -167,6 +188,18 @@ def set_owner_mode(path: Path, mode: int) -> None:
     current_mode = path.stat().st_mode & 0o777
     if current_mode != mode:
         path.chmod(mode)
+
+
+def resolve_plugin_directory_name(archive_entries: dict[str, bytes], requested_name: str | None) -> str:
+    version = parse_manifest(archive_entries)["version"]
+    assert isinstance(version, str)
+    expected_name = f"{PLUGIN_DIRECTORY_PREFIX}{version}"
+    if requested_name is not None:
+        require(
+            requested_name == expected_name,
+            f"plugin-directory-name must remain {expected_name} for Jellyfin discovery parity",
+        )
+    return expected_name
 
 
 def prepare_plugin_directory(root: Path, plugin_directory_name: str, archive_entries: dict[str, bytes]) -> Path:
@@ -288,7 +321,7 @@ def verify_runtime_smoke(
     require(startup_timeout_seconds > 0, "startup-timeout-seconds must be positive")
     require(http_timeout_seconds > 0, "http-timeout-seconds must be positive")
     require(poll_interval_seconds > 0, "poll-interval-seconds must be positive")
-    require(plugin_directory_name == "HueSync", "plugin-directory-name must remain HueSync for installer/runtime parity")
+    plugin_directory_name = resolve_plugin_directory_name(archive_entries, plugin_directory_name)
 
     image = validate_image_reference(image)
     ensure_image_present(image)
@@ -334,7 +367,7 @@ def run_self_test() -> None:
             for name, payload in {
                 "BouncyCastle.Cryptography.dll": b"bc",
                 "Jellyfin.Plugin.Hue.dll": b"dll",
-                "meta.json": b'{"version":"1.5.456.0","assemblies":["Jellyfin.Plugin.Hue.dll"]}\n',
+                "meta.json": b'{"guid":"4e078f02-ec43-473e-85f1-98e86eb9a761","name":"Philips Hue Sync","version":"1.5.456.0","assemblies":["BouncyCastle.Cryptography.dll","Jellyfin.Plugin.Hue.dll"]}\n',
             }.items():
                 info = zipfile.ZipInfo(filename=name, date_time=(1980, 1, 1, 0, 0, 0))
                 info.create_system = 0
@@ -342,8 +375,17 @@ def run_self_test() -> None:
                 archive.writestr(info, payload, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
         entries = validate_archive_entries(archive_path)
         require(tuple(sorted(entries)) == EXPECTED_ARCHIVE_ENTRIES, "self-test archive parsing failed")
-        plugin_dir = Path(temp_dir) / "config" / "plugins" / "HueSync"
-        prepare_plugin_directory(Path(temp_dir), "HueSync", entries)
+        plugin_directory_name = resolve_plugin_directory_name(entries, None)
+        require(plugin_directory_name == "HueSync_1.5.456.0",
+                "self-test Jellyfin plugin directory naming failed")
+        try:
+            resolve_plugin_directory_name(entries, "HueSync")
+        except VerificationError:
+            pass
+        else:
+            raise VerificationError("self-test accepted an undiscoverable plugin directory name")
+        plugin_dir = Path(temp_dir) / "config" / "plugins" / plugin_directory_name
+        prepare_plugin_directory(Path(temp_dir), plugin_directory_name, entries)
         require((plugin_dir).stat().st_mode & 0o777 == RUNTIME_DIRECTORY_MODE,
                 "self-test plugin directory mode failed")
         require((plugin_dir / "meta.json").stat().st_mode & 0o777 == RUNTIME_MANIFEST_MODE,
@@ -353,7 +395,7 @@ def run_self_test() -> None:
         good_logs = "...\nLoaded plugin: Philips Hue Sync 1.5.456.0\n..."
         require(all(marker in good_logs for marker in REQUIRED_LOG_MARKERS), "self-test required marker detection failed")
         require(not any(marker in good_logs for marker in FORBIDDEN_LOG_MARKERS), "self-test forbidden marker detection failed")
-        bad_logs = "Plugin /config/plugins/HueSync has been disabled"
+        bad_logs = f"Plugin /config/plugins/{plugin_directory_name} has been disabled"
         require(any(marker in bad_logs for marker in FORBIDDEN_LOG_MARKERS), "self-test forbidden marker matching failed")
     print("Jellyfin runtime smoke verifier self-test passed")
 

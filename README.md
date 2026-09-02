@@ -42,9 +42,9 @@ Unlike simple "cinema mode" automations that just dim the lights, this plugin ac
     *   **Linux**: `/var/lib/jellyfin/plugins`
     *   **Windows**: `%ProgramData%\Jellyfin\Server\plugins`
     *   **Docker**: `/config/plugins`
-4.  Create a folder named `HueSync` and extract `jellyfin-plugin-hue-release.zip` into it.
+4.  Create a folder named `HueSync_<version>` using the exact four-part version in `meta.json` (for example, `HueSync_1.5.457.0`) and extract `jellyfin-plugin-hue-release.zip` into it. Jellyfin discovers versioned plugin folders at startup.
 5.  Optionally inspect the manifest to audit the exact source commit, packaged file hashes, and locked NuGet dependency graph.
-6.  Confirm that `BouncyCastle.Cryptography.dll`, `Jellyfin.Plugin.Hue.dll`, and `meta.json` are directly inside the `HueSync` folder.
+6.  Confirm that `BouncyCastle.Cryptography.dll`, `Jellyfin.Plugin.Hue.dll`, and `meta.json` are directly inside the versioned `HueSync_<version>` folder.
 7.  Restart Jellyfin.
 
 ## Configuration
@@ -370,7 +370,7 @@ checked-out commit's provenance.
 
 The version in `meta.json`, the project file, and the local archive name must match. Keep the
 archive, both checksum sidecars, and the matching manifest together for auditability; install the
-archive contents in a `HueSync` directory under the Jellyfin plugins directory, and verify the
+archive contents in a `HueSync_<version>` directory under the Jellyfin plugins directory, and verify the
 published archive and manifest before extraction:
 
 ```bash

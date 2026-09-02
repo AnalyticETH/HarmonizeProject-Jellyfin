@@ -180,7 +180,7 @@ Write-Host "   Manifest checksum: $manifestChecksumFile"
 Write-Host ""
 Write-Host "🚀 Installation:" -ForegroundColor Cyan
 Write-Host "   1. Extract $zipFile to your Jellyfin plugins directory"
-Write-Host "   2. Create a folder named 'HueSync' if it doesn't exist"
+Write-Host "   2. Create a folder named 'HueSync_$version' if it doesn't exist"
 Write-Host "   3. Place the extracted files inside"
 Write-Host "   4. Restart Jellyfin"
 Write-Host ""
