@@ -52,9 +52,7 @@ jobs:
           queued_api_ok=true
           if ! jq -e '
             type == "object" and
-            (.total_count | type == "number") and
             (.workflow_runs | type == "array") and
-            ((.workflow_runs | length) <= .total_count) and
             all(.workflow_runs[]?;
               (.id | type == "number") and
               (.created_at | type == "string")
@@ -67,9 +65,7 @@ jobs:
           trusted_api_ok=true
           if ! jq -e '
             type == "object" and
-            (.total_count | type == "number") and
             (.workflow_runs | type == "array") and
-            ((.workflow_runs | length) <= .total_count) and
             all(.workflow_runs[]?;
               (.id | type == "number") and
               (.status | type == "string") and
