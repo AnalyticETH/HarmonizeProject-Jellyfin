@@ -73,6 +73,10 @@ jobs:
           # The replacement runner is Docker-backed. Use the same digest-pinned
           # Jellyfin runtime image used by the smoke gate when the runner image
           # does not carry a host ffmpeg executable.
+          if ! docker image inspect "$JELLYFIN_RUNTIME_IMAGE" >/dev/null 2>&1; then
+            timeout --kill-after=10s 300s docker pull "$JELLYFIN_RUNTIME_IMAGE"
+          fi
+          docker image inspect "$JELLYFIN_RUNTIME_IMAGE" >/dev/null
           ffmpeg_command=(
             docker run --rm
             --entrypoint /usr/lib/jellyfin-ffmpeg/ffmpeg
