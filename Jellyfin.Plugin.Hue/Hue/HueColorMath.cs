@@ -125,9 +125,23 @@ public static class HueColorMath
         var Y = 1d;
         var Z = z / y;
 
+        // A bridge can return a positive subnormal y value that passes the domain
+        // checks above but overflows the XYZ ratios. Never report a successful
+        // conversion with NaN/Infinity components; callers use the boolean result
+        // to decide whether the captured color is safe to persist or preview.
+        if (!double.IsFinite(X) || !double.IsFinite(Y) || !double.IsFinite(Z))
+            return false;
+
         var linearRed = (3.2406d * X) - (1.5372d * Y) - (0.4986d * Z);
         var linearGreen = (-0.9689d * X) + (1.8758d * Y) + (0.0415d * Z);
         var linearBlue = (0.0557d * X) - (0.2040d * Y) + (1.0570d * Z);
+
+        if (!double.IsFinite(linearRed) ||
+            !double.IsFinite(linearGreen) ||
+            !double.IsFinite(linearBlue))
+        {
+            return false;
+        }
 
         // Colors outside the sRGB gamut are clipped and then normalized so unusual
         // Hue gamut coordinates still seed a useful, vivid preview color.
@@ -135,12 +149,20 @@ public static class HueColorMath
         linearGreen = Math.Max(0, linearGreen);
         linearBlue = Math.Max(0, linearBlue);
         var maximum = Math.Max(linearRed, Math.Max(linearGreen, linearBlue));
-        if (maximum <= double.Epsilon)
+        if (!double.IsFinite(maximum) || maximum <= double.Epsilon)
             return false;
 
         red = GammaEncode(linearRed / maximum);
         green = GammaEncode(linearGreen / maximum);
         blue = GammaEncode(linearBlue / maximum);
+        if (!double.IsFinite(red) || !double.IsFinite(green) || !double.IsFinite(blue))
+        {
+            red = 0;
+            green = 0;
+            blue = 0;
+            return false;
+        }
+
         return true;
     }
 

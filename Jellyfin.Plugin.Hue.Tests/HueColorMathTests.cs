@@ -80,4 +80,20 @@ public sealed class HueColorMathTests
         Assert.False(HueColorMath.TryConvertXyToRgb(0, 0.5, out _, out _, out _));
         Assert.False(HueColorMath.TryConvertMirekToRgb(0, out _, out _, out _));
     }
+
+    [Fact]
+    public void TryConvertXyToRgb_RejectsSubnormalRatioOverflow()
+    {
+        var converted = HueColorMath.TryConvertXyToRgb(
+            0.5,
+            double.Epsilon,
+            out var red,
+            out var green,
+            out var blue);
+
+        Assert.False(converted);
+        Assert.Equal(0, red);
+        Assert.Equal(0, green);
+        Assert.Equal(0, blue);
+    }
 }

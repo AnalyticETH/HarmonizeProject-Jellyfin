@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes.
+### Fixed
+- Reject extreme Hue `xy` coordinates whose intermediate XYZ ratios overflow, preventing non-finite RGB values from being treated as valid captured colors.
+- Add regression coverage for subnormal-coordinate conversion safety.
 
 ## [1.5.457] - 2026-09-01
 
