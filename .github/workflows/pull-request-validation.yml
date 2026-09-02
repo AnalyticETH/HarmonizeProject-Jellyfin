@@ -1,10 +1,7 @@
 name: Pull Request Validation
 
-# PR code is untrusted. Keep this workflow on the dedicated, least-privileged
-# self-hosted PR runner with no secrets or write permissions; the persistent
-# trusted identities are reserved for main pushes and the default-branch scan.
-# The PR runner is separately owned, systemd-confined, and cleans its work tree
-# after every job. Semgrep
+# PR code is untrusted. Keep this workflow on the replacement local Docker-backed
+# self-hosted runner with no secrets or write permissions. Semgrep
 # scans all tracked production source/configuration with p/default and repository
 # scripts with p/javascript/p/python, plus embedded administrator-page JavaScript;
 # every report blocks findings, scanner errors, and timeouts. Reviewed Semgrep
@@ -24,7 +21,7 @@ concurrency:
 
 env:
   DOTNET_VERSION: '8.0.424'
-  DOTNET_INSTALL_DIR: /var/lib/harmonize-pr-runner/home/.dotnet
+  DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
   BUILD_CONFIGURATION: 'Release'
   GITLEAKS_VERSION: '8.30.1'
   GITLEAKS_CHECKSUMS_SHA256: '061476c21adaf5441516f96f185c1a4706a83cd6329b9b38762271b3d4a52fae'
@@ -46,7 +43,7 @@ env:
 jobs:
   build-test-and-contracts:
     name: Build, test, format, and contracts
-    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-pr"]
+    runs-on: [self-hosted, linux, x64, local-docker]
     timeout-minutes: 30
 
     steps:
@@ -126,7 +123,7 @@ jobs:
 
   security-analysis:
     name: Secret and static security scans
-    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-pr"]
+    runs-on: [self-hosted, linux, x64, local-docker]
     timeout-minutes: 25
     env:
       SEMGREP_SEND_METRICS: 'off'

@@ -439,12 +439,12 @@ runNegativeFixture(
     fixtureRoot,
     "pull-request-validation.yml",
     workflow => workflow.replaceAll(
-      '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-pr"]',
-      '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]',
+      '[self-hosted, linux, x64, local-docker]',
+      '[self-hosted, linux, x64, retired-runner]',
     ),
   ),
   ["inventory", "pullRequest"],
-  /dedicated PR runner|harmonizeproject-jellyfin-pr/,
+  /missing PR validation marker|dedicated PR runner|replacement local-docker runner|retired-runner/,
 );
 
 runNegativeFixture(
@@ -481,8 +481,8 @@ runNegativeFixture(
     fixtureRoot,
     "dotnet-ci.yml",
     workflow => workflow.replace(
-      'runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]',
-      'runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]',
+      'runs-on: [self-hosted, linux, x64, local-docker]',
+      'runs-on: [self-hosted, linux, x64, retired-runner]',
     ),
   ),
   ["inventory", "trusted"],
@@ -495,8 +495,8 @@ runNegativeFixture(
     fixtureRoot,
     "security-scan.yml",
     workflow => workflow.replace(
-      'runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]',
-      'runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]',
+      'runs-on: [self-hosted, linux, x64, local-docker]',
+      'runs-on: [self-hosted, linux, x64, retired-runner]',
     ),
   ),
   ["inventory", "trusted"],
@@ -509,12 +509,12 @@ runNegativeFixture(
     fixtureRoot,
     "runner-health.yml",
     workflow => workflow.replace(
-      '    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]\n',
+      '    runs-on: [self-hosted, linux, x64, local-docker]\n',
       "    runs-on: ubuntu-24.04\n",
     ),
   ),
   ["inventory"],
-  /runner-health\.yml job runner-health must use runner \["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"\]/,
+  /runner-health\.yml job runner-health must use runner \[self-hosted, linux, x64, local-docker\]/,
 );
 
 runNegativeFixture(
@@ -551,12 +551,12 @@ runNegativeFixture(
     fixtureRoot,
     "runner-health.yml",
     workflow => workflow.replace(
-      "harmonizeproject-jellyfin-dependabot",
-      "harmonizeproject-jellyfin-missing",
+      "local-docker",
+      "local-docker-missing",
     ),
   ),
   ["inventory"],
-  /runner-health\.yml is missing health contract marker: harmonizeproject-jellyfin-dependabot/,
+  /runner-health\.yml is missing health contract marker: local-docker|runner-health\.yml job runner-health must use runner/,
 );
 
 runNegativeFixture(
@@ -565,8 +565,8 @@ runNegativeFixture(
     fixtureRoot,
     "dotnet-ci.yml",
     workflow => workflow.replace(
-      'runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-runtime"]',
-      'runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]',
+      'runs-on: [self-hosted, linux, x64, local-docker]',
+      'runs-on: [self-hosted, linux, x64, retired-runner]',
     ),
   ),
   ["inventory", "trusted"],

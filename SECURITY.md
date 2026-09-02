@@ -54,12 +54,12 @@ silently supply another area's channel layout.
 The repository-controlled weekly default-branch security workflow reruns the blocking Gitleaks and Semgrep gates. Both scanner jobs carry the same `refs/heads/main` guard, so pull-request and non-main code never reach the persistent runner.
 
 Pull requests, including Dependabot updates, use the separate
-`.github/workflows/pull-request-validation.yml` workflow on the dedicated
-`harmonizeproject-jellyfin-pr` self-hosted runner. It grants only `contents: read`, does
+`.github/workflows/pull-request-validation.yml` workflow on the replacement
+`[self-hosted, linux, x64, local-docker]` runner. It grants only `contents: read`, does
 not expose repository secrets, performs no release, tag, or write operation, and cleans
-its work tree after every job. The runner is a separately locked service account with no
-Docker socket or access to the trusted build, runtime, Dependabot, or release identities.
-Dependabot's native update jobs additionally require the repository's owner-controlled
-**Dependabot on self-hosted runners** setting and the online `dependabot`-label runner.
+its work tree after every job. Dependabot's native update jobs additionally require the
+repository's owner-controlled **Dependabot on self-hosted runners** setting and the
+replacement runner to be online with the `local-docker` label.
 
-The identity split, host confinement, daily upstream-version monitor, and manual verified-update procedure are documented in [SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md).
+The replacement-runner lifecycle, retired-service teardown, billing boundary, and live
+verification procedure are documented in [SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md).

@@ -95,7 +95,7 @@ for (const marker of [
   "pull_request:",
   "types: [opened, synchronize, reopened, ready_for_review]",
   "permissions:\n  contents: read",
-  "runs-on: [\"self-hosted\", \"Linux\", \"X64\", \"harmonizeproject-jellyfin-pr\"]",
+  "runs-on: [self-hosted, linux, x64, local-docker]",
   "github.event.pull_request.number",
   "Validate pinned .NET SDK parity",
   "node scripts/validate-dotnet-sdk.mjs",
@@ -150,9 +150,9 @@ if (jobWrites.length > 0) {
 
 const runnerLines = [...workflow.matchAll(/^\s*runs-on:\s*(.+)$/gm)].map(match => match[1].trim());
 if (runnerLines.length === 0 || runnerLines.some(
-  runner => runner !== "[\"self-hosted\", \"Linux\", \"X64\", \"harmonizeproject-jellyfin-pr\"]",
+  runner => runner !== "[self-hosted, linux, x64, local-docker]",
 )) {
-  throw new Error(`${file} must run every PR job on the dedicated harmonizeproject-jellyfin-pr runner`);
+  throw new Error(`${file} must run every PR job on the replacement local-docker runner`);
 }
 
 for (const match of workflow.matchAll(/^\s*uses:\s*([^\s#]+)$/gm)) {

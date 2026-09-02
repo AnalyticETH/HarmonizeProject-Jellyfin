@@ -9,10 +9,11 @@ const expectedWorkflows = new Set([
   "runner-health.yml",
   "security-scan.yml",
 ]);
-const trustedBuildRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]';
-const trustedRuntimeRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-runtime"]';
-const trustedReleaseRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]';
-const pullRequestRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-pr"]';
+const replacementRunner = '[self-hosted, linux, x64, local-docker]';
+const trustedBuildRunner = replacementRunner;
+const trustedRuntimeRunner = replacementRunner;
+const trustedReleaseRunner = replacementRunner;
+const pullRequestRunner = replacementRunner;
 const allowedActionRepositories = new Set([
   "actions/checkout",
   "actions/setup-dotnet",
@@ -233,17 +234,12 @@ for (const name of workflowFiles) {
       throw new Error(`${name} job ${job.name} uses a dynamic runner expression; review it explicitly`);
     }
 
-    // Bind every concrete trusted job to the non-publishing runner. Only the
-    // isolated release-publication job may use the release runner label. This
-    // prevents a future scanner/package change from silently acquiring the
-    // release runner's host identity while still satisfying the generic
-    // self-hosted/default-branch checks below.
+    // Bind every concrete job to the replacement local Docker-backed runner so
+    // no workflow can silently fall back to a retired runner or GitHub-hosted
+    // execution while still satisfying the generic self-hosted/default-branch
+    // checks below.
     if (name === "dotnet-ci.yml" && !isReusableWorkflowJob(job)) {
-      const expectedRunner = job.name === "create-github-release"
-        ? trustedReleaseRunner
-        : job.name === "runtime-smoke"
-          ? trustedRuntimeRunner
-          : trustedBuildRunner;
+      const expectedRunner = replacementRunner;
       if (runsOnValues.length !== 1 || runsOnValues[0] !== expectedRunner) {
         throw new Error(`${name} job ${job.name} must use runner ${expectedRunner}`);
       }
@@ -325,11 +321,7 @@ for (const marker of [
   "stale_cutoff=$((now_epoch - 3600))",
   "runner_health_ok=false",
   "exit 1",
-  "harmonizeproject-jellyfin",
-  "harmonizeproject-jellyfin-runtime",
-  "harmonizeproject-jellyfin-release",
-  "harmonizeproject-jellyfin-dependabot",
-  "harmonizeproject-jellyfin-pr"
+  "local-docker"
 ]) {
   if (!runnerHealthWorkflow.includes(marker)) {
     throw new Error(`runner-health.yml is missing health contract marker: ${marker}`);

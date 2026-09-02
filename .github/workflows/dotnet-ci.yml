@@ -21,15 +21,14 @@ env:
   JELLYFIN_RUNTIME_IMAGE: 'jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123'
   # Official Jellyfin 10.9.0 linux/amd64 image manifest digest (minimum supported ABI).
   JELLYFIN_RUNTIME_IMAGE_10_9: 'jellyfin/jellyfin@sha256:d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67'
-  # The self-hosted runner uses the dedicated, least-privileged
-  # `harmonize-runner` service account.
-  DOTNET_INSTALL_DIR: /var/lib/harmonize-runner/home/.dotnet
+  # All jobs run on the replacement local Docker-backed self-hosted runner.
+  DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
 
 jobs:
   build-and-test:
     name: Build and Test
     if: github.ref == 'refs/heads/main'
-    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
+    runs-on: [self-hosted, linux, x64, local-docker]
     # Bound persistent-runner occupancy if a restore, test, or external tool stalls.
     timeout-minutes: 20
     env:
@@ -209,7 +208,7 @@ jobs:
   code-quality:
     name: Code Quality Checks
     if: github.ref == 'refs/heads/main'
-    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
+    runs-on: [self-hosted, linux, x64, local-docker]
     needs: build-and-test
     timeout-minutes: 15
 
@@ -260,7 +259,7 @@ jobs:
 
   create-release-package:
     name: Create Release Package
-    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
+    runs-on: [self-hosted, linux, x64, local-docker]
     needs: [build-and-test, code-quality, security-analysis]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 15
@@ -351,7 +350,7 @@ jobs:
 
   validate-release-helper:
     name: Validate Linux Release Helper
-    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
+    runs-on: [self-hosted, linux, x64, local-docker]
     needs: create-release-package
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 20
@@ -412,7 +411,7 @@ jobs:
 
   runtime-smoke:
     name: Runtime Smoke (${{ matrix.jellyfin_version }})
-    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-runtime"]
+    runs-on: [self-hosted, linux, x64, local-docker]
     needs: create-release-package
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
@@ -459,8 +458,8 @@ jobs:
 
   create-github-release:
     name: Create GitHub Release
-    # Keep the contents:write token off the persistent build/test identity.
-    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]
+    # Keep the contents:write token in the same replacement runner boundary.
+    runs-on: [self-hosted, linux, x64, local-docker]
     needs: [create-release-package, validate-release-helper, runtime-smoke]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 10

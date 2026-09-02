@@ -1,9 +1,9 @@
 name: Self-hosted Runner Health
 
-# This read-only monitor runs on the trusted build self-hosted runner so its
+# This read-only monitor runs on the replacement local Docker-backed self-hosted runner so its
 # 15-minute schedule does not consume GitHub-hosted Actions minutes. The
-# host-side systemd check remains the independent source of truth for current
-# service state and detects a total outage when the Actions pool is offline.
+# GitHub runner API is the source of truth for the replacement runner; the
+# retired legacy systemd pool is intentionally not part of this workflow.
 on:
   schedule:
     - cron: '*/15 * * * *'
@@ -21,7 +21,7 @@ jobs:
   runner-health:
     name: Runner health
     if: github.ref == 'refs/heads/main'
-    runs-on: ["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]
+    runs-on: [self-hosted, linux, x64, local-docker]
     timeout-minutes: 5
     steps:
       - name: Check trusted queue and recent runner usage
@@ -111,11 +111,7 @@ jobs:
               )
             ' "$trusted_jobs_json" >/dev/null
 
-            expected_labels='[
-              "harmonizeproject-jellyfin",
-              "harmonizeproject-jellyfin-runtime",
-              "harmonizeproject-jellyfin-release"
-            ]'
+            expected_labels='["local-docker"]'
             if ! jq -e --argjson expected "$expected_labels" '
               . as $root |
               all($expected[]; . as $label |
@@ -126,7 +122,7 @@ jobs:
               )
             ' "$trusted_jobs_json" >/dev/null; then
               runner_health_ok=false
-              echo "The latest successful trusted main run did not use every required persistent runner label." >&2
+              echo "The latest successful trusted main run did not use the replacement local-docker runner label." >&2
             fi
           fi
 
@@ -148,7 +144,7 @@ jobs:
             echo
             echo "Checked at $(date -u +%Y-%m-%dT%H:%M:%SZ)."
             echo
-            echo "The host-side harmonize-runner-health-check systemd timer checks current service state for all five runners, including the harmonizeproject-jellyfin-dependabot and harmonizeproject-jellyfin-pr runners."
+            echo "The replacement runner is checked through the GitHub Actions runner API; retired legacy runner services are intentionally excluded."
             echo
             echo "Latest successful trusted main run: ${latest_trusted_run_id:-none} (${latest_trusted_head_sha:-none})."
             echo
@@ -180,7 +176,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$runner_health_ok" != true ]; then
-            echo "Self-hosted runner health failed; inspect the step summary and host-side service journal." >&2
+            echo "Self-hosted runner health failed; inspect the step summary and replacement runner service." >&2
             exit 1
           fi
           echo "Self-hosted runner health passed: trusted runner labels are observed and no queued run is older than one hour."

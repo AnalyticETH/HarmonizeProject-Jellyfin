@@ -3,9 +3,10 @@ import fs from "node:fs";
 const ciPath = ".github/workflows/dotnet-ci.yml";
 const securityPath = ".github/workflows/security-scan.yml";
 const MAX_TIMEOUT_MINUTES = 30;
-const trustedBuildRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin"]';
-const trustedRuntimeRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-runtime"]';
-const trustedReleaseRunner = '["self-hosted", "Linux", "X64", "harmonizeproject-jellyfin-release"]';
+const replacementRunner = '[self-hosted, linux, x64, local-docker]';
+const trustedBuildRunner = replacementRunner;
+const trustedRuntimeRunner = replacementRunner;
+const trustedReleaseRunner = replacementRunner;
 const ci = fs.readFileSync(ciPath, "utf8");
 const security = fs.readFileSync(securityPath, "utf8");
 const allowedActionRepositories = new Set([
@@ -158,9 +159,7 @@ function validateJobTimeout(block, workflowName) {
 for (const marker of [
   "on:\n  push:\n    branches: [ main ]",
   "workflow_dispatch:",
-  "runs-on: [\"self-hosted\", \"Linux\", \"X64\", \"harmonizeproject-jellyfin\"]",
-  "runs-on: [\"self-hosted\", \"Linux\", \"X64\", \"harmonizeproject-jellyfin-runtime\"]",
-  "runs-on: [\"self-hosted\", \"Linux\", \"X64\", \"harmonizeproject-jellyfin-release\"]",
+  "runs-on: [self-hosted, linux, x64, local-docker]",
   "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
   "# Official Jellyfin 10.10.7 linux/amd64 image manifest digest (current default).",
   "JELLYFIN_RUNTIME_IMAGE: 'jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123'",
@@ -260,7 +259,7 @@ for (const marker of [
   "workflow_call:",
   "schedule:",
   "if: github.ref == 'refs/heads/main'",
-  "runs-on: [\"self-hosted\", \"Linux\", \"X64\", \"harmonizeproject-jellyfin\"]",
+  "runs-on: [self-hosted, linux, x64, local-docker]",
   "--redact --exit-code 1",
   "SEMGREP_DEFAULT_CONFIG_URL: 'https://semgrep.dev/c/p/default'",
   "SEMGREP_DEFAULT_CONFIG_SHA256:",
@@ -273,7 +272,7 @@ for (const marker of [
   }
 }
 
-const selfHostedJobCount = (ci.match(/runs-on: \["self-hosted"/g) || []).length;
+const selfHostedJobCount = (ci.match(/runs-on: \[self-hosted,/g) || []).length;
 if (selfHostedJobCount !== 6) {
   throw new Error(`${ciPath} must keep exactly six self-hosted jobs (found ${selfHostedJobCount})`);
 }
@@ -305,11 +304,7 @@ if (failClosedArtifactUploads !== 2) {
 
 for (const job of ciJobs) {
   if (isReusableWorkflowJob(job)) continue;
-  const expectedRunner = job.name === "create-github-release"
-    ? trustedReleaseRunner
-    : job.name === "runtime-smoke"
-      ? trustedRuntimeRunner
-      : trustedBuildRunner;
+  const expectedRunner = replacementRunner;
   const runsOnValues = getRunsOnValues(job);
   if (runsOnValues.length !== 1 || runsOnValues[0] !== expectedRunner) {
     throw new Error(`${ciPath} job ${job.name} must use runner ${expectedRunner}`);
@@ -317,7 +312,7 @@ for (const job of ciJobs) {
 }
 for (const job of securityJobs) {
   const runsOnValues = getRunsOnValues(job);
-  if (runsOnValues.length !== 1 || runsOnValues[0] !== trustedBuildRunner) {
+  if (runsOnValues.length !== 1 || runsOnValues[0] !== replacementRunner) {
     throw new Error(`${securityPath} job ${job.name} must use runner ${trustedBuildRunner}`);
   }
 }
