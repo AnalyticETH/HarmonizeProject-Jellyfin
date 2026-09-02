@@ -320,6 +320,7 @@ for (const marker of [
   "Latest successful trusted main run",
   "Queued Actions API response failed schema validation.",
   "Trusted workflow-runs API response failed schema validation.",
+  "if [ -z \"$latest_trusted_run_id\" ]; then",
   "jobs_ready=false",
   "retrying ($attempt/5)",
   "stale_cutoff=$((now_epoch - 3600))",

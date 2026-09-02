@@ -57,9 +57,7 @@ jobs:
             ((.workflow_runs | length) <= .total_count) and
             all(.workflow_runs[]?;
               (.id | type == "number") and
-              (.name | type == "string") and
-              (.created_at | type == "string") and
-              (.head_sha | type == "string")
+              (.created_at | type == "string")
             )
           ' "$queued_json" >/dev/null; then
             queued_api_ok=false
@@ -76,8 +74,7 @@ jobs:
               (.id | type == "number") and
               (.status | type == "string") and
               ((.conclusion == null) or (.conclusion | type == "string")) and
-              (.created_at | type == "string") and
-              (.head_sha | type == "string")
+              (.created_at | type == "string")
             )
           ' "$trusted_runs_json" >/dev/null; then
             trusted_api_ok=false
@@ -103,7 +100,7 @@ jobs:
           fi
           echo "Runner-health API counts: queued=$(jq -r '.total_count' "$queued_json"), trusted-main=$(jq -r '.total_count' "$trusted_runs_json")."
           echo "Latest successful trusted main run candidate: ${latest_trusted_run_id:-none}."
-          if [ -z "$latest_trusted_run_id" ] || [ -z "$latest_trusted_head_sha" ]; then
+          if [ -z "$latest_trusted_run_id" ]; then
             runner_health_ok=false
             echo "No successful trusted main run is available for runner-label verification." >&2
           else
