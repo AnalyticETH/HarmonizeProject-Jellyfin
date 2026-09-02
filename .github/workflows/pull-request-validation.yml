@@ -21,7 +21,6 @@ concurrency:
 
 env:
   DOTNET_VERSION: '8.0.424'
-  DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
   BUILD_CONFIGURATION: 'Release'
   GITLEAKS_VERSION: '8.30.1'
   GITLEAKS_CHECKSUMS_SHA256: '061476c21adaf5441516f96f185c1a4706a83cd6329b9b38762271b3d4a52fae'
@@ -58,6 +57,8 @@ jobs:
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 

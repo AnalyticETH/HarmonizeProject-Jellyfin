@@ -21,8 +21,6 @@ env:
   JELLYFIN_RUNTIME_IMAGE: 'jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123'
   # Official Jellyfin 10.9.0 linux/amd64 image manifest digest (minimum supported ABI).
   JELLYFIN_RUNTIME_IMAGE_10_9: 'jellyfin/jellyfin@sha256:d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67'
-  # All jobs run on the replacement local Docker-backed self-hosted runner.
-  DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
 
 jobs:
   build-and-test:
@@ -49,6 +47,8 @@ jobs:
 
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+      env:
+        DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -220,6 +220,8 @@ jobs:
 
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+      env:
+        DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -363,6 +365,8 @@ jobs:
 
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+      env:
+        DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
