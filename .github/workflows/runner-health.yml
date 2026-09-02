@@ -115,9 +115,11 @@ jobs:
             expected_labels='["local-docker"]'
             jobs_ready=false
             for attempt in 1 2 3 4 5; do
-              gh api \
+              if ! gh api \
                 "repos/${GITHUB_REPOSITORY}/actions/runs/${latest_trusted_run_id}/jobs?per_page=100" \
-                > "$trusted_jobs_json"
+                > "$trusted_jobs_json"; then
+                : > "$trusted_jobs_json"
+              fi
               if jq -e '
                 type == "object" and
                 (.total_count | type == "number") and
@@ -179,7 +181,7 @@ jobs:
             echo
             echo "| Job | Runner | Labels |"
             echo "| --- | --- | --- |"
-            if [ -n "$latest_trusted_run_id" ] && [ -f "$trusted_jobs_json" ]; then
+            if [ "$jobs_ready" = true ] && [ -f "$trusted_jobs_json" ]; then
               jq -r '
                 .jobs[]
                 | select(.conclusion == "success")
@@ -187,7 +189,7 @@ jobs:
                 | "| `\(.[0])` | `\(.[1])` | \(.[2]) |"
               ' "$trusted_jobs_json"
             else
-              echo "| none | none | none |"
+              echo "| metadata unavailable | current selector | local-docker |"
             fi
             echo
             echo "Queued workflow runs: $queued_count."

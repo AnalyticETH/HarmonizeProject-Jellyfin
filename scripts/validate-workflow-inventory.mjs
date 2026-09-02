@@ -325,6 +325,7 @@ for (const marker of [
   "Trusted workflow-runs API response failed schema validation.",
   "if [ -z \"$latest_trusted_run_id\" ]; then",
   "jobs_ready=false",
+  "metadata unavailable",
   "retrying ($attempt/5)",
   "stale_cutoff=$((now_epoch - 3600))",
   "recording an operator diagnostic",
