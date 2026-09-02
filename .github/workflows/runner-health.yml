@@ -115,8 +115,8 @@ jobs:
           if [ "$queued_api_ok" != true ] || [ "$trusted_api_ok" != true ]; then
             echo "Actions API metadata was partial; current runner context remains the authoritative health gate." >&2
           fi
-          queued_count="$(jq -r '.total_count // "unknown"' "$queued_json" 2>/dev/null || echo unknown)"
-          trusted_count="$(jq -r '.total_count // "unknown"' "$trusted_runs_json" 2>/dev/null || echo unknown)"
+          queued_count="$(jq -er '.total_count // empty' "$queued_json" 2>/dev/null || echo unknown)"
+          trusted_count="$(jq -er '.total_count // empty' "$trusted_runs_json" 2>/dev/null || echo unknown)"
           echo "Runner-health API counts: queued=$queued_count, trusted-main=$trusted_count."
           echo "Latest successful trusted main run candidate: ${latest_trusted_run_id:-none}."
           jobs_ready=false

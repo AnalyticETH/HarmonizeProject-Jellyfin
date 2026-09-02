@@ -321,7 +321,7 @@ for (const marker of [
   "Trusted workflow-runs API was unavailable; recording a diagnostic.",
   "actions/runs/${latest_trusted_run_id}/jobs?per_page=100",
   "Latest successful trusted main run",
-  "queued_count=\"$(jq -r '.total_count // \"unknown\"'",
+  "queued_count=\"$(jq -er '.total_count // empty'",
   "Queued Actions API response failed schema validation.",
   "Trusted workflow-runs API response failed schema validation.",
   "if [ -z \"$latest_trusted_run_id\" ]; then",
