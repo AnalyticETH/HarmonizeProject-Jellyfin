@@ -320,7 +320,7 @@ for (const marker of [
   "meta.json assemblies must be the Jellyfin-compatible string filename list",
   "\"--user\", runtime_user",
   "return \"0:0\"",
-  "fetch_health(",
+  "def health_probe_command(container_name: str, timeout_seconds: int) -> list[str]:",
   "def fetch_container_health(container_name: str, timeout_seconds: int) -> bool:",
   "wait_for_runtime(",
   "cleanup_container(",

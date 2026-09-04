@@ -4,18 +4,14 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
 import json
 import os
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
 import time
-import urllib.error
-import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -89,13 +85,6 @@ def run_command(command: list[str], *, capture_output: bool = True, check: bool 
             f"Command failed ({result.returncode}): {' '.join(command)}\n{detail.strip()}"
         )
     return result
-
-
-def allocate_local_port() -> int:
-    with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
-        sock.bind(("127.0.0.1", 0))
-        sock.listen(1)
-        return int(sock.getsockname()[1])
 
 
 def validate_archive_path(path: Path) -> Path:
@@ -228,7 +217,7 @@ def ensure_image_present(image: str) -> None:
     run_command(["docker", "pull", image])
 
 
-def start_container(container_name: str, image: str, config_dir: Path, cache_dir: Path, port: int) -> str:
+def start_container(container_name: str, image: str, config_dir: Path, cache_dir: Path) -> str:
     runtime_user = resolve_container_user()
     run_command(["docker", "rm", "-f", container_name], check=False)
     result = run_command([
@@ -243,7 +232,6 @@ def start_container(container_name: str, image: str, config_dir: Path, cache_dir
         "--user", runtime_user,
         "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m",
         "--tmpfs", "/run:rw,noexec,nosuid,nodev,size=16m",
-        "-p", f"127.0.0.1:{port}:8096",
         "-v", f"{config_dir}:/config",
         "-v", f"{cache_dir}:/cache",
         image,
@@ -263,20 +251,9 @@ def inspect_container_state(container_name: str) -> tuple[str, int]:
     return parts[0], int(parts[1])
 
 
-def fetch_health(port: int, timeout_seconds: int) -> bool:
-    url = f"http://127.0.0.1:{port}/health"
-    request = urllib.request.Request(url, method="GET")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            return response.status == 200
-    except (urllib.error.URLError, TimeoutError, ConnectionError):
-        return False
-
-
-def fetch_container_health(container_name: str, timeout_seconds: int) -> bool:
-    """Probe the runtime from its own network namespace for remote Docker daemons."""
+def health_probe_command(container_name: str, timeout_seconds: int) -> list[str]:
     bounded_timeout = max(1, timeout_seconds)
-    command = [
+    return [
         "docker",
         "exec",
         container_name,
@@ -290,6 +267,11 @@ def fetch_container_health(container_name: str, timeout_seconds: int) -> bool:
         str(bounded_timeout),
         "http://127.0.0.1:8096/health",
     ]
+
+
+def fetch_container_health(container_name: str, timeout_seconds: int) -> bool:
+    """Probe the runtime from its own network namespace for remote Docker daemons."""
+    command = health_probe_command(container_name, timeout_seconds)
     try:
         result = subprocess.run(
             command,
@@ -303,7 +285,7 @@ def fetch_container_health(container_name: str, timeout_seconds: int) -> bool:
     return result.returncode == 0
 
 
-def wait_for_runtime(container_name: str, port: int, timeout_seconds: int, http_timeout_seconds: int, poll_interval_seconds: int) -> str:
+def wait_for_runtime(container_name: str, timeout_seconds: int, http_timeout_seconds: int, poll_interval_seconds: int) -> str:
     deadline = time.monotonic() + timeout_seconds
     last_logs = ""
     health_passed = False
@@ -323,11 +305,9 @@ def wait_for_runtime(container_name: str, port: int, timeout_seconds: int, http_
                 f"Jellyfin container exited early with code {exit_code}.\n{last_logs}"
             )
         if not health_passed:
-            health_passed = fetch_health(port, http_timeout_seconds)
-        if not health_passed:
-            # A Docker CLI inside a runner container may target a separate
-            # daemon, making the daemon's loopback-published port unreachable
-            # from this process. Probe through the runtime container itself.
+            # Probe through the runtime container itself. This avoids relying on
+            # host port forwarding, which is not stable across Docker namespaces
+            # and may be rejected by Windows port-reservation policy.
             health_passed = fetch_container_health(container_name, http_timeout_seconds)
         has_required_logs = all(marker in last_logs for marker in REQUIRED_LOG_MARKERS)
         if health_passed and has_required_logs:
@@ -368,17 +348,15 @@ def verify_runtime_smoke(
     container_name = f"{container_name_prefix}-{int(time.time())}"
     try:
         prepare_plugin_directory(temp_root, plugin_directory_name, archive_entries)
-        port = allocate_local_port()
-        start_container(container_name, image, temp_root / "config", temp_root / "cache", port)
+        start_container(container_name, image, temp_root / "config", temp_root / "cache")
         logs = wait_for_runtime(
             container_name,
-            port,
             startup_timeout_seconds,
             http_timeout_seconds,
             poll_interval_seconds,
         )
         print(
-            f"Jellyfin runtime smoke passed for {archive_path.name} using {image} on 127.0.0.1:{port} "
+            f"Jellyfin runtime smoke passed for {archive_path.name} using {image} "
             f"with marker '{REQUIRED_LOG_MARKERS[0]}'."
         )
         if logs:
@@ -432,6 +410,23 @@ def run_self_test() -> None:
         require(not any(marker in good_logs for marker in FORBIDDEN_LOG_MARKERS), "self-test forbidden marker detection failed")
         bad_logs = f"Plugin /config/plugins/{plugin_directory_name} has been disabled"
         require(any(marker in bad_logs for marker in FORBIDDEN_LOG_MARKERS), "self-test forbidden marker matching failed")
+        require(
+            health_probe_command("smoke-container", 3) == [
+                "docker",
+                "exec",
+                "smoke-container",
+                "/usr/bin/curl",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--connect-timeout",
+                "3",
+                "--max-time",
+                "3",
+                "http://127.0.0.1:8096/health",
+            ],
+            "self-test container health probe command failed",
+        )
     print("Jellyfin runtime smoke verifier self-test passed")
 
 
