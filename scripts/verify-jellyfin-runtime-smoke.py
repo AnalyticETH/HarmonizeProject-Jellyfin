@@ -271,6 +271,7 @@ def health_probe_command(container_name: str, timeout_seconds: int) -> list[str]
 
 def fetch_container_health(container_name: str, timeout_seconds: int) -> bool:
     """Probe the runtime from its own network namespace for remote Docker daemons."""
+    bounded_timeout = max(1, timeout_seconds)
     command = health_probe_command(container_name, timeout_seconds)
     try:
         result = subprocess.run(
