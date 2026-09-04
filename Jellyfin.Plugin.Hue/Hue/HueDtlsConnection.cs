@@ -77,6 +77,7 @@ internal sealed class HueDtlsConnection : IHueDtlsConnection
         ArgumentException.ThrowIfNullOrWhiteSpace(bridgeIp);
         ArgumentException.ThrowIfNullOrWhiteSpace(appKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(clientKey);
+        ValidateAppKey(appKey);
         cancellationToken.ThrowIfCancellationRequested();
 
         var address = await ResolveBridgeAddressAsync(bridgeIp, cancellationToken).ConfigureAwait(false);
@@ -96,6 +97,7 @@ internal sealed class HueDtlsConnection : IHueDtlsConnection
         ArgumentNullException.ThrowIfNull(endpoint);
         ArgumentException.ThrowIfNullOrWhiteSpace(appKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(clientKey);
+        ValidateAppKey(appKey);
         cancellationToken.ThrowIfCancellationRequested();
 
         var address = endpoint.Address;
@@ -204,6 +206,16 @@ internal sealed class HueDtlsConnection : IHueDtlsConnection
         return await global::Jellyfin.Plugin.Hue.HueBridgeCertificateValidation
             .ResolveLocalBridgeAddressAsync(bridgeIp, cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private static void ValidateAppKey(string appKey)
+    {
+        if (!PluginConfiguration.IsHueCredentialSafe(appKey))
+        {
+            throw new ArgumentException(
+                $"The Hue App Key must be {PluginConfiguration.MaxHueCredentialLength} characters or fewer and contain no control characters.",
+                nameof(appKey));
+        }
     }
 
     internal static byte[] ParseClientKey(string clientKey)

@@ -10920,6 +10920,16 @@ namespace Jellyfin.Plugin.Hue.Api
             var label = string.IsNullOrWhiteSpace(mapping.UserName)
                 ? mapping.UserId?.Trim() ?? "selected mapping"
                 : mapping.UserName.Trim();
+            if (!PluginConfiguration.IsHueCredentialSafe(mapping.HueAppKey))
+            {
+                return $"{label}: Hue App Key must be {PluginConfiguration.MaxHueCredentialLength} characters or fewer and contain no control characters.";
+            }
+
+            if (!PluginConfiguration.IsHueCredentialSafe(mapping.HueClientKey))
+            {
+                return $"{label}: Hue Client Key must be {PluginConfiguration.MaxHueCredentialLength} characters or fewer and contain no control characters.";
+            }
+
             var bridgeIp = mapping.HueBridgeIp?.Trim() ?? string.Empty;
             var appKey = mapping.HueAppKey?.Trim() ?? string.Empty;
             var clientKey = mapping.HueClientKey?.Trim() ?? string.Empty;
@@ -11331,6 +11341,31 @@ namespace Jellyfin.Plugin.Hue.Api
                     {
                         message = "Automatic playback device targets are invalid.",
                         errors = deviceTargetErrors
+                    });
+                }
+            }
+
+            if (mapping.SyncEnabled)
+            {
+                var credentialErrors = new List<string>();
+                if (!PluginConfiguration.IsHueCredentialSafe(mapping.HueAppKey))
+                {
+                    credentialErrors.Add(
+                        $"{overrideLabel} Hue App Key must be {PluginConfiguration.MaxHueCredentialLength} characters or fewer and contain no control characters");
+                }
+
+                if (!PluginConfiguration.IsHueCredentialSafe(mapping.HueClientKey))
+                {
+                    credentialErrors.Add(
+                        $"{overrideLabel} Hue Client Key must be {PluginConfiguration.MaxHueCredentialLength} characters or fewer and contain no control characters");
+                }
+
+                if (credentialErrors.Count > 0)
+                {
+                    return BadRequest(new
+                    {
+                        message = "User mapping credentials are invalid.",
+                        errors = credentialErrors
                     });
                 }
             }

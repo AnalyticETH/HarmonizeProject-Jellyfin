@@ -119,6 +119,21 @@ public sealed class HueDtlsConnectionTests
         Assert.Contains("control characters", exception.Message);
     }
 
+    [Fact]
+    public async Task ConnectAsync_RejectsOversizedAppKeyBeforeNetworkConnection()
+    {
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            HueDtlsConnection.ConnectAsync(
+                new IPEndPoint(IPAddress.Loopback, 2100),
+                new string('a', PluginConfiguration.MaxHueCredentialLength + 1),
+                TestClientKey,
+                CancellationToken.None));
+
+        Assert.Contains(
+            $"{PluginConfiguration.MaxHueCredentialLength} characters or fewer",
+            exception.Message);
+    }
+
     private sealed class TestDtlsServer : IAsyncDisposable
     {
         private readonly Socket _socket;

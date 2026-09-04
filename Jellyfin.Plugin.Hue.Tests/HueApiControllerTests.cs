@@ -17760,6 +17760,49 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
+    public void SaveUserMapping_RejectsUnsafeCustomCredentialsWithoutMutation()
+    {
+        const string userId = "76767676-7676-7676-7676-767676767676";
+        var existingMapping = new UserBridgeMapping
+        {
+            MappingId = "unsafe-credential-row",
+            UserId = userId,
+            UserName = "Existing viewer",
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.101",
+            HueAppKey = "stored-app",
+            HueClientKey = "stored-client",
+            EntertainmentAreaId = "stored-area"
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { existingMapping }
+        });
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            MappingId = existingMapping.MappingId,
+            UserId = userId,
+            UserName = existingMapping.UserName,
+            SyncEnabled = true,
+            HueBridgeIp = existingMapping.HueBridgeIp,
+            HueAppKey = new string('a', PluginConfiguration.MaxHueCredentialLength + 1),
+            HueClientKey = "new-client\nkey",
+            EntertainmentAreaId = "new-area"
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        var serializedResponse = JsonSerializer.Serialize(response.Value);
+        Assert.Contains("characters or fewer", serializedResponse, StringComparison.Ordinal);
+        Assert.Contains("control characters", serializedResponse, StringComparison.Ordinal);
+        var persistedMapping = Assert.Single(configuration.UserMappings);
+        Assert.Same(existingMapping, persistedMapping);
+        Assert.Equal("stored-app", persistedMapping.HueAppKey);
+        Assert.Equal("stored-client", persistedMapping.HueClientKey);
+        Assert.Equal("stored-area", persistedMapping.EntertainmentAreaId);
+    }
+
+    [Fact]
     public void SaveUserMapping_DoesNotPreserveCredentialsFromDuplicateExistingDeviceTargets()
     {
         const string userId = "79797979-7979-7979-7979-797979797979";
