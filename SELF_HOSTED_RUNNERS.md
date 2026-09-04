@@ -80,6 +80,14 @@ for unit in \
   systemctl is-enabled "$unit" 2>/dev/null || true
   systemctl is-active "$unit" 2>/dev/null || true
 done
+for root in \
+  /var/lib/harmonize-runner \
+  /var/lib/harmonize-runtime-runner \
+  /var/lib/harmonize-release-runner \
+  /var/lib/harmonize-dependabot-runner \
+  /var/lib/harmonize-pr-runner; do
+  test ! -e "$root"
+done
 systemctl is-enabled harmonize-runner-health-check.timer 2>/dev/null || true
 systemctl is-enabled harmonize-runner-version-check.timer 2>/dev/null || true
 ```
