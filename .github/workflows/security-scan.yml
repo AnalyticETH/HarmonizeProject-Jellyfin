@@ -155,7 +155,10 @@ jobs:
             --index-url https://pypi.org/simple \
             --requirement .github/semgrep/requirements.txt
           "$semgrep_venv/bin/python" -m pip check
-          test "$("$semgrep_venv/bin/semgrep" --version)" = "$SEMGREP_VERSION"
+          # The launcher reports its bundled core version, which can lag the
+          # installed package pin; validate the package metadata instead.
+          semgrep_package_version="$("$semgrep_venv/bin/python" -c 'import importlib.metadata as metadata; print(metadata.version("semgrep"))')"
+          test "$semgrep_package_version" = "$SEMGREP_VERSION"
           default_source_path="$GITHUB_WORKSPACE/$SEMGREP_DEFAULT_CONFIG_PATH"
           javascript_source_path="$GITHUB_WORKSPACE/$SEMGREP_JAVASCRIPT_CONFIG_PATH"
           python_source_path="$GITHUB_WORKSPACE/$SEMGREP_PYTHON_CONFIG_PATH"

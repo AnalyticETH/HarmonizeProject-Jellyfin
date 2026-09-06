@@ -42,7 +42,7 @@ Unlike simple "cinema mode" automations that just dim the lights, this plugin ac
     *   **Linux**: `/var/lib/jellyfin/plugins`
     *   **Windows**: `%ProgramData%\Jellyfin\Server\plugins`
     *   **Docker**: `/config/plugins`
-4.  Create a folder named `HueSync_<version>` using the exact four-part version in `meta.json` (for example, `HueSync_1.5.457.0`) and extract `jellyfin-plugin-hue-release.zip` into it. Jellyfin discovers versioned plugin folders at startup.
+4.  Create a folder named `HueSync_<version>` using the exact four-part version in `meta.json` (for example, `HueSync_1.5.458.0`) and extract `jellyfin-plugin-hue-release.zip` into it. Jellyfin discovers versioned plugin folders at startup.
 5.  Optionally inspect the manifest to audit the exact source commit, packaged file hashes, and locked NuGet dependency graph.
 6.  Confirm that `BouncyCastle.Cryptography.dll`, `Jellyfin.Plugin.Hue.dll`, and `meta.json` are directly inside the versioned `HueSync_<version>` folder.
 7.  Restart Jellyfin.
@@ -515,7 +515,21 @@ Benchmarks measure:
 
 - **Storage cleanup contract**: generated CI artifacts and caches are treated separately from published release assets so billing cleanup cannot remove an installable release.
 
-### Version 1.5.457 (Current)
+### Version 1.5.458 (Current)
+
+- **Hue color conversion safety**: reject extreme Hue `xy` coordinates whose intermediate XYZ ratios overflow, preventing non-finite RGB values from being treated as valid captured colors.
+
+- **Manifest compatibility**: use the runtime-compatible string filename schema in `meta.json`, with release and runtime smoke validation before publication.
+
+- **Runner-safe runtime health**: probe Jellyfin health inside the disposable runtime and avoid host-port forwarding so the 10.9/10.10 compatibility matrix is portable across Docker namespaces and Windows hosts.
+
+- **Credential input hardening**: bound Hue App Key and Client Key inputs, reject control characters before persistence, HTTP headers, or DTLS parsing, and reject unsafe registration or custom user-mapping credentials before egress.
+
+- **Regression coverage**: cover subnormal color coordinates and oversized/control-character credentials across configuration, REST, DTLS, registration, manifest, and runtime boundaries.
+
+- **Semgrep lock verification**: validate the installed hash-locked Python package metadata instead of the bundled CLI core version, which may lag the declared package pin.
+
+### Version 1.5.457
 
 - **Replacement runner migration**: every CI, security, runtime, release, and pull-request job now uses the exact `[self-hosted, linux, x64, local-docker]` runner; the five legacy repository runners are stopped and retired.
 

@@ -7,17 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- Reject extreme Hue `xy` coordinates whose intermediate XYZ ratios overflow, preventing non-finite RGB values from being treated as valid captured colors.
-- Add regression coverage for subnormal-coordinate conversion safety.
-- Fix the Jellyfin plugin manifest `assemblies` field to use the runtime-compatible string filename schema.
-- Add release and runtime smoke validation so incompatible manifest shapes fail before publication.
-- Probe Jellyfin health inside the disposable runtime when a Docker-backed runner publishes ports through a separate daemon namespace.
-- Remove runtime-smoke host-port forwarding so Windows Docker port reservations cannot block the 10.9/10.10 compatibility matrix.
-- Bound Hue App Key and Client Key inputs and reject control characters before persistence, HTTP headers, or DTLS parsing.
-- Add regression coverage for oversized and control-character credentials across configuration, REST, and DTLS boundaries.
-- Reject oversized or control-character credentials returned by bridge registration before they reach the administrator configuration page.
-- Reject unsafe custom user-mapping credentials before persistence and DTLS egress, including preserved legacy values.
+No unreleased changes.
+
+## [1.5.458] - 2026-09-05
+
+### Security, runtime, and release hardening
+- **Hue color conversion safety**: reject extreme Hue `xy` coordinates whose intermediate XYZ ratios overflow, preventing non-finite RGB values from being treated as valid captured colors.
+- **Regression coverage**: add coverage for subnormal-coordinate conversion safety.
+- **Manifest compatibility**: fix the Jellyfin plugin manifest `assemblies` field to use the runtime-compatible string filename schema.
+- **Release validation**: add release and runtime smoke validation so incompatible manifest shapes fail before publication.
+- **Runner-safe runtime health**: probe Jellyfin health inside the disposable runtime when a Docker-backed runner publishes ports through a separate daemon namespace.
+- **Runtime portability**: remove runtime-smoke host-port forwarding so Windows Docker port reservations cannot block the 10.9/10.10 compatibility matrix.
+- **Credential input hardening**: bound Hue App Key and Client Key inputs and reject control characters before persistence, HTTP headers, or DTLS parsing.
+- **Credential regression coverage**: cover oversized and control-character credentials across configuration, REST, and DTLS boundaries.
+- **Credential response hardening**: reject oversized or control-character credentials returned by bridge registration before they reach the administrator configuration page.
+- **User-mapping credential safety**: reject unsafe custom user-mapping credentials before persistence and DTLS egress, including preserved legacy values.
+- **Semgrep lock verification**: validate the hash-locked Python package metadata instead of the bundled CLI core version, which may lag the declared package pin.
 
 ## [1.5.457] - 2026-09-01
 

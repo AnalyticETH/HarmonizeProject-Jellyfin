@@ -381,7 +381,7 @@ def run_self_test() -> None:
             for name, payload in {
                 "BouncyCastle.Cryptography.dll": b"bc",
                 "Jellyfin.Plugin.Hue.dll": b"dll",
-                "meta.json": b'{"guid":"4e078f02-ec43-473e-85f1-98e86eb9a761","name":"Philips Hue Sync","version":"1.5.456.0","assemblies":["BouncyCastle.Cryptography.dll","Jellyfin.Plugin.Hue.dll"]}\n',
+                "meta.json": b'{"guid":"4e078f02-ec43-473e-85f1-98e86eb9a761","name":"Philips Hue Sync","version":"1.5.458.0","assemblies":["BouncyCastle.Cryptography.dll","Jellyfin.Plugin.Hue.dll"]}\n',
             }.items():
                 info = zipfile.ZipInfo(filename=name, date_time=(1980, 1, 1, 0, 0, 0))
                 info.create_system = 0
@@ -390,7 +390,7 @@ def run_self_test() -> None:
         entries = validate_archive_entries(archive_path)
         require(tuple(sorted(entries)) == EXPECTED_ARCHIVE_ENTRIES, "self-test archive parsing failed")
         plugin_directory_name = resolve_plugin_directory_name(entries, None)
-        require(plugin_directory_name == "HueSync_1.5.456.0",
+        require(plugin_directory_name == "HueSync_1.5.458.0",
                 "self-test Jellyfin plugin directory naming failed")
         try:
             resolve_plugin_directory_name(entries, "HueSync")
@@ -406,7 +406,7 @@ def run_self_test() -> None:
                 "self-test runtime manifest mode failed")
         require((plugin_dir / "Jellyfin.Plugin.Hue.dll").stat().st_mode & 0o777 == 0o644,
                 "self-test assembly mode failed")
-        good_logs = "...\nLoaded plugin: Philips Hue Sync 1.5.456.0\n..."
+        good_logs = "...\nLoaded plugin: Philips Hue Sync 1.5.458.0\n..."
         require(all(marker in good_logs for marker in REQUIRED_LOG_MARKERS), "self-test required marker detection failed")
         require(not any(marker in good_logs for marker in FORBIDDEN_LOG_MARKERS), "self-test forbidden marker detection failed")
         bad_logs = f"Plugin /config/plugins/{plugin_directory_name} has been disabled"
