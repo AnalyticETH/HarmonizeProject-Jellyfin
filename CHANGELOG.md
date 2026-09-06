@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.459] - 2026-09-06
+
+### Reproducible release builds
+- **Stable release binaries**: enable deterministic CI builds for every .NET invocation so embedded PDB paths cannot vary with the checkout root and independently built release packages remain byte-identical.
+- **Regression contract**: require the repository-wide `MSBuild.rsp` setting that keeps local, helper, and trusted CI release outputs on the same deterministic build path.
+
 ## [1.5.458] - 2026-09-05
 
 ### Security, runtime, and release hardening

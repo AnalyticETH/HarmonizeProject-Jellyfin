@@ -2,6 +2,7 @@ import fs from "node:fs";
 
 const readme = fs.readFileSync("README.md", "utf8");
 const buildProps = fs.readFileSync("Directory.Build.props", "utf8");
+const buildResponseFile = fs.readFileSync("MSBuild.rsp", "utf8");
 const workflow = fs.readFileSync(".github/workflows/dotnet-ci.yml", "utf8");
 const releaseShell = fs.readFileSync("build-release.sh", "utf8");
 const releasePowerShell = fs.readFileSync("build-release.ps1", "utf8");
@@ -80,10 +81,14 @@ const requiredReadmeMarkers = [
 for (const marker of [
   "<RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>",
   "<RestoreLockedMode>true</RestoreLockedMode>",
+  "<Deterministic>true</Deterministic>",
 ]) {
   if (!buildProps.includes(marker)) {
-    throw new Error(`Directory.Build.props is missing the committed lock-file marker: ${marker}`);
+    throw new Error(`Directory.Build.props is missing the deterministic build marker: ${marker}`);
   }
+}
+if (!buildResponseFile.includes("/p:ContinuousIntegrationBuild=true")) {
+  throw new Error("MSBuild.rsp must enable deterministic CI builds for every .NET invocation");
 }
 
 for (const marker of requiredReadmeMarkers) {

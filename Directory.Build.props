@@ -4,5 +4,7 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <!-- Local and CI restores must consume the committed graph; never rewrite it implicitly. -->
     <RestoreLockedMode>true</RestoreLockedMode>
+    <!-- Keep PE/PDB paths stable so release binaries do not depend on the checkout root. -->
+    <Deterministic>true</Deterministic>
   </PropertyGroup>
 </Project>

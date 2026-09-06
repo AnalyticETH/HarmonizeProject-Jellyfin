@@ -42,7 +42,7 @@ Unlike simple "cinema mode" automations that just dim the lights, this plugin ac
     *   **Linux**: `/var/lib/jellyfin/plugins`
     *   **Windows**: `%ProgramData%\Jellyfin\Server\plugins`
     *   **Docker**: `/config/plugins`
-4.  Create a folder named `HueSync_<version>` using the exact four-part version in `meta.json` (for example, `HueSync_1.5.458.0`) and extract `jellyfin-plugin-hue-release.zip` into it. Jellyfin discovers versioned plugin folders at startup.
+4.  Create a folder named `HueSync_<version>` using the exact four-part version in `meta.json` (for example, `HueSync_1.5.459.0`) and extract `jellyfin-plugin-hue-release.zip` into it. Jellyfin discovers versioned plugin folders at startup.
 5.  Optionally inspect the manifest to audit the exact source commit, packaged file hashes, and locked NuGet dependency graph.
 6.  Confirm that `BouncyCastle.Cryptography.dll`, `Jellyfin.Plugin.Hue.dll`, and `meta.json` are directly inside the versioned `HueSync_<version>` folder.
 7.  Restart Jellyfin.
@@ -515,7 +515,13 @@ Benchmarks measure:
 
 - **Storage cleanup contract**: generated CI artifacts and caches are treated separately from published release assets so billing cleanup cannot remove an installable release.
 
-### Version 1.5.458 (Current)
+### Version 1.5.459 (Current)
+
+- **Reproducible release builds**: every .NET invocation enables deterministic CI compilation, mapping embedded PDB paths away from checkout-specific roots so independently built release packages remain byte-identical.
+
+- **Release regression contract**: the checked-in `MSBuild.rsp` response file keeps local helper output aligned with trusted CI packaging while preserving test and coverage PDBs.
+
+### Version 1.5.458
 
 - **Hue color conversion safety**: reject extreme Hue `xy` coordinates whose intermediate XYZ ratios overflow, preventing non-finite RGB values from being treated as valid captured colors.
 
