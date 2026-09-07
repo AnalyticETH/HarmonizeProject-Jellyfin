@@ -348,6 +348,8 @@ The local release scripts produce `jellyfin-plugin-hue-v<version>.zip` and match
 
 * `BouncyCastle.Cryptography.dll` — the managed DTLS transport dependency
 * `Jellyfin.Plugin.Hue.dll` — the plugin assembly, including the embedded configuration page
+* `LICENSE` - the complete GPL-3.0-only license
+* `NOTICE` - project copyright and bundled runtime dependency notices
 * `meta.json` — the Jellyfin plugin manifest and release version
 
 The release manifest is deterministic and records the exact source commit, archive digest, each packaged
@@ -515,7 +517,12 @@ Benchmarks measure:
 
 - **Storage cleanup contract**: generated CI artifacts and caches are treated separately from published release assets so billing cleanup cannot remove an installable release.
 
-### Version 1.5.460 (Current)
+### Version 1.5.461 (Current)
+- **License-complete archives**: include the complete GPL-3.0-only LICENSE and bundled dependency NOTICE in every canonical and local release ZIP.
+- **Licensing integrity**: hash both licensing files in release manifests and cover missing files and archive/staging content mismatches with executable regression tests.
+- **Publication boundary**: document required untrusted-PR runner isolation, security reporting, and hardware acceptance before public production availability.
+
+### Version 1.5.460
 - **Open-source licensing**: publish the complete GPL-3.0-only license and runtime dependency notices with explicit project metadata.
 - **Contributor readiness**: add contribution, support, code-of-conduct, issue-template, and pull-request guidance with credential-safe reporting rules.
 - **Release contract**: validate open-source release files and license metadata before trusted CI publication.
@@ -2783,6 +2790,7 @@ framework assemblies.
 - [Support guide](SUPPORT.md): installation checks, troubleshooting, and safe issue reports.
 - [Code of Conduct](CODE_OF_CONDUCT.md): participation and enforcement expectations.
 - [Security policy](SECURITY.md): private vulnerability-reporting and scanner coverage.
+- [Release readiness](RELEASE_READINESS.md): verified release evidence and owner-controlled publication gates.
 - [Issue templates](.github/ISSUE_TEMPLATE/): credential-safe bug and feature forms.
 
 ## Acknowledgements

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.461] - 2026-09-06
+
+### License-complete release packaging
+- **License-complete archives**: include the complete GPL-3.0-only LICENSE and bundled dependency NOTICE in every canonical and local release ZIP.
+- **Licensing integrity**: hash both licensing files in release manifests and cover missing files and archive/staging content mismatches with executable regression tests.
+- **Publication boundary**: document required untrusted-PR runner isolation, security reporting, and hardware acceptance before public production availability.
+
 ## [1.5.460] - 2026-09-06
 
 ### Open-source release preparation

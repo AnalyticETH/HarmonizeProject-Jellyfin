@@ -69,6 +69,8 @@ const requiredReadmeMarkers = [
   "BouncyCastle.Cryptography.dll",
   "Jellyfin.Plugin.Hue.dll",
   "meta.json",
+  "`LICENSE`",
+  "`NOTICE`",
   "Philips Hue Sync",
   "HueSync_<version>",
   "HueSync",
@@ -173,7 +175,8 @@ const requiredWorkflowMarkers = [
   "JELLYFIN_RUNTIME_VERSION: ${{ matrix.jellyfin_version }}",
   "--image \"$JELLYFIN_RUNTIME_IMAGE\"",
   "--container-name-prefix \"jellyfin-hue-runtime-smoke-$JELLYFIN_RUNTIME_VERSION\"",
-  '"BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "',
+  '"BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll LICENSE NOTICE meta.json "',
+  "cp LICENSE NOTICE release-package/",
   'plugin_directory="HueSync_${RELEASE_VERSION}"',
   "printf '   - **Linux**: `/var/lib/jellyfin/plugins/%s/`\\n' \"$plugin_directory\"",
   "printf '   - **Windows**: `%s\\Jellyfin\\Server\\plugins\\%s\\`\\n' '%ProgramData%' \"$plugin_directory\"",
@@ -209,6 +212,7 @@ for (const [name, script] of [["build-release.sh", releaseShell], ["build-releas
   if (name === "build-release.sh") {
     markers.push(
       "set -euo pipefail",
+      "cp LICENSE NOTICE release-package/",
       "rm -rf ./publish",
       "git -c safe.directory=\"$PWD\" rev-parse --verify HEAD",
       "git -c safe.directory=\"$PWD\" status --porcelain=v1 --untracked-files=all",
@@ -221,6 +225,7 @@ for (const [name, script] of [["build-release.sh", releaseShell], ["build-releas
   } else {
     markers.push(
       "Set-StrictMode -Version Latest",
+      'Copy-Item "LICENSE", "NOTICE" "release-package/"',
       "Remove-Item -Recurse -Force \"./publish\"",
       "git -c \"safe.directory=$((Get-Location).Path)\" status --porcelain=v1 --untracked-files=all",
       "git -c \"safe.directory=$((Get-Location).Path)\" rev-parse --verify HEAD",
@@ -239,6 +244,9 @@ for (const [name, script] of [["build-release.sh", releaseShell], ["build-releas
     if (!script.includes(marker)) {
       throw new Error(`${name} is missing publish-authoritative dependency marker: ${marker}`);
     }
+  }
+  if (/unzip -Z1 [^\r\n]*\|\s*sort\b|\.Entries\.FullName\s*\|\s*Sort-Object\b/.test(script)) {
+    throw new Error(`${name} must compare canonical ZIP entry order without locale-dependent sorting`);
   }
 }
 

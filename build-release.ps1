@@ -99,6 +99,7 @@ New-Item -ItemType Directory -Force -Path "./release-package" | Out-Null
 Copy-Item "publish/Jellyfin.Plugin.Hue.dll" "release-package/"
 Copy-Item "publish/BouncyCastle.Cryptography.dll" "release-package/"
 Copy-Item "publish/meta.json" "release-package/"
+Copy-Item "LICENSE", "NOTICE" "release-package/"
 
 Write-Host ""
 Write-Host "📋 Package Information:" -ForegroundColor Cyan
@@ -122,8 +123,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $zipSize = [math]::Round((Get-Item $zipFile).Length/1KB, 2)
 
-$archiveEntries = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $zipFile)).Entries.FullName | Sort-Object
-if (($archiveEntries -join ' ') -ne 'BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json') {
+# Preserve canonical ZIP order; culture-aware sorting moves meta.json before NOTICE.
+$archiveEntries = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $zipFile)).Entries.FullName
+if (($archiveEntries -join ' ') -ne 'BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll LICENSE NOTICE meta.json') {
     throw "Unexpected release archive contents: $($archiveEntries -join ', ')"
 }
 

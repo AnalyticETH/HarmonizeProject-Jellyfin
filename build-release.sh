@@ -87,6 +87,7 @@ mkdir -p release-package
 cp publish/Jellyfin.Plugin.Hue.dll release-package/
 cp publish/BouncyCastle.Cryptography.dll release-package/
 cp publish/meta.json release-package/
+cp LICENSE NOTICE release-package/
 echo ""
 echo "📋 Package Information:"
 echo "   Version: $VERSION"
@@ -103,8 +104,8 @@ python3 scripts/create-deterministic-release-zip.py \
     --input-dir release-package \
     --output "$ZIPFILE"
 
-ARCHIVE_FILES=$(unzip -Z1 "$ZIPFILE" | sort | tr '\n' ' ')
-if [ "$ARCHIVE_FILES" != "BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json " ]; then
+ARCHIVE_FILES=$(unzip -Z1 "$ZIPFILE" | tr '\n' ' ')
+if [ "$ARCHIVE_FILES" != "BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll LICENSE NOTICE meta.json " ]; then
     echo "❌ Unexpected release archive contents: $ARCHIVE_FILES" >&2
     exit 1
 fi

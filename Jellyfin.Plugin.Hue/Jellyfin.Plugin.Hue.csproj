@@ -10,9 +10,9 @@
     <!-- Plugin metadata -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>CS1591</NoWarn>
-    <AssemblyVersion>1.5.460.0</AssemblyVersion>
-    <FileVersion>1.5.460.0</FileVersion>
-    <Version>1.5.460.0</Version>
+    <AssemblyVersion>1.5.461.0</AssemblyVersion>
+    <FileVersion>1.5.461.0</FileVersion>
+    <Version>1.5.461.0</Version>
     <Authors>MCP Capital LLC</Authors>
     <Company>MCP Capital LLC</Company>
     <Copyright>Copyright (C) 2026 MCP Capital LLC</Copyright>

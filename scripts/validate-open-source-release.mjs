@@ -6,6 +6,7 @@ const requiredFiles = [
   "CONTRIBUTING.md",
   "CODE_OF_CONDUCT.md",
   "SUPPORT.md",
+  "RELEASE_READINESS.md",
   ".github/ISSUE_TEMPLATE/bug_report.yml",
   ".github/ISSUE_TEMPLATE/feature_request.yml",
   ".github/ISSUE_TEMPLATE/config.yml",
@@ -58,8 +59,8 @@ for (const marker of [
 }
 
 const meta = JSON.parse(read("meta.json"));
-if (meta.version !== "1.5.460.0") {
-  throw new Error(`meta.json must carry the prepared release version 1.5.460.0, found ${meta.version}`);
+if (meta.version !== "1.5.461.0") {
+  throw new Error(`meta.json must carry the prepared release version 1.5.461.0, found ${meta.version}`);
 }
 if (!String(meta.changelog || "").includes("Open-source licensing: publish the complete GPL-3.0-only license")) {
   throw new Error("meta.json changelog is missing the open-source release entry");
@@ -72,6 +73,7 @@ for (const marker of [
   "[NOTICE](NOTICE)",
   "[Contributing guide](CONTRIBUTING.md)",
   "[Support guide](SUPPORT.md)",
+  "[Release readiness](RELEASE_READINESS.md)",
   "[Code of Conduct](CODE_OF_CONDUCT.md)",
   "[Issue templates](.github/ISSUE_TEMPLATE/)",
 ]) {
@@ -123,6 +125,7 @@ for (const marker of [
   "/CONTRIBUTING.md @AnalyticETH",
   "/CODE_OF_CONDUCT.md @AnalyticETH",
   "/SUPPORT.md @AnalyticETH",
+  "/RELEASE_READINESS.md @AnalyticETH",
   "/scripts/validate-open-source-release.mjs @AnalyticETH",
 ]) {
   if (!codeOwners.includes(marker)) {
@@ -130,4 +133,4 @@ for (const marker of [
   }
 }
 
-console.log("Open-source production release contract passed");
+console.log("Open-source source-tree contract passed; publication gates require separate owner evidence");

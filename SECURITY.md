@@ -12,11 +12,11 @@ Include the affected release, reproduction steps, impact, and any suggested miti
 
 ## Automated coverage
 
-Every trusted `main` push runs the named self-hosted CI runner with:
+Every trusted `main` push runs the replacement `local-docker` self-hosted CI runner with:
 
-- A dedicated, least-privileged `harmonize-runner` service account and isolated home directory
-- A main-only `workflow_dispatch` recovery trigger for operators, with no pull-request or non-main push trigger, plus a job-level `refs/heads/main` guard and a separate release-runner identity for the `contents:write` publication job
-- Release packaging generates SHA-256 sidecars for the ZIP and a deterministic release manifest, carries them with the inter-job artifact, verifies them on the isolated release runner, and publishes the manifest beside the release ZIP
+- A shared replacement runner for PR validation and trusted jobs; the former isolated `harmonize-runner` service accounts are retired. Host isolation must be verified separately before accepting public PR execution.
+- A main-only `workflow_dispatch` recovery trigger for operators, with no pull-request or non-main push trigger in the trusted workflow, plus a job-level `refs/heads/main` guard and job-scoped `contents:write` for publication
+- Release packaging generates SHA-256 sidecars for the ZIP and a deterministic release manifest, carries them with the inter-job artifact, verifies them in the release job, and publishes the manifest beside the release ZIP
 - The schema-version-2 release manifest records the exact 40-character source commit, each packaged file's size and SHA-256 digest, plus every resolved package/content hash from the plugin's committed NuGet lock file; helper and canonical manifests must compare byte-for-byte and the release runner rejects a source-commit mismatch
 - Locked-mode NuGet restores with committed dependency content hashes
 - NuGet vulnerability auditing through `dotnet list package --vulnerable --include-transitive`
@@ -51,7 +51,7 @@ malformed or does not match the requested resource. The legacy first-entry fallb
 for responses where every returned resource omits its identity, so malformed bridge metadata cannot
 silently supply another area's channel layout.
 
-The repository-controlled weekly default-branch security workflow reruns the blocking Gitleaks and Semgrep gates. Both scanner jobs carry the same `refs/heads/main` guard, so pull-request and non-main code never reach the persistent runner.
+The repository-controlled weekly default-branch security workflow reruns the blocking Gitleaks and Semgrep gates. Both scanner jobs carry the same `refs/heads/main` guard. This restricts those jobs, not the runner: the separate PR workflow still executes untrusted code on the shared replacement runner.
 
 Pull requests, including Dependabot updates, use the separate
 `.github/workflows/pull-request-validation.yml` workflow on the replacement
@@ -60,6 +60,12 @@ not expose repository secrets, performs no release, tag, or write operation, and
 its work tree after every job. Dependabot's native update jobs additionally require the
 repository's owner-controlled **Dependabot on self-hosted runners** setting and the
 replacement runner to be online with the `local-docker` label.
+
+Read-only workflow permissions and workspace cleanup do not isolate untrusted PR
+processes from host resources or subsequent release jobs. Public production
+availability remains gated on an owner-approved isolated PR worker boundary and
+a tested private vulnerability-reporting channel; see
+[RELEASE_READINESS.md](RELEASE_READINESS.md).
 
 The replacement-runner lifecycle, retired-service teardown, billing boundary, and live
 verification procedure are documented in [SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md).

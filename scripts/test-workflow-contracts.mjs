@@ -143,6 +143,8 @@ function runHostHealthStub(overrides = {}, failures = {}) {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hue-runner-health-"));
   const fixtureBin = path.join(fixtureRoot, "bin");
   fs.mkdirSync(fixtureBin, { recursive: true });
+  // Do not inherit an unrelated temporary-directory package's module type.
+  fs.writeFileSync(path.join(fixtureRoot, "package.json"), '{"type":"commonjs"}\n');
   const systemctlPath = path.join(fixtureBin, "systemctl");
   const failureStatePath = path.join(fixtureRoot, "failure-state.json");
   fs.writeFileSync(failureStatePath, JSON.stringify(failures));

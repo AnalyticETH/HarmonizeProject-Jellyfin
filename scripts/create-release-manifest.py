@@ -26,6 +26,8 @@ COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 REQUIRED_PACKAGE_FILES = (
     "BouncyCastle.Cryptography.dll",
     "Jellyfin.Plugin.Hue.dll",
+    "LICENSE",
+    "NOTICE",
     "meta.json",
 )
 
@@ -180,6 +182,8 @@ def run_self_test() -> None:
         package_dir.mkdir()
         (package_dir / "BouncyCastle.Cryptography.dll").write_bytes(b"bouncy")
         (package_dir / "Jellyfin.Plugin.Hue.dll").write_bytes(b"plugin")
+        (package_dir / "LICENSE").write_bytes(b"GNU GENERAL PUBLIC LICENSE\n")
+        (package_dir / "NOTICE").write_bytes(b"Runtime dependency notices\n")
         (package_dir / "meta.json").write_text(
             json.dumps({"version": "1.2.3.4"}) + "\n", encoding="utf-8"
         )
@@ -225,21 +229,36 @@ def run_self_test() -> None:
         if len(parsed["nuget"]["packages"]) != 1:
             raise AssertionError("release manifest dependency inventory is incomplete")
         tampered_archive = root / "tampered.zip"
-        with zipfile.ZipFile(tampered_archive, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for file_name in REQUIRED_PACKAGE_FILES:
-                payload = (
-                    b"tampered"
-                    if file_name == "Jellyfin.Plugin.Hue.dll"
-                    else (package_dir / file_name).read_bytes()
-                )
-                archive.writestr(file_name, payload)
-        try:
-            build_manifest(package_dir, lock_path, tampered_archive, "1.2.3.4", source_commit)
-        except ValueError as error:
-            if "does not match package file" not in str(error):
-                raise AssertionError("tampered archive failure did not identify the mismatched file") from error
-        else:
-            raise AssertionError("tampered archive was accepted")
+        for tampered_name in ("Jellyfin.Plugin.Hue.dll", "LICENSE", "NOTICE"):
+            with zipfile.ZipFile(tampered_archive, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for file_name in REQUIRED_PACKAGE_FILES:
+                    payload = (
+                        b"tampered"
+                        if file_name == tampered_name
+                        else (package_dir / file_name).read_bytes()
+                    )
+                    archive.writestr(file_name, payload)
+            try:
+                build_manifest(package_dir, lock_path, tampered_archive, "1.2.3.4", source_commit)
+            except ValueError as error:
+                if f"does not match package file: {tampered_name}" not in str(error):
+                    raise AssertionError("tampered archive failure did not identify the mismatched file") from error
+            else:
+                raise AssertionError(f"tampered {tampered_name} was accepted")
+
+        for missing_name in ("LICENSE", "NOTICE"):
+            missing_path = package_dir / missing_name
+            payload = missing_path.read_bytes()
+            missing_path.unlink()
+            try:
+                build_manifest(package_dir, lock_path, archive_path, "1.2.3.4", source_commit)
+            except ValueError as error:
+                if f"missing required file: {missing_name}" not in str(error):
+                    raise
+            else:
+                raise AssertionError(f"release manifest without {missing_name} was accepted")
+            finally:
+                missing_path.write_bytes(payload)
 
         for invalid_source_commit in (None, "", "not-a-sha", "a" * 39, "g" * 40):
             try:

@@ -20,6 +20,8 @@ import zipfile
 EXPECTED_FILES = (
     "BouncyCastle.Cryptography.dll",
     "Jellyfin.Plugin.Hue.dll",
+    "LICENSE",
+    "NOTICE",
     "meta.json",
 )
 FIXED_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
@@ -115,7 +117,7 @@ def inspect_archive(archive_path: Path) -> tuple[zipfile.ZipInfo, ...]:
 
 
 def create_archive(input_dir: Path, output_path: Path) -> None:
-    """Create a canonical archive from exactly the three release files."""
+    """Create a canonical archive from exactly the required release files."""
 
     source_files = tuple(_source_files(input_dir))
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -165,12 +167,14 @@ def run_self_test() -> None:
         second_source.mkdir()
         contents = {
             "meta.json": b'{"version":"test"}\n',
+            "NOTICE": b"Runtime dependency notices\n",
             "Jellyfin.Plugin.Hue.dll": b"plugin-bytes\n",
+            "LICENSE": b"GNU GENERAL PUBLIC LICENSE\n",
             "BouncyCastle.Cryptography.dll": b"dependency-bytes\n",
         }
         # Deliberately create the files in different orders and assign
         # different mtimes; neither may appear in the resulting archive.
-        for name in ("meta.json", "Jellyfin.Plugin.Hue.dll", "BouncyCastle.Cryptography.dll"):
+        for name in contents:
             (first_source / name).write_bytes(contents[name])
         for name in reversed(EXPECTED_FILES):
             (second_source / name).write_bytes(contents[name])
@@ -195,6 +199,35 @@ def run_self_test() -> None:
             raise AssertionError(
                 "Canonical release archive entries must be readable by the Jellyfin service account"
             )
+        with zipfile.ZipFile(first_archive) as archive:
+            for name, payload in contents.items():
+                if archive.read(name) != payload:
+                    raise AssertionError(f"Release archive did not preserve {name}")
+            for missing_name in ("LICENSE", "NOTICE"):
+                incomplete_archive = root / f"missing-{missing_name}.zip"
+                with zipfile.ZipFile(incomplete_archive, "w") as incomplete:
+                    for entry in archive.infolist():
+                        if entry.filename != missing_name:
+                            incomplete.writestr(_canonical_info(entry.filename), archive.read(entry.filename))
+                try:
+                    inspect_archive(incomplete_archive)
+                except ValueError as error:
+                    if "canonical sorted set" not in str(error):
+                        raise
+                else:
+                    raise AssertionError(f"Release archive without {missing_name} was accepted")
+
+        for missing_name in ("LICENSE", "NOTICE"):
+            (first_source / missing_name).unlink()
+            try:
+                create_archive(first_source, root / "incomplete.zip")
+            except ValueError as error:
+                if "canonical files" not in str(error):
+                    raise
+            else:
+                raise AssertionError(f"Release package without {missing_name} was accepted")
+            finally:
+                (first_source / missing_name).write_bytes(contents[missing_name])
         print(
             "Deterministic release package self-test passed "
             f"(sha256={first_hash}, entries={','.join(EXPECTED_FILES)})"
@@ -203,7 +236,7 @@ def run_self_test() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input-dir", type=Path, help="Directory containing the three release files")
+    parser.add_argument("--input-dir", type=Path, help="Directory containing the required release files")
     parser.add_argument("--output", type=Path, help="Output ZIP archive path")
     parser.add_argument(
         "--self-test",

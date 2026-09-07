@@ -18,6 +18,8 @@ from pathlib import Path
 EXPECTED_ARCHIVE_ENTRIES = (
     "BouncyCastle.Cryptography.dll",
     "Jellyfin.Plugin.Hue.dll",
+    "LICENSE",
+    "NOTICE",
     "meta.json",
 )
 EXPECTED_ASSEMBLIES = ("BouncyCastle.Cryptography.dll", "Jellyfin.Plugin.Hue.dll")
@@ -381,6 +383,8 @@ def run_self_test() -> None:
             for name, payload in {
                 "BouncyCastle.Cryptography.dll": b"bc",
                 "Jellyfin.Plugin.Hue.dll": b"dll",
+                "LICENSE": b"GNU GENERAL PUBLIC LICENSE\n",
+                "NOTICE": b"Runtime dependency notices\n",
                 "meta.json": b'{"guid":"4e078f02-ec43-473e-85f1-98e86eb9a761","name":"Philips Hue Sync","version":"1.5.458.0","assemblies":["BouncyCastle.Cryptography.dll","Jellyfin.Plugin.Hue.dll"]}\n',
             }.items():
                 info = zipfile.ZipInfo(filename=name, date_time=(1980, 1, 1, 0, 0, 0))
@@ -389,6 +393,18 @@ def run_self_test() -> None:
                 archive.writestr(info, payload, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
         entries = validate_archive_entries(archive_path)
         require(tuple(sorted(entries)) == EXPECTED_ARCHIVE_ENTRIES, "self-test archive parsing failed")
+        for missing_name in ("LICENSE", "NOTICE"):
+            incomplete_path = Path(temp_dir) / f"missing-{missing_name}.zip"
+            with zipfile.ZipFile(archive_path) as archive, zipfile.ZipFile(incomplete_path, "w") as incomplete:
+                for entry in archive.infolist():
+                    if entry.filename != missing_name:
+                        incomplete.writestr(entry, archive.read(entry.filename))
+            try:
+                validate_archive_entries(incomplete_path)
+            except VerificationError as error:
+                require("Archive entries must be exactly" in str(error), "self-test missing-license failure is incorrect")
+            else:
+                raise VerificationError(f"self-test accepted an archive without {missing_name}")
         plugin_directory_name = resolve_plugin_directory_name(entries, None)
         require(plugin_directory_name == "HueSync_1.5.458.0",
                 "self-test Jellyfin plugin directory naming failed")
