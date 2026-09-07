@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/AnalyticETH/HarmonizeProject-Jellyfin/security/policy
+    about: Report security issues privately according to SECURITY.md.
+  - name: Installation and troubleshooting
+    url: https://github.com/AnalyticETH/HarmonizeProject-Jellyfin/blob/main/SUPPORT.md
+    about: Check the support guide before opening a bug report.

@@ -1,0 +1,72 @@
+name: Bug report
+description: Report a reproducible problem with the plugin.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include Hue App Keys, Client Keys, bridge certificates, access tokens, or unredacted private logs.
+        Security issues belong in the private process described in SECURITY.md.
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: Use the four-part version shown in meta.json or the installed folder name.
+      placeholder: 1.5.460.0
+    validations:
+      required: true
+  - type: input
+    id: jellyfin-version
+    attributes:
+      label: Jellyfin version
+      placeholder: 10.10.7
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system and deployment
+      description: Include Linux, Windows, or Docker and the relevant architecture.
+      placeholder: Linux amd64, Docker
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: List the smallest sequence that reliably reproduces the problem.
+      placeholder: |
+        1. Configure ...
+        2. Start playback ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Paste only credential-free output from System Diagnostics or relevant logs.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I tested the latest release.
+          required: true
+        - label: I removed credentials, tokens, certificates, and sensitive host details.
+          required: true
+        - label: This is not a security vulnerability report.
+          required: true

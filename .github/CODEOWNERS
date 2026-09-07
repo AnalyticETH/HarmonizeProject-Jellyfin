@@ -18,7 +18,15 @@
 /SELF_HOSTED_RUNNERS.md @AnalyticETH
 /README.md @AnalyticETH
 /CHANGELOG.md @AnalyticETH
+/LICENSE @AnalyticETH
+/NOTICE @AnalyticETH
+/CONTRIBUTING.md @AnalyticETH
+/CODE_OF_CONDUCT.md @AnalyticETH
+/SUPPORT.md @AnalyticETH
+/.github/ISSUE_TEMPLATE/ @AnalyticETH
+/.github/pull_request_template.md @AnalyticETH
 /Jellyfin.Plugin.Hue/ @AnalyticETH
 /Jellyfin.Plugin.Hue.Tests/ @AnalyticETH
 /Jellyfin.Plugin.Hue.Benchmarks/ @AnalyticETH
 /scripts/ @AnalyticETH
+/scripts/validate-open-source-release.mjs @AnalyticETH

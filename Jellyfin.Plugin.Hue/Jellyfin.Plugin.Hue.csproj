@@ -10,12 +10,15 @@
     <!-- Plugin metadata -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>CS1591</NoWarn>
-    <AssemblyVersion>1.5.459.0</AssemblyVersion>
-    <FileVersion>1.5.459.0</FileVersion>
-    <Version>1.5.459.0</Version>
+    <AssemblyVersion>1.5.460.0</AssemblyVersion>
+    <FileVersion>1.5.460.0</FileVersion>
+    <Version>1.5.460.0</Version>
     <Authors>MCP Capital LLC</Authors>
     <Company>MCP Capital LLC</Company>
+    <Copyright>Copyright (C) 2026 MCP Capital LLC</Copyright>
     <Description>Synchronize Philips Hue lights with your media playback in real-time.</Description>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <PackageTags>jellyfin;philips-hue;lighting;media-sync;gpl-3.0-only</PackageTags>
     <RepositoryUrl>https://github.com/AnalyticETH/HarmonizeProject-Jellyfin</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>

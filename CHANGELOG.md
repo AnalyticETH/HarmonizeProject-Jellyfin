@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [1.5.460] - 2026-09-06
+
+### Open-source release preparation
+- **Open-source licensing**: publish the complete GPL-3.0-only license and runtime dependency notices with explicit project metadata.
+- **Contributor readiness**: add contribution, support, code-of-conduct, issue-template, and pull-request guidance with credential-safe reporting rules.
+- **Release contract**: validate open-source release files and license metadata before trusted CI publication.
+
 ## [1.5.459] - 2026-09-06
 
 ### Reproducible release builds

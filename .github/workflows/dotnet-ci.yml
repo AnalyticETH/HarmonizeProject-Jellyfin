@@ -47,6 +47,9 @@ jobs:
     - name: Validate pinned .NET SDK parity
       run: node scripts/validate-dotnet-sdk.mjs
 
+    - name: Validate open-source production release contract
+      run: node scripts/validate-open-source-release.mjs
+
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
       env:

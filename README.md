@@ -4,7 +4,7 @@
 
 ![Jellyfin](https://img.shields.io/badge/Jellyfin-10.9.0+-00A4DC?style=flat-square&logo=jellyfin)
 ![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet)
-![License](https://img.shields.io/badge/license-GPL--3.0-green?style=flat-square)
+[![License](https://img.shields.io/badge/license-GPL--3.0--only-green?style=flat-square)](LICENSE)
 
 **Immersive lighting for your Jellyfin Media Server.**
 
@@ -42,7 +42,7 @@ Unlike simple "cinema mode" automations that just dim the lights, this plugin ac
     *   **Linux**: `/var/lib/jellyfin/plugins`
     *   **Windows**: `%ProgramData%\Jellyfin\Server\plugins`
     *   **Docker**: `/config/plugins`
-4.  Create a folder named `HueSync_<version>` using the exact four-part version in `meta.json` (for example, `HueSync_1.5.459.0`) and extract `jellyfin-plugin-hue-release.zip` into it. Jellyfin discovers versioned plugin folders at startup.
+4.  Create a folder named `HueSync_<version>` using the exact four-part version in `meta.json` (for example, `HueSync_1.5.460.0`) and extract `jellyfin-plugin-hue-release.zip` into it. Jellyfin discovers versioned plugin folders at startup.
 5.  Optionally inspect the manifest to audit the exact source commit, packaged file hashes, and locked NuGet dependency graph.
 6.  Confirm that `BouncyCastle.Cryptography.dll`, `Jellyfin.Plugin.Hue.dll`, and `meta.json` are directly inside the versioned `HueSync_<version>` folder.
 7.  Restart Jellyfin.
@@ -515,7 +515,12 @@ Benchmarks measure:
 
 - **Storage cleanup contract**: generated CI artifacts and caches are treated separately from published release assets so billing cleanup cannot remove an installable release.
 
-### Version 1.5.459 (Current)
+### Version 1.5.460 (Current)
+- **Open-source licensing**: publish the complete GPL-3.0-only license and runtime dependency notices with explicit project metadata.
+- **Contributor readiness**: add contribution, support, code-of-conduct, issue-template, and pull-request guidance with credential-safe reporting rules.
+- **Release contract**: validate open-source release files and license metadata before trusted CI publication.
+
+### Version 1.5.459
 
 - **Reproducible release builds**: every .NET invocation enables deterministic CI compilation, mapping embedded PDB paths away from checkout-specific roots so independently built release packages remain byte-identical.
 
@@ -2767,7 +2772,18 @@ Benchmarks measure:
 - Enhanced logging and XML documentation
 
 ## License
-This project is licensed under the GPL-3.0 License.
+This project is licensed under the [GNU General Public License, version 3 only](LICENSE).
+The project copyright and bundled runtime dependency notices are recorded in
+[NOTICE](NOTICE). The plugin does not redistribute the Jellyfin host or .NET
+framework assemblies.
+
+## Open-source project files
+
+- [Contributing guide](CONTRIBUTING.md): development, testing, compatibility, and release rules.
+- [Support guide](SUPPORT.md): installation checks, troubleshooting, and safe issue reports.
+- [Code of Conduct](CODE_OF_CONDUCT.md): participation and enforcement expectations.
+- [Security policy](SECURITY.md): private vulnerability-reporting and scanner coverage.
+- [Issue templates](.github/ISSUE_TEMPLATE/): credential-safe bug and feature forms.
 
 ## Acknowledgements
 *   Inspired by [HarmonizeProject](https://github.com/MCPCapital/HarmonizeProject) for the video analysis and DTLS logic.
