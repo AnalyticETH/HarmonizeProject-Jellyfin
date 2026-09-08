@@ -77,12 +77,12 @@ try {
   check("layout", { "README.md": text => text.trimEnd() + " extra".repeat(901 - wordCount(text)) + "\n" }, /within 150 lines and 900 words/);
   check("layout", { "README.md": text => text.replace("docs/API.md", "docs/MISSING.md") }, /broken relative link/);
   check("layout", { "README.md": text => text.replace("docs/API.md", "../README.md") }, /relative link outside the checkout/);
-  check("layout", { "README.md": text => text.replace("#release-package-contents", "#missing-package-section") }, /broken heading link/);
+  check("layout", { "README.md": text => `${text}\n[Package](CONTRIBUTING.md#missing-package-section)\n` }, /broken heading link/);
   check("layout", { "docs/API.md": text => text.replace("#initial-setup", "#missing-setup") }, /broken heading link/);
   check("layout", { "CONTRIBUTING.md": text => text + "\n```md\n[Example](missing.md)\n```\n" });
   check("layout", {
     "CONTRIBUTING.md": text => text + "\n```md\n## Phantom heading\n```\n",
-    "README.md": text => text.replace("#release-package-contents", "#phantom-heading"),
+    "README.md": text => `${text}\n[Package](CONTRIBUTING.md#phantom-heading)\n`,
   }, /broken heading link/);
 
   const checkLinks = (markdown, expectedError = null) => check("layout", {
@@ -140,10 +140,6 @@ try {
   }, /missing certificate pinning safety guidance/);
   check("api", { "docs/API.md": text => text + '\n{"targetUserIds": ["mapping-id"]}\n' }, /must not describe stable mapping-row IDs as target user IDs/);
 
-  check("release", { "README.md": text => text.replace("explicitly confirm", "accept") }, /missing release-installation marker: explicitly confirm/);
-  check("release", {
-    "README.md": text => text.replace("sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256", "sha256sum jellyfin-plugin-hue-release.zip"),
-  }, /missing release-installation marker: sha256sum --check --strict/);
   check("release", {
     "CONTRIBUTING.md": text => text.replace("resolved hash-locked NuGet graph", "dependency list"),
   }, /CONTRIBUTING\.md is missing release-reference marker/);

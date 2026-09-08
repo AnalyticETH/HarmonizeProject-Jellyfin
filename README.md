@@ -4,8 +4,8 @@ Synchronize Philips Hue lights with video and audio playing on your Jellyfin
 server. The plugin uses FFmpeg to analyze media and streams lighting updates to
 a Hue Entertainment Area.
 
-See [Release readiness](RELEASE_READINESS.md) for verification evidence and the
-remaining physical-acceptance check.
+See [Release readiness](RELEASE_READINESS.md) for the release checklist and
+physical-acceptance status.
 
 ## What it does
 
@@ -29,29 +29,9 @@ The managed DTLS transport is included. You do not need an OpenSSL executable.
 
 ## Installation
 
-### Download and verify
-
-Download these four assets from a matching
-[GitHub release](https://github.com/AnalyticETH/HarmonizeProject-Jellyfin/releases):
-
-- `jellyfin-plugin-hue-release.zip`
-- `jellyfin-plugin-hue-release.zip.sha256`
-- `jellyfin-plugin-hue-release.manifest.json`
-- `jellyfin-plugin-hue-release.manifest.json.sha256`
-
-Keep them together and verify both checksums before extracting the ZIP:
-
-```bash
-sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256
-sha256sum --check --strict jellyfin-plugin-hue-release.manifest.json.sha256
-```
-
-On Windows, use `Get-FileHash -Algorithm SHA256` for the ZIP and manifest and
-compare each hash with its matching sidecar. Stop if either hash differs.
-
-The manifest records the exact source commit and packaged file hashes. See the
-[packaging reference](CONTRIBUTING.md#release-package-contents) for provenance
-and reproducible-build details.
+Download the release ZIP from the
+[GitHub releases page](https://github.com/AnalyticETH/HarmonizeProject-Jellyfin/releases).
+Use the ZIP for the version you want to install.
 
 ### Install the files
 

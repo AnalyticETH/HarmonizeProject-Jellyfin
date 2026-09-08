@@ -59,12 +59,7 @@ for (const lockPath of jellyfinLockFiles) {
 }
 
 const requiredReadmeMarkers = [
-  "jellyfin-plugin-hue-release.zip",
-  "jellyfin-plugin-hue-release.zip.sha256",
-  "jellyfin-plugin-hue-release.manifest.json",
-  "jellyfin-plugin-hue-release.manifest.json.sha256",
-  "sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256",
-  "exact source commit",
+  "GitHub releases page",
   "BouncyCastle.Cryptography.dll",
   "Jellyfin.Plugin.Hue.dll",
   "meta.json",
