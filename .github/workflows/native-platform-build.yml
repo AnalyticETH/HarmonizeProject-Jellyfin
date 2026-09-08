@@ -1,0 +1,253 @@
+name: Native Platform Builds
+
+# Build the managed plugin on every hosted OS/architecture that can represent a
+# Jellyfin server installation. These artifacts are verification outputs; the
+# canonical deterministic release ZIP remains produced by the Linux release job.
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harmonizeproject-jellyfin-native-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_VERSION: '8.0.424'
+  BUILD_CONFIGURATION: 'Release'
+
+jobs:
+  build-linux:
+    name: Native Build (Linux x64)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore --locked-mode
+
+      - name: Build solution
+        run: dotnet build --configuration "$BUILD_CONFIGURATION" --no-restore
+
+      - name: Run tests
+        run: dotnet test --configuration "$BUILD_CONFIGURATION" --no-build --verbosity normal
+
+      - name: Check formatting
+        run: dotnet format --verify-no-changes --no-restore --verbosity diagnostic
+
+      - name: Publish platform artifact
+        run: |
+          set -euo pipefail
+          dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj \
+            --configuration "$BUILD_CONFIGURATION" --no-build --output native-publish
+          test -s native-publish/Jellyfin.Plugin.Hue.dll
+          test -s native-publish/meta.json
+          {
+            echo "platform=$RUNNER_OS"
+            echo "architecture=$RUNNER_ARCH"
+            echo "commit=$GITHUB_SHA"
+            dotnet --info
+          } > native-build-report.txt
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-build-linux-x64
+          path: |
+            native-publish/**
+            native-build-report.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  build-windows:
+    name: Native Build (Windows x64)
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore --locked-mode
+
+      - name: Build solution
+        run: dotnet build --configuration "$BUILD_CONFIGURATION" --no-restore
+
+      - name: Run tests
+        run: dotnet test --configuration "$BUILD_CONFIGURATION" --no-build --verbosity normal
+
+      - name: Check formatting
+        run: dotnet format --verify-no-changes --no-restore --verbosity diagnostic
+
+      - name: Publish platform artifact
+        run: |
+          set -euo pipefail
+          dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj \
+            --configuration "$BUILD_CONFIGURATION" --no-build --output native-publish
+          test -s native-publish/Jellyfin.Plugin.Hue.dll
+          test -s native-publish/meta.json
+          {
+            echo "platform=$RUNNER_OS"
+            echo "architecture=$RUNNER_ARCH"
+            echo "commit=$GITHUB_SHA"
+            dotnet --info
+          } > native-build-report.txt
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-build-windows-x64
+          path: |
+            native-publish/**
+            native-build-report.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  build-macos-intel:
+    name: Native Build (macOS Intel)
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-13
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore --locked-mode
+
+      - name: Build solution
+        run: dotnet build --configuration "$BUILD_CONFIGURATION" --no-restore
+
+      - name: Run tests
+        run: dotnet test --configuration "$BUILD_CONFIGURATION" --no-build --verbosity normal
+
+      - name: Check formatting
+        run: dotnet format --verify-no-changes --no-restore --verbosity diagnostic
+
+      - name: Publish platform artifact
+        run: |
+          set -euo pipefail
+          dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj \
+            --configuration "$BUILD_CONFIGURATION" --no-build --output native-publish
+          test -s native-publish/Jellyfin.Plugin.Hue.dll
+          test -s native-publish/meta.json
+          {
+            echo "platform=$RUNNER_OS"
+            echo "architecture=$RUNNER_ARCH"
+            echo "commit=$GITHUB_SHA"
+            dotnet --info
+          } > native-build-report.txt
+
+      - name: Upload macOS Intel artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-build-macos-intel
+          path: |
+            native-publish/**
+            native-build-report.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  build-macos-arm64:
+    name: Native Build (macOS Apple Silicon)
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-14
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore --locked-mode
+
+      - name: Build solution
+        run: dotnet build --configuration "$BUILD_CONFIGURATION" --no-restore
+
+      - name: Run tests
+        run: dotnet test --configuration "$BUILD_CONFIGURATION" --no-build --verbosity normal
+
+      - name: Check formatting
+        run: dotnet format --verify-no-changes --no-restore --verbosity diagnostic
+
+      - name: Publish platform artifact
+        run: |
+          set -euo pipefail
+          dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj \
+            --configuration "$BUILD_CONFIGURATION" --no-build --output native-publish
+          test -s native-publish/Jellyfin.Plugin.Hue.dll
+          test -s native-publish/meta.json
+          {
+            echo "platform=$RUNNER_OS"
+            echo "architecture=$RUNNER_ARCH"
+            echo "commit=$GITHUB_SHA"
+            dotnet --info
+          } > native-build-report.txt
+
+      - name: Upload macOS Apple Silicon artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-build-macos-arm64
+          path: |
+            native-publish/**
+            native-build-report.txt
+          if-no-files-found: error
+          retention-days: 7

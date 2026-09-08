@@ -15,16 +15,16 @@ The executable runner policy is enforced by:
 - `.github/workflows/pull-request-validation.yml`
 - `.github/workflows/dotnet-ci.yml`
 - `.github/workflows/security-scan.yml`
+- `.github/workflows/native-platform-build.yml`
 - `scripts/validate-workflow-inventory.mjs`
 - `scripts/test-workflow-contracts.mjs`
 
 The hosted runner health workflow checks the required Node, Python, jq, Docker,
 and pinned .NET SDK toolchain every 15 minutes. A successful local validation is
 not remote Actions evidence; trusted `main` run `34239469164` passed for the
-workflow migration, while a real fork pull request remains required before
-public launch.
+workflow migration. Real fork-PR execution is owner-waived for this launch.
 
 Public production remains gated by physical Hue acceptance, upgrade/rollback,
-native Windows/macOS parity, private security intake, licensing/source authority,
-and the protected repository-visibility policy. See
+the terminal native hosted build result, licensing/source authority, and the
+protected repository-visibility policy. See
 [RELEASE_READINESS.md](RELEASE_READINESS.md).

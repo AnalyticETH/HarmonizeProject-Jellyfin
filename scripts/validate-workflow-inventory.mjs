@@ -5,11 +5,15 @@ const workflowDirectory = ".github/workflows";
 const MAX_TIMEOUT_MINUTES = 40;
 const expectedWorkflows = new Set([
   "dotnet-ci.yml",
+  "native-platform-build.yml",
   "pull-request-validation.yml",
   "runner-health.yml",
   "security-scan.yml",
 ]);
 const githubHostedRunner = 'ubuntu-24.04';
+const nativePlatformRunners = new Map([
+  ["native-platform-build.yml", new Set(["ubuntu-24.04", "windows-2022", "macos-13", "macos-14"])],
+]);
 const allowedActionRepositories = new Set([
   "actions/checkout",
   "actions/setup-dotnet",
@@ -228,9 +232,13 @@ for (const name of workflowFiles) {
       throw new Error(`${name} job ${job.name} uses a dynamic runner expression; review it explicitly`);
     }
 
+    const allowedRunners = nativePlatformRunners.get(name) ?? new Set([githubHostedRunner]);
     if (!isReusableWorkflowJob(job) &&
-        (runsOnValues.length !== 1 || runsOnValues[0] !== githubHostedRunner)) {
-      throw new Error(`${name} job ${job.name} must use runner ${githubHostedRunner}`);
+        (runsOnValues.length !== 1 || !allowedRunners.has(runsOnValues[0]))) {
+      const runnerError = allowedRunners.size === 1
+        ? `must use runner ${[...allowedRunners][0]}`
+        : `must use runner from the approved hosted runners: ${[...allowedRunners].join(", ")}`;
+      throw new Error(`${name} job ${job.name} ${runnerError}`);
     }
   }
 }
@@ -245,6 +253,7 @@ for (const name of workflowFiles) {
 const pullRequestWorkflow = workflowText("pull-request-validation.yml");
 const runnerHealthWorkflow = workflowText("runner-health.yml");
 const trustedWorkflow = workflowText("dotnet-ci.yml");
+const nativePlatformWorkflow = workflowText("native-platform-build.yml");
 for (const marker of [
   "jellyfin_version: '10.9.0'",
   "jellyfin_runtime_image: 'jellyfin/jellyfin@sha256:d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67'",
@@ -256,6 +265,25 @@ for (const marker of [
 ]) {
   if (!trustedWorkflow.includes(marker)) {
     throw new Error(`dotnet-ci.yml is missing the pinned Jellyfin runtime matrix marker: ${marker}`);
+  }
+}
+for (const marker of [
+  "name: Native Platform Builds",
+  "runs-on: ubuntu-24.04",
+  "runs-on: windows-2022",
+  "runs-on: macos-13",
+  "runs-on: macos-14",
+  "dotnet restore --locked-mode",
+  "dotnet build --configuration \"$BUILD_CONFIGURATION\" --no-restore",
+  "dotnet test --configuration \"$BUILD_CONFIGURATION\" --no-build",
+  "dotnet format --verify-no-changes --no-restore",
+  "native-build-linux-x64",
+  "native-build-windows-x64",
+  "native-build-macos-intel",
+  "native-build-macos-arm64",
+]) {
+  if (!nativePlatformWorkflow.includes(marker)) {
+    throw new Error(`native-platform-build.yml is missing native-build marker: ${marker}`);
   }
 }
 for (const workflowName of ["pull-request-validation.yml", "security-scan.yml"]) {

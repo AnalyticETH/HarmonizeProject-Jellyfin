@@ -9,9 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Hosted CI and repository cleanup
 - **GitHub-hosted execution**: move pull-request validation, trusted release jobs, security scans, and the scheduled health probe to ephemeral `ubuntu-24.04` runners; no workflow selects the retired self-hosted labels.
+- **Native platform builds**: add hosted Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon build/test/publish jobs with separate verification artifacts.
 - **Duplicate-version safety**: a main push whose version tag already has a published stable release is an explicit no-op; missing, draft, prerelease, or conflicting release metadata still fails closed without moving the tag.
 - **Runner documentation**: reduce the obsolete self-hosted operations runbook to a retirement note and retain executable workflow-boundary checks.
 - **Generated-output hygiene**: ignore Python bytecode caches alongside existing build, test, and release outputs.
+- **Owner-approved launch scope**: treat real fork-PR execution and private vulnerability-reporting setup as waived acceptance gates while retaining hosted PR isolation and credential-safe reporting guidance.
 
 ## [1.5.461] - 2026-09-06
 

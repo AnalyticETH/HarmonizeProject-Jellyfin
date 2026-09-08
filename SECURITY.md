@@ -10,6 +10,11 @@ If private vulnerability reporting is enabled for this repository, please use it
 
 Include the affected release, reproduction steps, impact, and any suggested mitigation. Reports are triaged against the plugin code, its NuGet dependencies, and the GitHub Actions workflows.
 
+Private vulnerability reporting is not a launch gate for the owner-approved
+`1.5.461.0` release. Keep using a private channel when one is available; never
+put credentials, bridge keys, access tokens, or private server logs in a public
+issue or pull request.
+
 ## Automated coverage
 
 Every trusted `main` push runs on an ephemeral GitHub-hosted `ubuntu-24.04` runner with:
@@ -58,9 +63,12 @@ Pull requests, including Dependabot updates, use the separate
 only `contents: read`, does not expose repository secrets, performs no release, tag, or
 write operation, and receives a fresh hosted workspace for every job.
 
-Read-only workflow permissions are defense in depth; public production availability
-still requires a real fork-PR verification, a tested private vulnerability-reporting
-channel, and the remaining hardware, platform, licensing, and visibility gates; see
+The `native-platform-build.yml` workflow builds and tests Linux x64, Windows x64,
+macOS Intel, and macOS Apple Silicon and uploads one verification artifact per
+target. Read-only workflow permissions are defense in depth; the owner has
+waived real fork-PR execution and private vulnerability-reporting setup as launch
+gates. Physical Hue, upgrade/rollback, licensing/source authority, and protected
+visibility remain separate release-readiness questions; see
 [RELEASE_READINESS.md](RELEASE_READINESS.md).
 
 Former self-hosted runner details are retained only as a short retirement note in

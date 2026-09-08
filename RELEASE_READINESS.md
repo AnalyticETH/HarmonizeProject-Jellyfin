@@ -4,21 +4,24 @@ Status: owner-approved release execution; production acceptance remains unverifi
 Prepared version: `1.5.461.0`. Repository visibility and published assets are
 owner-controlled; pushing `main` automatically invokes the release workflow.
 
-Repository-side CI migration: all executable workflows now target the ephemeral
-GitHub-hosted `ubuntu-24.04` runner. The old self-hosted runner services and
-registrations have not been stopped or deregistered by this repository change;
-that is an owner-controlled machine operation. The hosted-runner migration is
-implemented and has passed trusted hosted `main` run `34239469164` at commit
-`13c15f56279b0398b7d737615cbfe4b69e4bcddd`; a real remote fork-PR run is still
-required. Authorization does not establish hardware acceptance, native-platform
-parity, or license authority, and does not permit modifying or bypassing
-protected machine policies.
+Repository-side CI migration: all non-native workflows now target the ephemeral
+GitHub-hosted `ubuntu-24.04` runner. `native-platform-build.yml` additionally
+builds on Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon. The old
+self-hosted runner services and registrations have not been stopped or
+deregistered by this repository change; that is an owner-controlled machine
+operation. The hosted-runner migration passed trusted hosted `main` run
+`34239469164` at commit `13c15f56279b0398b7d737615cbfe4b69e4bcddd`. The owner
+has waived a real fork-PR run and private vulnerability-reporting setup as launch
+gates for this release; that decision does not establish hardware acceptance,
+upgrade/rollback evidence, license authority, or permission to bypass protected
+machine policies.
 
 The current protected GitHub policy blocks repository creation and public
 visibility changes. Release assets can be published in the existing private
 repository; public cutover cannot be completed through this agent under that
-policy. The authorized private-reporting enable request returned HTTP 404, and
-runner/fork administration remains inaccessible through the current token.
+policy. Runner/fork administration remains inaccessible through the current
+token; private reporting is intentionally not a launch gate for this owner-
+approved release.
 
 ## Current repository-side work
 
@@ -26,6 +29,9 @@ Completed in this working tree on 2026-09-08:
 
 - PR validation, trusted build/release, security scans, and the scheduled health
   probe use `ubuntu-24.04`; no workflow selects `self-hosted` or `local-docker`.
+- Native platform builds cover Linux x64 (`ubuntu-24.04`), Windows x64
+  (`windows-2022`), macOS Intel (`macos-13`), and macOS Apple Silicon
+  (`macos-14`), with separate verification artifacts for each target.
 - The scheduled health probe checks Node, Python, jq, Docker, and the pinned .NET
   SDK without repository secrets or administrative API access.
 - The trusted release job treats an already-published stable version tag as an
@@ -47,10 +53,10 @@ Evidence inspected on 2026-09-06 America/New_York (2026-09-07 UTC).
 | Existing release provenance | `v1.5.460.0`, release ID `383784665`, source `98f8ee5e99e5efb498f097944e676f69e03e6ede`; downloaded ZIP and manifest pass their SHA-256 sidecars | Verified for the existing private release only |
 | Existing trusted CI | Run `34071927844` at `98f8ee5`; build/tests, format, dependency audit, Gitleaks, Semgrep, deterministic helper parity, both Jellyfin smoke jobs, publication succeed; Linux helper reports 1,483 passed tests | Baseline evidence; does not verify subsequent changes |
 | Redistribution notices | Existing `v1.5.460.0` ZIP and manifest contain only the two DLLs and `meta.json`, despite source-tree `LICENSE` and `NOTICE` | Corrected in the prepared package contract; existing assets remain unchanged |
-| Public contribution execution | PR, build, security, packaging, release, and health jobs select ephemeral GitHub-hosted `ubuntu-24.04` runners; trusted run `34239469164` passed at `13c15f5` | A real fork PR and legacy self-hosted deregistration remain unverified |
+| Public contribution execution | PR, build, security, packaging, release, and health jobs select ephemeral GitHub-hosted `ubuntu-24.04` runners; trusted run `34239469164` passed at `13c15f5` | Real fork-PR execution is owner-waived; legacy self-hosted deregistration remains an owner-controlled machine operation |
 | Repository visibility | GitHub repository API reports `private` | Unchanged; publication needs explicit owner approval |
 | Dependency alerts | Authenticated open Dependabot alert query returns `[]` | No open alerts at inspection time; not a complete security audit |
-| Administrative security controls | Runner inventory, branch protection, and fork-contributor approval queries return HTTP 403; private vulnerability reporting returns HTTP 404 | Unverified, not disabled or passing by inference |
+| Administrative security controls | Runner inventory, branch protection, and fork-contributor approval queries return HTTP 403; private vulnerability reporting is not required for this owner-approved launch | These administrative settings remain unavailable to the current token and are not used as launch evidence |
 
 ## Live gate refresh
 
@@ -60,9 +66,9 @@ No repository settings, workflows, releases, or credentials were changed.
 | Gate | Current evidence | Remaining limit |
 | --- | --- | --- |
 | Main ruleset | Active ruleset `21321676` protects `refs/heads/main` against deletion/non-fast-forward updates and requires strict CI checks, one approval, code-owner/last-push review, stale-review dismissal, and resolved threads | The configured owner has an `always` bypass; legacy protection GET still returns 403. This verifies the readable ruleset, not every enforcement/administrative control |
-| Runner and fork controls | Workflow files no longer select a self-hosted runner; runner inventory and fork-approval/private-fork settings still return 403 with `Resource not accessible by personal access token` | Legacy service deregistration, fork policy, and real hosted fork-PR execution remain unverified |
+| Runner and fork controls | Workflow files no longer select a self-hosted runner; runner inventory and fork-approval/private-fork settings still return 403 with `Resource not accessible by personal access token` | Legacy service deregistration is owner-controlled; real hosted fork-PR execution is explicitly waived |
 | GitHub scanning features | Code-scanning setup returns 403 with `Code scanning is not enabled for this repository`; secret-scan history returns 404 with `Advanced Security is disabled on this repository` | These explicit API messages establish feature-unavailable states, not the state of every security control. Custom blocking Semgrep/Gitleaks workflows are separate |
-| Private reporting | Private vulnerability reporting returns 404 `Not Found` | Setting and new-contributor access remain unverified; an existing private contact is not a demonstrated public intake path |
+| Private reporting | Private vulnerability reporting returned 404 `Not Found` and was not enabled | Explicitly owner-waived for this launch; no claim is made that a new-contributor private channel exists |
 | Release and exact-source CI | Trusted hosted run `34239469164` passed at `13c15f56279b0398b7d737615cbfe4b69e4bcddd`; its release job verified `v1.5.461.0` as a stable release at `76a1eb5` and took the no-op path without moving the tag | A new unused version is required for a new binary release; package/manifest receipts for that future version remain pending |
 | Primary Hue specification | The official URL still redirects to sign-in; the supported browser runtime reports no connected browser | Authenticated specification access remains unavailable. No sign-in, alternate control path, or access-boundary bypass was attempted |
 
@@ -87,7 +93,7 @@ runtime preflight; manifest regressions also reject changed license/notice bytes
 
 | Source | Verification | Boundary |
 | --- | --- | --- |
-| `13c15f56279b0398b7d737615cbfe4b69e4bcddd` | Trusted hosted run `34239469164` passed Build/Test, Code Quality, Gitleaks, Semgrep, deterministic package creation, Linux helper parity, Jellyfin 10.9.0/10.10.7 runtime smoke, and release-tag safety; dependency submission run `34239468548` passed | The release job explicitly skipped publication because stable `v1.5.461.0` already targets `76a1eb5`; this verifies hosted CI and no-overwrite behavior, not physical Hue, native-platform, upgrade/rollback, or public intake |
+| `13c15f56279b0398b7d737615cbfe4b69e4bcddd` | Trusted hosted run `34239469164` passed Build/Test, Code Quality, Gitleaks, Semgrep, deterministic package creation, Linux helper parity, Jellyfin 10.9.0/10.10.7 runtime smoke, and release-tag safety; dependency submission run `34239468548` passed | The release job explicitly skipped publication because stable `v1.5.461.0` already targets `76a1eb5`; this verifies hosted CI and no-overwrite behavior, not physical Hue, native-platform, or upgrade/rollback acceptance |
 | `62d552cb98ddcafc36d8ee7b812ae9a4254f2d43` | PR #63 run `34177970321` passed build/tests/format/contracts and secret/static scans on existing runner `26`; the PR merge tree matches the commit tree | PR integration evidence, not trusted-main publication verification |
 | `4bd567940d1a3debe11126a93eda1e2b49fa290f` | Real Bash release helper in a clean clone: locked restore, .NET SDK 8.0.424, zero build warnings/errors, 1,850 passed tests without failures/skips, formatting pass, five-file ZIP and source-bound manifest with verified sidecars | Linux local evidence; subsequent release-note changes require a new exact-source package |
 | `4bd5679` runtime package | ZIP SHA-256 `5f8f321e9f150a518e2e5a7f19f4f5c3591cd39b942d0ecd5f1a45fd6c357964`; DLL SHA-256 `af71a1dccdafe7d610c4ef14d4a6c37dae5683282151080a8d0dbdf058c1f18a`; both pinned Jellyfin versions load the plugin and return `Healthy`, with networking disabled and cleanup confirmed | Startup acceptance only; not physical Hue, upgrade/rollback, or native Windows/macOS evidence |
@@ -130,12 +136,14 @@ tests passed with no skips, formatting verification passed, and
 documentation/workflow/package contracts passed. The refreshed pinned production
 Semgrep scan reports zero findings, scanner errors, or fixpoint timeouts across
 68 files; the earlier JavaScript/Python scans also passed and those sources are
-unchanged by F27. None of the publication gates below is waived. Protocol fixtures
-do not substitute for bridge acceptance.
+unchanged by F27. Real fork-PR execution and private vulnerability reporting are
+owner-waived for this launch. Protocol fixtures do not substitute for bridge
+acceptance.
 
 All 30 recorded findings (F01-F30) are corrected locally; F27 follows the
 approved captured-target policy. Native Windows/macOS compiled-package parity is
-unverified. Some SDK-suite environment probes return early without FFmpeg;
+exercised by the hosted native build workflow, with its terminal remote result
+recorded after this commit. Some SDK-suite environment probes return early without FFmpeg;
 the separate real-decoder checks below are not included in the 1,850-test count.
 
 ## Earlier working-tree runtime evidence
@@ -196,14 +204,14 @@ access and physical interoperability acceptance remain unverified.
 
 | Gate | Required evidence before public production availability |
 | --- | --- |
-| Untrusted PR isolation | The workflows now use ephemeral GitHub-hosted `ubuntu-24.04` jobs with no secrets or write permissions for PRs; trusted `main` run `34239469164` passed. Verify a real fork PR and confirm no legacy self-hosted service remains registered. |
+| Untrusted PR isolation | The workflows use ephemeral GitHub-hosted `ubuntu-24.04` jobs with no secrets or write permissions for PRs; trusted `main` run `34239469164` passed. A real fork PR is owner-waived; legacy self-hosted service deregistration remains an owner-controlled machine operation. |
 | Owner review and Actions policy | Owner reviews the verified main ruleset and its `always` bypass, and verifies remaining fork-approval, enforcement, and administrative controls. Readable ruleset metadata does not establish the inaccessible settings or an isolated PR execution boundary. |
-| Private security intake | Enable and test GitHub private vulnerability reporting or document a working owner-approved private contact usable by a new contributor. An already-established private channel is not a complete public intake path. |
+| Private security intake | Owner-waived for this launch. `SECURITY.md` retains credential-safe reporting guidance, but a GitHub private-reporting channel is not required for this release decision. |
 | Exact-source release verification | Review and commit the prepared changes, run the complete trusted CI at that source SHA, verify all package and manifest digests/source binding, and publish a new unused version. A later push with an already-published stable version is a verified no-op; never replace an existing tag or asset to repair the old archive. |
 | Source availability and license authority | Owner confirms authority for the declared GPL-3.0-only license and provides accessible corresponding source for the exact binary release, with dependency notices. Public GitHub source/release URLs are inaccessible while the repository remains private. |
 | Physical Hue acceptance | Record plugin/source version, Jellyfin/.NET/FFmpeg versions, bridge firmware and light models; verify registration with explicit certificate confirmation, playback sync, pause/resume/stop, original-state restoration, scheduled cues, concurrent users/rooms, bridge disconnect/reconnect, and server restart. Capture sanitized logs and cleanup outcomes. Automated loopback DTLS and container boot do not prove hardware behavior. |
 | Upgrade and rollback | On a disposable representative installation, back up private configuration securely, upgrade from the prior release, check settings/automation preservation, then restore the previous package/configuration and verify startup, playback, and cleanup. Do not publish credentials or private backup files as evidence. |
-| Native platform parity | Run the documented package/build checks on native Windows and macOS with the same reviewed source. Linux PowerShell, checkout-filter comparisons, and Linux container startup are not native compiled-package evidence. |
+| Native platform parity | The pushed `native-platform-build.yml` workflow builds and tests Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon on hosted runners. Its four terminal jobs are the remaining remote evidence for this repository-side gate; physical device installation is not implied. |
 | Public cutover | Owner approval for the remaining release work is granted; protected host policies remain authoritative. Public availability still requires an allowed visibility change and unauthenticated checks of repository/source links, installation assets, checksums, contributor forms, support, and security intake. Authorization is not evidence that cutover or production acceptance occurred. |
 
 ## Verification commands

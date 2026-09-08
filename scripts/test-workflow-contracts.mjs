@@ -12,6 +12,7 @@ import "./test-release-helper-contracts.mjs";
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workflowNames = [
   "dotnet-ci.yml",
+  "native-platform-build.yml",
   "pull-request-validation.yml",
   "runner-health.yml",
   "security-scan.yml",
@@ -450,7 +451,7 @@ runNegativeFixture(
     ),
   ),
   ["inventory", "pullRequest"],
-  /missing PR validation marker|GitHub-hosted ubuntu-24.04 runner|must use runner ubuntu-24.04|ubuntu-22.04/,
+  /missing PR validation marker|GitHub-hosted ubuntu-24.04 runner|must use runner ubuntu-24.04|approved hosted runners|ubuntu-22.04/,
 );
 
 runNegativeFixture(

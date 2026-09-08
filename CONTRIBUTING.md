@@ -56,6 +56,12 @@ The full trusted workflow additionally runs locked dependency vulnerability
 checks, Gitleaks, Semgrep, coverage, the Linux release-helper parity check, and
 Jellyfin 10.9.0/10.10.7 runtime smoke before publication.
 
+The hosted `native-platform-build.yml` workflow separately restores, builds,
+tests, formats, and publishes verification artifacts on Linux x64, Windows x64,
+macOS Intel, and macOS Apple Silicon. These are platform-build checks; the
+canonical deterministic release ZIP remains produced by the trusted Linux
+release job.
+
 ## Pull requests
 
 Describe the behavior change, affected Jellyfin versions, security implications,
@@ -239,7 +245,8 @@ playback acceptance remains separate from local and container verification.
 | Release verification | Tested publish output, deterministic package/manifest parity, Linux helper execution, both pinned Jellyfin runtime smoke targets, verified tag/source binding and four release assets |
 | Coverage | Nonempty TRX and Cobertura evidence is required; Codecov is optional when its token is absent and blocking when configured |
 | Retention | Generated CI/security artifacts expire after one day; published release assets are not cleanup targets |
-| PR validation | Read-only workflow permissions on an ephemeral GitHub-hosted `ubuntu-24.04` runner; a real fork-PR verification remains a publication gate |
+| PR validation | Read-only workflow permissions on an ephemeral GitHub-hosted `ubuntu-24.04` runner; real fork-PR execution is owner-waived for this release |
+| Native platform builds | Hosted verification artifacts for Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon; these do not replace physical Hue acceptance |
 | Dependency maintenance | Dependabot covers all three NuGet projects, Actions, and the hash-locked Semgrep environment on GitHub-hosted runners |
 
 The trusted workflow accepts main-only `workflow_dispatch` validation/recovery.

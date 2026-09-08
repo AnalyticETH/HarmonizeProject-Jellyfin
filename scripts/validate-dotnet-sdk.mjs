@@ -3,6 +3,7 @@ import fs from "node:fs";
 const globalJsonPath = "global.json";
 const workflowPaths = [
   ".github/workflows/dotnet-ci.yml",
+  ".github/workflows/native-platform-build.yml",
   ".github/workflows/pull-request-validation.yml",
 ];
 const globalJson = JSON.parse(fs.readFileSync(globalJsonPath, "utf8"));
