@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.461] - 2026-09-06
+
+### Hue v2 streaming correction
+- **Wire format**: include the configuration UUID and one-byte channel IDs in seven-byte channel records; reject out-of-range IDs and bind packets/keepalives to one area per transport lifecycle. Corroborating sources and offline fixtures are documented in `docs/HUE_STREAM_PROTOCOL.md`; physical acceptance remains pending.
+- **Color range**: remove the erroneous compatibility halving from video, audio, preview, and cinema output. Full-scale RGB8 now maps to full-scale RGB16, so unchanged settings produce higher numeric output. Explicit brightness/tint policies remain, and no saved settings are rewritten.
+
 ### Release review corrections
 - **Hue renderer resolution**: resolve selected entertainment-service references to their declared light renderers before state capture, validate identities/types, and capture shared renderers only once.
 - **Retained cleanup ownership**: keep concurrent workers visible and retryable while cleanup or target leases remain pending; retire them only after successful cleanup without removing newer lifecycles.
@@ -23,12 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Release safeguards**: fail closed on Git provenance errors before artifact cleanup, pin build-input line endings, keep runtime self-tests portable, and bound Docker startup and cleanup with explicit retained-resource reporting.
 - **Repeatable local packaging**: ignore only root-level generated release manifests and their checksum sidecars, so a successful build does not block the next provenance check; unrelated untracked source still fails closed.
 - **Documentation**: shorten the human-first README, retain technical references and historical notes in linked documents, and validate titled/reference-style links and README size limits.
-
-### Hue v2 streaming correction
-- **Wire format**: include the configuration UUID and one-byte channel IDs in seven-byte channel records; reject out-of-range IDs and bind packets/keepalives to one area per transport lifecycle. Corroborating sources and offline fixtures are documented in `docs/HUE_STREAM_PROTOCOL.md`; physical acceptance remains pending.
-- **Color range**: remove the erroneous compatibility halving from video, audio, preview, and cinema output. Full-scale RGB8 now maps to full-scale RGB16, so unchanged settings produce higher numeric output. Explicit brightness/tint policies remain, and no saved settings are rewritten.
-
-## [1.5.461] - 2026-09-06
 
 ### License-complete release packaging
 - **License-complete archives**: include the complete GPL-3.0-only LICENSE and bundled dependency NOTICE in every canonical and local release ZIP.

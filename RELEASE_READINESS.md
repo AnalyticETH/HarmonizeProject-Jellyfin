@@ -1,14 +1,22 @@
 # Production open-source release readiness
 
-Status: preparation in progress; public production availability is not approved.
+Status: owner-approved release execution; production acceptance remains unverified.
 Prepared version: `1.5.461.0`. Repository visibility and published assets are
 owner-controlled; pushing `main` automatically invokes the release workflow.
 
 Owner runner decision: retain `gaming-pc-analyticeth-harmonizeproject-jellyfin-01`
 with `[self-hosted, linux, x64, local-docker]` for all existing workflow jobs.
 Runner selection is settled; no GitHub-hosted migration, replacement runner, or
-routing change is requested. This decision does not establish public-PR isolation
-or authorize publication; those evidence and approval checks remain separate.
+routing change is requested. The owner also approved the remaining merge and
+publication work. Authorization does not establish public-PR isolation, hardware
+acceptance, native-platform parity, or license authority, and does not permit
+modifying or bypassing protected machine policies.
+
+The current protected GitHub policy blocks repository creation and public
+visibility changes. Release assets can be published in the existing private
+repository; public cutover cannot be completed through this agent under that
+policy. The authorized private-reporting enable request returned HTTP 404, and
+runner/fork administration remains inaccessible through the current token.
 
 ## Verified baseline
 
@@ -55,11 +63,25 @@ rejects archive/staging mismatches. Executable regressions reject missing
 licensing files in package creation, archive inspection, manifest creation, and
 runtime preflight; manifest regressions also reject changed license/notice bytes.
 
+## Committed verification
+
+| Source | Verification | Boundary |
+| --- | --- | --- |
+| `62d552cb98ddcafc36d8ee7b812ae9a4254f2d43` | PR #63 run `34177970321` passed build/tests/format/contracts and secret/static scans on existing runner `26`; the PR merge tree matches the commit tree | PR integration evidence, not trusted-main publication verification |
+| `4bd567940d1a3debe11126a93eda1e2b49fa290f` | Real Bash release helper in a clean clone: locked restore, .NET SDK 8.0.424, zero build warnings/errors, 1,850 passed tests without failures/skips, formatting pass, five-file ZIP and source-bound manifest with verified sidecars | Linux local evidence; subsequent release-note changes require a new exact-source package |
+| `4bd5679` runtime package | ZIP SHA-256 `5f8f321e9f150a518e2e5a7f19f4f5c3591cd39b942d0ecd5f1a45fd6c357964`; DLL SHA-256 `af71a1dccdafe7d610c4ef14d4a6c37dae5683282151080a8d0dbdf058c1f18a`; both pinned Jellyfin versions load the plugin and return `Healthy`, with networking disabled and cleanup confirmed | Startup acceptance only; not physical Hue, upgrade/rollback, or native Windows/macOS evidence |
+
+Local evidence is retained under `/tmp/harmonize-commit-verification.Eh7Uuz`.
+The scoped host check found no existing Jellyfin/Hue acceptance installation and
+no native Windows/macOS execution target. It did not scan the LAN or inspect
+credentials. Absence of a local target does not establish that no target exists
+elsewhere; those acceptance checks need an owner-designated installation.
+
 ## Locally verified review corrections
 
-The current working-tree corrections are unreleased. Verification uses mocked
-bridges and disposable local build/test environments; it is not remote CI or
-physical Hue acceptance.
+The review corrections target release `1.5.461.0`. The local evidence below uses
+mocked bridges and disposable build/test environments. Remote CI is recorded
+separately and neither evidence class proves physical Hue acceptance.
 
 | Review finding | Correction | Local evidence |
 | --- | --- | --- |
@@ -80,6 +102,7 @@ physical Hue acceptance.
 | F27: captured playback targets | Keep each playback on its captured bridge, area, credentials, and channel profile through pause/resume/seek; apply target edits to the next playback while honoring current certificate trust and disable controls | 23 regressions cover all pause policies, fresh playback, stale/manual/configuration stops, concurrent routes, admission/host-stop races, failed resume, completed pipelines, and recovered primary/worker identities |
 | F28: Hue v2 serialization | Include the canonical 36-byte area UUID and seven-byte byte-addressed channel records; bind areas per DTLS lifecycle, reject malformed configuration UUIDs, and own frames before callbacks/reconnects | Full-byte published/derived fixtures, channel/configuration/API boundaries, area ownership, caller-mutation regressions, and production/prototype byte comparisons; [protocol evidence](docs/HUE_STREAM_PROTOCOL.md) is not physical acceptance |
 | F29: RGB16 conversion | Replace compatibility halving with full-range RGB8 byte replication across video, audio, cinema, previews, effects, and fallback white; retain explicit brightness policies and low-intensity probes | Production encoding, dimming, effects/fades, cinema/fallback, and preview-output regressions; unchanged settings produce higher numeric output and are not migrated |
+| F30: repeatable local packaging | Ignore only generated root-level release manifests and sidecars so successful builds do not block the next provenance check | Real-Git regression fails before the fix and passes afterward: four release outputs ignored, five unrelated/nested files still visible; both shell provenance guards remain unchanged |
 
 Combined validation: Release build with zero warnings/errors, all 1,850 .NET
 tests passed with no skips, formatting verification passed, and
@@ -89,19 +112,19 @@ Semgrep scan reports zero findings, scanner errors, or fixpoint timeouts across
 unchanged by F27. None of the publication gates below is waived. Protocol fixtures
 do not substitute for bridge acceptance.
 
-All 29 recorded source findings (F01-F29) are corrected locally; F27 follows the
+All 30 recorded findings (F01-F30) are corrected locally; F27 follows the
 approved captured-target policy. Native Windows/macOS compiled-package parity is
 unverified. Some SDK-suite environment probes return early without FFmpeg;
 the separate real-decoder checks below are not included in the 1,850-test count.
 
-## Current local runtime evidence
+## Earlier working-tree runtime evidence
 
-The startup and media checks use the final post-F27 working-tree plugin DLL with
+These pre-commit startup and media checks use the post-F27 working-tree DLL with
 SHA-256 `f5049e758abc0caf92318bf5c941342ede89ba8ff573d9ee9909d7516c711693`.
 
 | Scope | Evidence | Boundary |
 | --- | --- | --- |
-| Current five-file ZIP | SHA-256 `57c2f6918da8b3790f172d1da93f95af84f5cb9f99e5997ff5ef9a1849672866`; staged from a no-build publish with isolated bookkeeping and unchanged shared input hashes | Working-tree smoke bundle only; no release manifest or commit-bound provenance is generated |
+| Earlier five-file ZIP | SHA-256 `57c2f6918da8b3790f172d1da93f95af84f5cb9f99e5997ff5ef9a1849672866`; staged from a no-build publish with isolated bookkeeping and unchanged shared input hashes | Working-tree smoke bundle only; no release manifest or commit-bound provenance is generated |
 | Jellyfin 10.9.0 and 10.10.7 startup | Both digest-pinned images load `Philips Hue Sync 1.5.461.0` and return `Healthy`; networking disabled, no published ports, UID/GID 1000:1000, original restrictive Docker flags retained; container and fresh configuration removal confirmed | Default-configuration startup, not upgrade/rollback or Hue behavior; pinned compatibility images are not production-version recommendations |
 | Actual CPU media decoding | In both image environments, one real-PCM capability check, five H.264/MPEG-2 video cases, three FLAC/AAC decoding-and-analysis cases, and two real-process stop/replacement cases pass with FFmpeg 6.0.1/7.0.2 | Generated local fixtures and cached .NET 8.0.30; no GPU, arbitrary-library, physical-light, or production-timing claim |
 
@@ -160,7 +183,7 @@ access and physical interoperability acceptance remain unverified.
 | Physical Hue acceptance | Record plugin/source version, Jellyfin/.NET/FFmpeg versions, bridge firmware and light models; verify registration with explicit certificate confirmation, playback sync, pause/resume/stop, original-state restoration, scheduled cues, concurrent users/rooms, bridge disconnect/reconnect, and server restart. Capture sanitized logs and cleanup outcomes. Automated loopback DTLS and container boot do not prove hardware behavior. |
 | Upgrade and rollback | On a disposable representative installation, back up private configuration securely, upgrade from the prior release, check settings/automation preservation, then restore the previous package/configuration and verify startup, playback, and cleanup. Do not publish credentials or private backup files as evidence. |
 | Native platform parity | Run the documented package/build checks on native Windows and macOS with the same reviewed source. Linux PowerShell, checkout-filter comparisons, and Linux container startup are not native compiled-package evidence. |
-| Public cutover | Explicit owner approval to change repository visibility/publish, followed by unauthenticated checks of repository/source links, installation assets, checksums, contributor forms, support, and security intake. Preparation does not authorize this mutation. |
+| Public cutover | Owner approval for the remaining release work is granted; protected host policies remain authoritative. Public availability still requires an allowed visibility change and unauthenticated checks of repository/source links, installation assets, checksums, contributor forms, support, and security intake. Authorization is not evidence that cutover or production acceptance occurred. |
 
 ## Verification commands
 
