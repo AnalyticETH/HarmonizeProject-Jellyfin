@@ -137,7 +137,9 @@ def create_archive(input_dir: Path, output_path: Path) -> None:
         ) as archive:
             archive.comment = b""
             for name, source_path in source_files:
-                archive.writestr(_canonical_info(name), source_path.read_bytes())
+                archive.writestr(
+                    _canonical_info(name), source_path.read_bytes(), compresslevel=COMPRESSION_LEVEL
+                )
 
         inspect_archive(temporary_path)
         os.replace(temporary_path, output_path)
@@ -158,6 +160,8 @@ def _sha256(path: Path) -> str:
 
 def run_self_test() -> None:
     """Prove source mtimes/order do not affect archive bytes or metadata."""
+
+    from unittest.mock import call, patch
 
     with tempfile.TemporaryDirectory(prefix="hue-release-package-test-") as temporary:
         root = Path(temporary)
@@ -183,8 +187,12 @@ def run_self_test() -> None:
 
         first_archive = root / "first.zip"
         second_archive = root / "second.zip"
-        create_archive(first_source, first_archive)
-        create_archive(second_source, second_archive)
+        with patch.object(zipfile, "_get_compressor", wraps=zipfile._get_compressor) as compressor:
+            create_archive(first_source, first_archive)
+            create_archive(second_source, second_archive)
+        expected_compressors = [call(zipfile.ZIP_DEFLATED, COMPRESSION_LEVEL)] * (2 * len(EXPECTED_FILES))
+        if compressor.call_args_list != expected_compressors:
+            raise AssertionError("Every release entry must use the declared DEFLATE compression level")
         first_hash = _sha256(first_archive)
         second_hash = _sha256(second_archive)
         if first_hash != second_hash:

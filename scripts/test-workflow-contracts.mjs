@@ -4,6 +4,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import "./test-documentation-contracts.mjs";
+import "./test-release-publication-contracts.mjs";
+import "./test-release-helper-contracts.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workflowNames = [

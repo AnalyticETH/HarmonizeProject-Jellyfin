@@ -1,8 +1,8 @@
 using System;
+using System.Buffers.Text;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Configuration;
@@ -13,26 +13,27 @@ namespace Jellyfin.Plugin.Hue.Hue
     /// <summary>
     /// Manages DTLS streaming connection to Hue Bridge for real-time entertainment control.
     ///
-    /// Hue Entertainment API v2 packet format (per Philips documentation):
+    /// Hue Entertainment API v2 packet layout (evidence: docs/HUE_STREAM_PROTOCOL.md):
     ///   Header:  "HueStream" (9 bytes, ASCII)
     ///   Version: 0x02 0x00           (2 bytes, major.minor)
     ///   SeqNum:  0x00                (1 byte, wrapping sequence number)
     ///   Reserved:0x00 0x00           (2 bytes)
     ///   ColorSpace: 0x00             (1 byte: 0x00=RGB, 0x01=XY Brightness)
     ///   Reserved:0x00                (1 byte)
-    ///   Per channel: type(1) + id_hi(1) + id_lo(1) + r_hi(1) + r_lo(1) + g_hi(1) + g_lo(1) + b_hi(1) + b_lo(1)
-    ///     type: 0x00 = light device
-    ///
-    /// The area UUID does NOT go in the packet — it is established when the managed DTLS session connects.
-    /// The bridge knows which area is active because we PUT action=start before connecting.
+    ///   Area: canonical hyphenated configuration UUID (36 ASCII bytes, no NUL)
+    ///   Per channel: id(1) + R(2) + G(2) + B(2), with big-endian unsigned RGB16.
+    /// The v2 channel identifier is not a v1 device type or 16-bit light address.
     /// </summary>
     public class HueStreamer
     {
-        internal const int HueStreamPacketHeaderBytes = 16;
-        internal const int HueStreamChannelBytes = 9;
+        internal const int HueStreamPacketHeaderBytes = 16 + 36;
+        internal const int HueStreamChannelBytes = 7;
         internal const int MaxHueStreamPacketBytes = HueDtlsLimits.ApplicationPayloadBytes;
+        private const int PacketChannelCapacity = (MaxHueStreamPacketBytes - HueStreamPacketHeaderBytes) / HueStreamChannelBytes;
         internal const int MaxHueStreamChannels =
-            (MaxHueStreamPacketBytes - HueStreamPacketHeaderBytes) / HueStreamChannelBytes;
+            PacketChannelCapacity < byte.MaxValue + 1 ? PacketChannelCapacity : byte.MaxValue + 1;
+        internal static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(5);
+        internal static readonly TimeSpan SafeStreamIdleWindow = TimeSpan.FromSeconds(8);
 
         private readonly ILogger<HueStreamer> _logger;
         private IHueDtlsConnection? _dtlsConnection;
@@ -45,6 +46,15 @@ namespace Jellyfin.Plugin.Hue.Hue
         private const int MaxMaxReconnectAttempts = 10;
         private int _maxReconnectAttempts = DefaultMaxReconnectAttempts;
         private Dictionary<int, byte[]>? _lastSentColors;
+        private Guid? _streamAreaId;
+        private IHueDtlsConnection? _lastSentConnection;
+        private long _lastPacketTimestamp;
+        private long? _connectionReadyTimestamp;
+        private readonly TimeProvider _timeProvider;
+        private ITimer? _keepAliveTimer;
+        private Task? _keepAliveTask;
+        private CancellationToken _streamCallerCancellationToken;
+        private CancellationToken _lastSendCancellationToken;
         private byte _sequenceNumber = 0;
         private long _packetsSent;
         private long _packetsSkippedByThreshold;
@@ -144,10 +154,12 @@ namespace Jellyfin.Plugin.Hue.Hue
 
         internal HueStreamer(
             ILogger<HueStreamer> logger,
-            Func<string, string, string, CancellationToken, Task<IHueDtlsConnection>>? connectDtlsAsync)
+            Func<string, string, string, CancellationToken, Task<IHueDtlsConnection>>? connectDtlsAsync,
+            TimeProvider? timeProvider = null)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _connectDtlsAsync = connectDtlsAsync ?? ConnectDefaultDtlsAsync;
+            _timeProvider = timeProvider ?? TimeProvider.System;
         }
 
         private static async Task<IHueDtlsConnection> ConnectDefaultDtlsAsync(
@@ -202,7 +214,16 @@ namespace Jellyfin.Plugin.Hue.Hue
         {
             lock (_lock)
             {
-                return _dtlsConnection?.IsHealthy == true;
+                if (_dtlsConnection?.IsHealthy != true)
+                    return false;
+
+                // An open local UDP transport does not prove that the bridge's area
+                // survived a long initial blackout or a suspended/delayed heartbeat.
+                long? lastActivity = ReferenceEquals(_lastSentConnection, _dtlsConnection)
+                    ? _lastPacketTimestamp
+                    : _connectionReadyTimestamp;
+                return !lastActivity.HasValue ||
+                    _timeProvider.GetElapsedTime(lastActivity.Value) < SafeStreamIdleWindow;
             }
         }
 
@@ -212,11 +233,16 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <param name="config">Plugin configuration containing bridge IP and credentials</param>
         public async Task StartStreamAsync(PluginConfiguration config)
         {
+            ArgumentNullException.ThrowIfNull(config);
+            if (!TryParseAreaId(config.EntertainmentAreaId, out var configuredAreaId))
+                throw new ArgumentException("The entertainment area must be a hyphenated UUID.", nameof(config));
+
             var lifecycleGeneration = await StartStreamWithGenerationAsync(
                 config.HueBridgeIp,
                 config.HueAppKey,
                 config.HueClientKey,
-                CancellationToken.None).ConfigureAwait(false);
+                CancellationToken.None,
+                configuredAreaId).ConfigureAwait(false);
 
             // The configuration overload historically retained the full config for a
             // reconnect. Only publish it if the same startup still owns the lifecycle;
@@ -226,7 +252,9 @@ namespace Jellyfin.Plugin.Hue.Hue
                 lock (_lock)
                 {
                     if (_streamLifecycleGeneration == lifecycleGeneration.Value)
+                    {
                         _lastConfig = config;
+                    }
                 }
             }
         }
@@ -257,7 +285,8 @@ namespace Jellyfin.Plugin.Hue.Hue
             string bridgeIp,
             string appKey,
             string clientKey,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            Guid? areaId = null)
         {
             // Reconnects use the same gate. A public replacement start must wait for an
             // in-flight reconnect to finish (or observe its canceled lifecycle) before
@@ -271,7 +300,8 @@ namespace Jellyfin.Plugin.Hue.Hue
                     appKey,
                     clientKey,
                     cancellationToken,
-                    cancelPendingReconnect: true).ConfigureAwait(false);
+                    cancelPendingReconnect: true,
+                    areaId: areaId).ConfigureAwait(false);
             }
             finally
             {
@@ -285,7 +315,8 @@ namespace Jellyfin.Plugin.Hue.Hue
             string clientKey,
             CancellationToken cancellationToken,
             bool cancelPendingReconnect,
-            long? expectedLifecycleGeneration = null)
+            long? expectedLifecycleGeneration = null,
+            Guid? areaId = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (string.IsNullOrEmpty(bridgeIp) || string.IsNullOrEmpty(clientKey))
@@ -361,6 +392,8 @@ namespace Jellyfin.Plugin.Hue.Hue
                 {
                     _lastBridgeConfig = (bridgeIp, appKey, clientKey);
                     _lastSentColors = null;
+                    _streamAreaId = areaId;
+                    _streamCallerCancellationToken = cancellationToken;
                 }
 
                 lifecycleGeneration = _streamLifecycleGeneration;
@@ -402,6 +435,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                         !startupToken.IsCancellationRequested)
                     {
                         _dtlsConnection = dtlsConnection;
+                        _connectionReadyTimestamp = _timeProvider.GetTimestamp();
                         installed = true;
                     }
                 }
@@ -442,6 +476,20 @@ namespace Jellyfin.Plugin.Hue.Hue
                 }
 
                 _reconnectAttempts = 0;
+                lock (_lock)
+                {
+                    if (_streamLifecycleGeneration == lifecycleGeneration &&
+                        ReferenceEquals(_dtlsConnection, dtlsConnection) &&
+                        !startupToken.IsCancellationRequested)
+                    {
+                        _connectionReadyTimestamp = _timeProvider.GetTimestamp();
+                        _keepAliveTimer ??= _timeProvider.CreateTimer(
+                            KeepAliveTick,
+                            lifecycleGeneration,
+                            KeepAliveInterval,
+                            TimeSpan.FromSeconds(1));
+                    }
+                }
                 _logger.LogInformation("Managed DTLS tunnel started to {0}:2100", bridgeIp);
                 return lifecycleGeneration;
             }
@@ -468,18 +516,26 @@ namespace Jellyfin.Plugin.Hue.Hue
         /// <summary>
         /// Attempts to reconnect the DTLS stream if it has failed
         /// </summary>
-        private async Task<bool> TryReconnectAsync(CancellationToken cancellationToken)
+        private async Task<bool> TryReconnectAsync(
+            CancellationToken cancellationToken,
+            long? expectedLifecycleGeneration = null)
         {
             CancellationTokenSource reconnectTokenSource;
             long lifecycleGeneration;
             lock (_lock)
             {
                 lifecycleGeneration = _streamLifecycleGeneration;
+                if (expectedLifecycleGeneration.HasValue &&
+                    expectedLifecycleGeneration.Value != lifecycleGeneration)
+                {
+                    return false;
+                }
                 // Keep linked-source registration under the lifecycle lock. StopStream
                 // retires and disposes the old source after releasing this lock.
                 reconnectTokenSource = CancellationTokenSource.CreateLinkedTokenSource(
                     cancellationToken,
-                    _streamLifecycleCts.Token);
+                    _streamLifecycleCts.Token,
+                    _streamCallerCancellationToken);
             }
 
             using var reconnectTokenSourceLease = reconnectTokenSource;
@@ -668,9 +724,17 @@ namespace Jellyfin.Plugin.Hue.Hue
                         SafeClose(_dtlsConnection);
                     }
                     _dtlsConnection = null;
-                    _lastSentColors = null;
+                    _connectionReadyTimestamp = null;
+                    _lastSentConnection = null;
                     if (cancelPendingReconnect)
                     {
+                        _keepAliveTimer?.Dispose();
+                        _keepAliveTimer = null;
+                        _keepAliveTask = null;
+                        _lastSentColors = null;
+                        _streamAreaId = null;
+                        _lastSendCancellationToken = default;
+                        _streamCallerCancellationToken = default;
                         // A public stop ends the stream lifecycle completely. Clear the
                         // saved target so a stale caller cannot resurrect a later tunnel.
                         _lastConfig = null;
@@ -710,68 +774,88 @@ namespace Jellyfin.Plugin.Hue.Hue
         ///   [13]    0x00  — reserved
         ///   [14]    0x00  — color space: RGB
         ///   [15]    0x00  — reserved
-        ///   Repeated per channel (9 bytes each):
-        ///     [0]   0x00  — device type: light
-        ///     [1]   channelId >> 8  (high byte of 16-bit channel ID)
-        ///     [2]   channelId &amp; 0xFF (low byte)
-        ///     [3]   R high byte
-        ///     [4]   R low byte
-        ///     [5]   G high byte
-        ///     [6]   G low byte
-        ///     [7]   B high byte
-        ///     [8]   B low byte
+        ///   [16-51] configuration UUID in canonical lowercase ASCII D format
+        ///   Repeated per channel (7 bytes each): unsigned byte channel ID,
+        ///   followed by R high/low, G high/low, and B high/low bytes.
         ///
         /// channelColors values must be 6 bytes: [R_hi, R_lo, G_hi, G_lo, B_hi, B_lo]
+        /// </summary>
+        public byte[] BuildHueStreamPacket(string areaId, Dictionary<int, byte[]> channelColors)
+        {
+            ArgumentNullException.ThrowIfNull(channelColors);
+            if (!TryParseAreaId(areaId, out var parsedAreaId))
+                throw new ArgumentException("The entertainment area must be a hyphenated UUID.", nameof(areaId));
+            lock (_lock)
+                return BuildHueStreamPacketCore(parsedAreaId, channelColors);
+        }
+
+        /// <summary>
+        /// Builds for the area already bound by a configuration start or SendColors.
+        /// Standalone callers must use the overload that supplies the area UUID.
         /// </summary>
         public byte[] BuildHueStreamPacket(Dictionary<int, byte[]> channelColors)
         {
             ArgumentNullException.ThrowIfNull(channelColors);
-            ValidateChannelCount(channelColors.Count);
-            ValidateChannelColors(channelColors);
+            lock (_lock)
+            {
+                if (!_streamAreaId.HasValue)
+                    throw new InvalidOperationException("Supply an entertainment area UUID before building a Hue v2 packet.");
+                return BuildHueStreamPacketCore(_streamAreaId.Value, channelColors);
+            }
+        }
 
-            using var ms = new MemoryStream(HueStreamPacketHeaderBytes + channelColors.Count * HueStreamChannelBytes);
+        private static bool TryParseAreaId(string? value, out Guid areaId)
+            => Guid.TryParseExact(value?.Trim(), "D", out areaId);
 
-            // Fixed 9-byte ASCII magic
-            ms.Write(Encoding.ASCII.GetBytes("HueStream"), 0, 9);
-
-            // Version 2.0
-            ms.WriteByte(0x02); // major
-            ms.WriteByte(0x00); // minor
-
-            // Sequence number (wraps 0-255)
-            ms.WriteByte(_sequenceNumber++);
-
-            // 2 reserved bytes
-            ms.WriteByte(0x00);
-            ms.WriteByte(0x00);
-
-            // Color space: 0x00 = RGB
-            ms.WriteByte(0x00);
-
-            // 1 reserved byte
-            ms.WriteByte(0x00);
-
-            // Channel data
+        // Validate the actual entries written; public callers may still own mutable
+        // dictionaries. Capacity stays bounded even if a caller changes the frame.
+        private byte[] BuildHueStreamPacketCore(Guid areaId, Dictionary<int, byte[]> channelColors)
+        {
+            var channelCount = channelColors.Count;
+            ValidateChannelCount(channelCount);
+            var packet = new byte[HueStreamPacketHeaderBytes + channelCount * HueStreamChannelBytes];
+            "HueStream"u8.CopyTo(packet);
+            packet[9] = 2;
+            packet[11] = _sequenceNumber;
+            Utf8Formatter.TryFormat(areaId, packet.AsSpan(16, 36), out _, 'D');
+            var offset = HueStreamPacketHeaderBytes;
             foreach (var kvp in channelColors)
             {
-                int channelId = kvp.Key;
-                var rgb16 = kvp.Value; // [R_hi, R_lo, G_hi, G_lo, B_hi, B_lo]
-
-                ms.WriteByte(0x00);               // device type: light
-                ms.WriteByte((byte)(channelId >> 8));   // channel ID high byte
-                ms.WriteByte((byte)(channelId & 0xFF)); // channel ID low byte
-                ms.Write(rgb16, 0, 6);            // RRGGBB (16-bit each)
+                ValidateChannelColor(kvp);
+                if (offset > packet.Length - HueStreamChannelBytes)
+                    throw new ArgumentException("The channel frame changed while it was being serialized.", nameof(channelColors));
+                packet[offset++] = (byte)kvp.Key;
+                kvp.Value.CopyTo(packet, offset);
+                offset += 6;
             }
+            if (offset != packet.Length)
+                throw new ArgumentException("The channel frame changed while it was being serialized.", nameof(channelColors));
+            _sequenceNumber = unchecked((byte)(_sequenceNumber + 1));
+            return packet;
+        }
 
-            return ms.ToArray();
+        private static Dictionary<int, byte[]> CaptureFrame(Dictionary<int, byte[]> channelColors)
+        {
+            var channelCount = channelColors.Count;
+            ValidateChannelCount(channelCount);
+            var frame = new Dictionary<int, byte[]>(channelCount);
+            foreach (var kvp in channelColors)
+            {
+                ValidateChannelColor(kvp);
+                if (frame.Count >= channelCount)
+                    throw new ArgumentException("The channel frame changed while it was being captured.", nameof(channelColors));
+                frame.Add(kvp.Key, (byte[])kvp.Value.Clone());
+            }
+            if (frame.Count != channelCount)
+                throw new ArgumentException("The channel frame changed while it was being captured.", nameof(channelColors));
+            return frame;
         }
 
         /// <summary>
         /// Sends color data to the Hue Bridge for all channels in an entertainment area.
-        /// The areaId parameter is kept for API compatibility but is no longer embedded
-        /// in the packet — the area is selected when the DTLS session is opened via action=start.
+        /// Each stream lifecycle binds one area UUID; reconnects and keepalives retain it.
         /// </summary>
-        /// <param name="areaId">The entertainment area ID (used for logging only)</param>
+        /// <param name="areaId">The entertainment configuration UUID embedded in every packet.</param>
         /// <param name="channelColors">Dictionary mapping channel IDs to 6-byte RGB16 color data</param>
         /// <param name="colorChangeThreshold">Minimum per-channel color change to trigger update (0 to disable)</param>
         /// <param name="cancellationToken">Cancels the send or any reconnect attempt.</param>
@@ -787,24 +871,32 @@ namespace Jellyfin.Plugin.Hue.Hue
             if (cancellationToken.IsCancellationRequested)
                 return false;
 
-            // The DTLS record layer has less application capacity than the raw UDP
-            // datagram limit. Reject before health checks, reconnects, threshold
-            // comparison, packet allocation, or transport writes.
-            if (!IsHueStreamChannelCountWithinPacketBudget(channelColors.Count))
+            if (!TryParseAreaId(areaId, out var parsedAreaId))
             {
-                _logger.LogWarning(
-                    "Cannot send colors: {0} channels exceed the Hue DTLS packet budget of {1} channels",
-                    channelColors.Count,
-                    MaxHueStreamChannels);
+                _logger.LogWarning("Cannot send colors: the entertainment area must be a hyphenated UUID");
                 return RecordPacketSendFailure(cancellationToken);
             }
 
-            // Validate before health checks or threshold comparison. A malformed frame
-            // must fail closed without triggering a reconnect for an otherwise unrelated
-            // transport, and it must not reach the indexing logic in the threshold path.
-            if (!AreChannelColorsValid(channelColors))
+            long lifecycleGeneration;
+            lock (_lock)
             {
-                _logger.LogWarning("Cannot send colors: every channel ID and RGB16 value must be valid");
+                lifecycleGeneration = _streamLifecycleGeneration;
+                if (cancellationToken.IsCancellationRequested || _streamCallerCancellationToken.IsCancellationRequested)
+                    return false;
+                if (_streamAreaId.HasValue && _streamAreaId.Value != parsedAreaId)
+                    return RecordPacketSendFailure(cancellationToken);
+            }
+
+            Dictionary<int, byte[]> frame;
+            try
+            {
+                // Own the bounded frame before reconnect/transport callbacks or any
+                // await can let callers reuse the dictionary and its color buffers.
+                frame = CaptureFrame(channelColors);
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                _logger.LogWarning("Cannot send colors: the frame must contain valid byte channel IDs and RGB16 values within the DTLS packet budget");
                 return RecordPacketSendFailure(cancellationToken);
             }
 
@@ -815,44 +907,83 @@ namespace Jellyfin.Plugin.Hue.Hue
             if (!IsHealthy())
             {
                 _logger.LogWarning("DTLS stream unhealthy, attempting reconnect");
-                if (!await TryReconnectAsync(cancellationToken).ConfigureAwait(false))
+                if (!await TryReconnectAsync(cancellationToken, lifecycleGeneration).ConfigureAwait(false))
                 {
                     _logger.LogError("Failed to reconnect DTLS stream after {0} attempts", MaxReconnectAttempts);
                     return RecordPacketSendFailure(cancellationToken);
                 }
             }
 
-            // Skip if colors haven't changed significantly. This is safe only after the
-            // stream has been confirmed healthy (or successfully reconnected).
-            if (colorChangeThreshold > 0 && !HasSignificantColorChange(channelColors, colorChangeThreshold))
-            {
-                Interlocked.Increment(ref _packetsSkippedByThreshold);
-                return true;
-            }
-
-            IHueDtlsConnection? dtlsConnection;
             lock (_lock)
             {
+                if (_streamLifecycleGeneration != lifecycleGeneration ||
+                    cancellationToken.IsCancellationRequested ||
+                    _streamCallerCancellationToken.IsCancellationRequested)
+                {
+                    return false;
+                }
+
+                if (_streamAreaId.HasValue && _streamAreaId.Value != parsedAreaId)
+                    return RecordPacketSendFailure(cancellationToken);
+                _streamAreaId = parsedAreaId;
+
                 if (_dtlsConnection == null)
                 {
                     _logger.LogWarning("Cannot send colors: DTLS stream not initialized");
                     return RecordPacketSendFailure(cancellationToken);
                 }
-                dtlsConnection = _dtlsConnection;
-            }
 
+                if (!IsHealthy())
+                {
+                    _ = ScheduleReconnect(cancellationToken);
+                    return RecordPacketSendFailure(cancellationToken);
+                }
+
+                // A reconnect must receive a frame even when its colors match those
+                // sent on the previous connection. The timer covers longer suppression.
+                if (colorChangeThreshold > 0 &&
+                    ReferenceEquals(_lastSentConnection, _dtlsConnection) &&
+                    !HasSignificantColorChange(frame, colorChangeThreshold))
+                {
+                    Interlocked.Increment(ref _packetsSkippedByThreshold);
+                    return true;
+                }
+
+                var sent = SendPacketLocked(frame, cancellationToken, out var reconnectNeeded);
+                if (sent)
+                    _lastSendCancellationToken = cancellationToken;
+                else if (reconnectNeeded)
+                    _ = ScheduleReconnect(cancellationToken);
+                return sent;
+            }
+        }
+
+        // Transport writes, sequence numbers, snapshots, and stop share this lock so
+        // a queued heartbeat cannot send retired colors or overwrite a newer frame.
+        private bool SendPacketLocked(
+            Dictionary<int, byte[]> channelColors,
+            CancellationToken cancellationToken,
+            out bool reconnectNeeded)
+        {
+            reconnectNeeded = false;
+            var dtlsConnection = _dtlsConnection!;
+            var lifecycleGeneration = _streamLifecycleGeneration;
             try
             {
-                var packet = BuildHueStreamPacket(channelColors);
+                var packet = BuildHueStreamPacketCore(_streamAreaId!.Value, channelColors);
                 cancellationToken.ThrowIfCancellationRequested();
                 dtlsConnection.Send(packet, 0, packet.Length);
-
-                // Store last sent colors for change detection
-                _lastSentColors = new Dictionary<int, byte[]>();
-                foreach (var kvp in channelColors)
+                if (_streamLifecycleGeneration != lifecycleGeneration ||
+                    !ReferenceEquals(_dtlsConnection, dtlsConnection))
                 {
-                    _lastSentColors[kvp.Key] = (byte[])kvp.Value.Clone();
+                    return false;
                 }
+
+                // Both caller paths supply a private snapshot: a captured frame or
+                // this same last-frame cache for keepalive.
+                _lastSentColors = channelColors;
+                _lastSentConnection = dtlsConnection;
+                _lastPacketTimestamp = _timeProvider.GetTimestamp();
                 Interlocked.Increment(ref _packetsSent);
                 return true;
             }
@@ -860,7 +991,7 @@ namespace Jellyfin.Plugin.Hue.Hue
             {
                 _logger.LogWarning("DTLS stream was disposed while sending colors, attempting reconnect");
                 InvalidateConnection(dtlsConnection);
-                _ = ScheduleReconnect(cancellationToken);
+                reconnectNeeded = !cancellationToken.IsCancellationRequested;
                 return RecordPacketSendFailure(cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -874,7 +1005,7 @@ namespace Jellyfin.Plugin.Hue.Hue
                     return false;
 
                 InvalidateConnection(dtlsConnection);
-                _ = ScheduleReconnect(cancellationToken);
+                reconnectNeeded = true;
                 return RecordPacketSendFailure(cancellationToken);
             }
             catch (Exception ex)
@@ -884,18 +1015,68 @@ namespace Jellyfin.Plugin.Hue.Hue
             }
         }
 
-        private static bool AreChannelColorsValid(Dictionary<int, byte[]> channelColors)
+        private void KeepAliveTick(object? state)
         {
-            foreach (var kvp in channelColors)
+            lock (_lock)
             {
-                if (kvp.Key < 0 || kvp.Key > ushort.MaxValue ||
-                    kvp.Value == null || kvp.Value.Length != 6)
+                if ((long)state! != _streamLifecycleGeneration ||
+                    _streamLifecycleCts.IsCancellationRequested ||
+                    _streamCallerCancellationToken.IsCancellationRequested ||
+                    _lastSendCancellationToken.IsCancellationRequested ||
+                    _lastSentColors == null ||
+                    _keepAliveTask is { IsCompleted: false } ||
+                    (ReferenceEquals(_lastSentConnection, _dtlsConnection) &&
+                        _timeProvider.GetElapsedTime(_lastPacketTimestamp) < KeepAliveInterval))
                 {
-                    return false;
+                    return;
+                }
+
+                _keepAliveTask = SendKeepAliveAsync(_streamLifecycleGeneration);
+            }
+        }
+
+        private async Task SendKeepAliveAsync(long lifecycleGeneration)
+        {
+            // Created under the lifecycle lock by KeepAliveTick, before StopStream
+            // can retire any source. Keep cancellation linked through a reconnect.
+            using var cancellationSource = CancellationTokenSource.CreateLinkedTokenSource(
+                _streamLifecycleCts.Token,
+                _streamCallerCancellationToken,
+                _lastSendCancellationToken);
+            var token = cancellationSource.Token;
+            try
+            {
+                if (IsHealthy() &&
+                    SendPacketLocked(_lastSentColors!, token, out _))
+                {
+                    return;
+                }
+
+                if (token.IsCancellationRequested || _reconnectAttempts >= MaxReconnectAttempts)
+                    return;
+
+                if (!await TryReconnectAsync(token, lifecycleGeneration).ConfigureAwait(false))
+                    return;
+
+                lock (_lock)
+                {
+                    if (_streamLifecycleGeneration == lifecycleGeneration &&
+                        !token.IsCancellationRequested &&
+                        IsHealthy() &&
+                        _lastSentColors != null &&
+                        !ReferenceEquals(_lastSentConnection, _dtlsConnection))
+                    {
+                        SendPacketLocked(_lastSentColors, token, out _);
+                    }
                 }
             }
-
-            return true;
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Hue stream keepalive failed");
+            }
         }
 
         internal static bool IsHueStreamChannelCountWithinPacketBudget(int channelCount)
@@ -912,24 +1093,21 @@ namespace Jellyfin.Plugin.Hue.Hue
             }
         }
 
-        private static void ValidateChannelColors(Dictionary<int, byte[]> channelColors)
+        private static void ValidateChannelColor(KeyValuePair<int, byte[]> channel)
         {
-            foreach (var kvp in channelColors)
+            if (channel.Key < 0 || channel.Key > byte.MaxValue)
             {
-                if (kvp.Key < 0 || kvp.Key > ushort.MaxValue)
-                {
-                    throw new ArgumentOutOfRangeException(
-                        nameof(channelColors),
-                        kvp.Key,
-                        "Hue channel IDs must fit in an unsigned 16-bit value.");
-                }
+                throw new ArgumentOutOfRangeException(
+                    "channelColors",
+                    channel.Key,
+                    "Hue channel IDs must fit in an unsigned byte (0 to 255).");
+            }
 
-                if (kvp.Value == null || kvp.Value.Length != 6)
-                {
-                    throw new ArgumentException(
-                        "Every channel color must contain exactly six RGB16 bytes.",
-                        nameof(channelColors));
-                }
+            if (channel.Value == null || channel.Value.Length != 6)
+            {
+                throw new ArgumentException(
+                    "Every channel color must contain exactly six RGB16 bytes.",
+                    "channelColors");
             }
         }
 
@@ -955,7 +1133,8 @@ namespace Jellyfin.Plugin.Hue.Hue
                 }
 
                 _dtlsConnection = null;
-                _lastSentColors = null;
+                _connectionReadyTimestamp = null;
+                _lastSentConnection = null;
             }
         }
 

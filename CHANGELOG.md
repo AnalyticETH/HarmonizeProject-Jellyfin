@@ -7,7 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes.
+### Release review corrections
+- **Hue renderer resolution**: resolve selected entertainment-service references to their declared light renderers before state capture, validate identities/types, and capture shared renderers only once.
+- **Retained cleanup ownership**: keep concurrent workers visible and retryable while cleanup or target leases remain pending; retire them only after successful cleanup without removing newer lifecycles.
+- **Publication validation**: require the exact five-file package inventory, matching source and release version, and a valid dependency graph; execute the real workflow verification step against producer-generated regression fixtures.
+- **Recovered playback routing**: retain recovered client identity through startup, seek, pause, and resume; bind real progress/stop events to the recovered generation without treating unrelated new starts as duplicates.
+- **Mapping credential binding**: preserve omitted per-user keys only for the same normalized bridge target; changed targets require complete replacement credentials.
+- **Effective audio profiles**: reject partial overrides that conflict with inherited global frequencies before mutating mappings, while allowing repairs when unrelated legacy rows are invalid.
+- **Deterministic compression**: apply the declared DEFLATE level to every ZIP entry and test the actual compressor selection.
+- **Playback snapshots**: retain original renderer states across same-target replacement/seek/resume, capture newly resolved renderer lights before activation, and honor restore-on-pause independently of final-stop restoration.
+- **Captured playback targets**: keep the same playback on its captured bridge, entertainment area, credentials, and channel profile through pause, resume, and seek. Target-setting changes apply to the next playback; current certificate trust and master/per-user disable controls remain effective.
+- **Stream and HTTP completion**: maintain owned stream keepalives, reactivate after known idle expiry, bound headers/body reads and UDP sends, and require Hue mutation acknowledgements before reporting success.
+- **Administrator request ownership**: correct channel discovery, stale credential-clear confirmations, and canceled mapping edits without allowing old requests to overwrite newer page state.
+- **Scheduler coverage and efficiency**: account for cleanup time, revisit newly due priorities, search complete conflict horizons including solar offsets, and include sequential distinct-target occupancy with bounded result retention.
+- **Release safeguards**: fail closed on Git provenance errors before artifact cleanup, pin build-input line endings, keep runtime self-tests portable, and bound Docker startup and cleanup with explicit retained-resource reporting.
+- **Documentation**: shorten the human-first README, retain technical references and historical notes in linked documents, and validate titled/reference-style links and README size limits.
+
+### Hue v2 streaming correction
+- **Wire format**: include the configuration UUID and one-byte channel IDs in seven-byte channel records; reject out-of-range IDs and bind packets/keepalives to one area per transport lifecycle. Corroborating sources and offline fixtures are documented in `docs/HUE_STREAM_PROTOCOL.md`; physical acceptance remains pending.
+- **Color range**: remove the erroneous compatibility halving from video, audio, preview, and cinema output. Full-scale RGB8 now maps to full-scale RGB16, so unchanged settings produce higher numeric output. Explicit brightness/tint policies remain, and no saved settings are rewritten.
 
 ## [1.5.461] - 2026-09-06
 
@@ -3806,3 +3824,1964 @@ The existing install-failure isolation boundary now extends to a run-scoped virt
 - Entertainment area selection
 - Configurable target FPS
 - GPU acceleration support
+
+## Historical README notes
+
+Additional notes preserved from README.md at commit `cc7824413171431ca860e970e00d6364e9bda28e`.
+Source version labels are retained for provenance, not independently verified release
+attribution. No release dates are inferred. Only formatting-equivalent bullets already
+recorded under the same changelog version are omitted; these are historical notes,
+not current operating instructions.
+
+### README version 1.5.454
+
+- **Actions storage cost reduction**: trusted and pull-request workflows no longer create remote NuGet caches, and CI/security artifacts expire after seven days; the self-hosted build runner uses its local package cache while published release assets remain available.
+- **Storage cleanup contract**: generated CI artifacts and caches are treated separately from published release assets so billing cleanup cannot remove an installable release.
+
+### README version 1.5.459
+
+- **Reproducible release builds**: every .NET invocation enables deterministic CI compilation, mapping embedded PDB paths away from checkout-specific roots so independently built release packages remain byte-identical.
+- **Release regression contract**: the checked-in `MSBuild.rsp` response file keeps local helper output aligned with trusted CI packaging while preserving test and coverage PDBs.
+
+### README version 1.5.458
+
+- **Manifest compatibility**: use the runtime-compatible string filename schema in `meta.json`, with release and runtime smoke validation before publication.
+- **Runner-safe runtime health**: probe Jellyfin health inside the disposable runtime and avoid host-port forwarding so the 10.9/10.10 compatibility matrix is portable across Docker namespaces and Windows hosts.
+- **Credential input hardening**: bound Hue App Key and Client Key inputs, reject control characters before persistence, HTTP headers, or DTLS parsing, and reject unsafe registration or custom user-mapping credentials before egress.
+- **Regression coverage**: cover subnormal color coordinates and oversized/control-character credentials across configuration, REST, DTLS, registration, manifest, and runtime boundaries.
+- **Semgrep lock verification**: validate the installed hash-locked Python package metadata instead of the bundled CLI core version, which may lag the declared package pin.
+
+### README version 1.5.457
+
+- **Replacement runner migration**: every CI, security, runtime, release, and pull-request job now uses the exact `[self-hosted, linux, x64, local-docker]` runner; the five legacy repository runners are stopped and retired.
+- **Actions billing guard**: all CI and security workflow artifacts now expire after one day; self-hosted execution remains the only runner path and published release assets remain unaffected.
+- **Storage cleanup boundary**: generated Actions artifacts are explicitly separated from release assets so billing cleanup cannot remove an installable release.
+
+### README version 1.5.455
+
+- **Dedicated PR runner**: pull-request build and security jobs execute on the isolated `harmonizeproject-jellyfin-pr` self-hosted runner, removing the remaining repository-controlled GitHub-hosted workload.
+- **Operational coverage**: host health and version checks, workflow validators, negative fixtures, and the self-hosted runbook cover all five repository runners.
+
+### README version 1.5.453
+
+- **Self-hosted runner health monitor**: the 15-minute queue and trusted-label monitor now runs on the local `harmonizeproject-jellyfin` runner, eliminating its recurring GitHub-hosted Actions usage while the host-side timer remains the independent complete-pool outage detector.
+- **Operational documentation**: the self-hosted runbook records the billing tradeoff, native Dependabot setting boundary, and host timer recovery path.
+
+### README version 1.5.452
+
+- **Transactional session-history deletion**: clearing retained history now restores in-memory and persisted entries when configuration persistence fails, preventing a restart from resurrecting data that was reported as deleted.
+- **Truthful history-clear API**: the administrator endpoint returns an explicit server error when durable persistence fails instead of returning a false cleared count.
+- **Initial-load recovery**: synchronous configuration-request construction failures now settle through the normal page lifecycle, release the global loader, and report an actionable sanitized status.
+- **Regression coverage**: service, API, lifecycle-filter, and browser harness tests cover durable deletion, rollback, conflict arbitration, and initial-load recovery.
+
+### README version 1.5.443
+
+- **Scheduler boundary safety**: schedule previews, due checks, and run-slot resolution fail closed when adjacent-date probing reaches the minimum or maximum representable calendar date instead of throwing from `DateTime` arithmetic.
+
+### README version 1.5.442
+
+- **Sub-second seek recovery**: Video and audio FFmpeg restarts preserve any positive playback position, including seeks below one second, instead of silently restarting from the beginning.
+- **Adaptive FFmpeg health monitoring**: capture health checks now poll at the configured stall budget (capped at ten seconds), so short 1-5 second budgets are observed promptly instead of waiting on a fixed ten-second interval.
+- **Audio parameter safety**: invalid PCM sample-rate or channel-count requests fail closed without launching FFmpeg, preserving the existing bounded cleanup contract.
+- **Regression coverage**: Linux integration coverage starts a tokenized audio capture process, verifies PCM output, validates invalid-parameter rejection, and proves process cleanup.
+- **Audio-session recovery**: Startup recovery now restores already-playing unpaused audio sessions at Jellyfin's current position when the effective playback scope includes audio, matching existing video recovery.
+- **Regression coverage**: Lifecycle tests verify audio recovery starts synchronization, preserves active user/item telemetry, and still honors media-scope filtering.
+
+### README version 1.5.439
+
+- **Light-state malformed-resource safety**: Hue light-state capture now reports non-object resources, mismatched identifiers, and invalid required state fields as normal partial-capture warnings instead of emitting exception-path logs.
+
+### README version 1.5.437
+
+- **Entertainment configuration response safety**: Hue entertainment-configuration responses now require an object-shaped root before reading `data`, so scalar bridge responses fail closed through the normal sanitized invalid-response path instead of generating an exception log.
+
+### README version 1.5.432
+
+- **Saved-playlist playback-device routes**: saved playlists can retain credential-free Jellyfin `userId`/case-sensitive `deviceId` pairs, resolve current nested Hue credentials and channel profiles at run time, and fail closed when a route is missing, disabled, incomplete, ambiguous, or removed.
+- **Retained-page section navigation**: configuration section links now resolve and focus only the owning visible page, smoothly scroll the selected section, update the URL without a native global fragment jump, and leave retained hidden pages untouched.
+- **Pinned Jellyfin runtime smoke gate**: trusted `main` release publication now boots the canonical ZIP in digest-pinned official Jellyfin 10.9.0 and 10.10.7 linux/amd64 images on a separate rootless-Docker self-hosted runtime runner before release publication.
+- **Regression coverage**: playlist route persistence/resolution, UI retained-page isolation, workflow/package/runtime contracts, and writable disposable-manifest semantics are covered by automated tests and validators.
+
+### README version 1.5.431
+
+- **Route-aware bridge linking**: nested playback-device routes can link their own Hue bridge from the administrator editor, with route-local credentials and area refreshes that never overwrite the parent mapping.
+- **Import credential clearing**: clearing a replacement key after validation removes the stale in-memory value while blank fields continue to preserve matching server-side credentials.
+- **Service-readable release archives**: canonical ZIP entries are non-executable `0644`, allowing Jellyfin to discover plugin metadata under a different service account.
+- **Regression coverage**: route-link, import-clearing, release-permission, and existing full-suite contracts cover the new paths.
+- **Jellyfin configuration serializer compatibility**: certificate pins persist through an XML-safe adapter while the runtime/API retain their credential-free case-insensitive dictionary, preventing plugin startup from being disabled by Jellyfin's serializer.
+- **Fail-closed pin migration**: blank hosts are discarded and conflicting case/whitespace aliases force certificate re-pinning instead of silently selecting one entry.
+- **Regression coverage**: plugin configuration XML round-trip and malformed/conflicting pin handling are covered by security tests.
+- **Fail-closed entertainment-area identifiers**: malformed successful Hue bridge responses containing non-object areas or missing, null, numeric, or blank IDs are rejected before they can become selectable targets.
+- **Regression coverage**: Hue response parsing covers malformed area entries while preserving valid empty and metadata-optional responses.
+- **Duplicate scene-cue identity safety**: malformed case-variant persisted schedule IDs now fail closed across manual and bulk API actions, scheduler evaluation, runtime state, and deletion; ambiguous requests return conflict without mutation.
+- **Diagnostics cancellation lifecycle**: retained configuration pages track cancellation requests, abort them on page teardown, and suppress stale completions.
+- **Regression coverage**: service/API duplicate-ID and administrator lifecycle contracts cover these boundaries.
+- **Entertainment-area payload validation**: malformed successful bridge responses with missing, null, non-array, or duplicate area data now fail closed instead of being treated as an empty or response-order-dependent target list.
+- **Test Connection lifecycle ownership**: default and per-user mapping connection tests are now page- and target-owned, abort on teardown, and suppress stale results after bridge, area, credential, or channel edits.
+- **Trusted-build evidence gate**: main CI now requires non-empty TRX and Cobertura reports and rejects missing evidence before release packaging.
+- **Regression coverage**: Hue response parsing, administrator lifecycle races, and trusted workflow negative contracts cover the new boundaries.
+- **Duplicate device-route playback arbitration**: concurrent playback now rejects duplicate nested device IDs before route lookup instead of falling back to another Hue target.
+- **Credential preservation safety**: imports and mapping edits no longer retain arbitrary App/Client keys from ambiguous legacy device routes; explicit replacement credentials are required.
+- **Preview cancellation ownership**: retained-page teardown cannot hide a newer page's loader when only an older preview cancellation remains pending.
+- **Regression coverage**: API, configuration, and browser lifecycle contracts cover duplicate routes, credential retention, and deferred preview-cancellation races.
+
+### README version 1.5.426
+
+- **Credential preflight route arbitration**: credential-bearing entertainment-area requests now reject ambiguous duplicate nested device IDs before selecting stored keys or contacting Hue, matching schedule, capture, and diagnostics fail-closed behavior.
+- **Global loader ownership**: configuration-page discovery, registration, mapping-edit/dependency, diagnostic, preview, and current-light operations now share owner-checked loader tokens with configuration operations, so stale or nested completions cannot hide a newer operation's indicator.
+- **Regression coverage**: API and configuration-page contracts cover duplicate device-route credentials plus retained-page, cross-operation, and nested certificate-preflight loader races.
+- **Configuration import loader ownership**: import validation and submit completions now release the shared global loader only when they still own it, so a late import request cannot hide a newer export or runtime-stop indicator.
+- **Regression coverage**: configuration-page contracts cover import-validation/export and import-submit/export races alongside load/export and save/export ownership tests.
+- **Duplicate device-route arbitration**: legacy or hand-edited mappings with duplicate nested device IDs now fail closed in schedule validation and execution, current-light capture, and target diagnostics instead of selecting the first route.
+- **Regression coverage**: route validation, scheduler, capture, and diagnostics tests cover duplicate nested device IDs without bridge activity or credential leakage.
+- **Server-only Semgrep taint boundary**: the Node/Express/Next `eval` taint rule is explicitly excluded from the vanilla browser-page scan because the extracted page has no server request objects or `eval` sinks; generic/browser dynamic-execution rules remain blocking.
+- **Embedded scan regression coverage**: both blocking workflows pin the reviewed exclusion count and continue to require the extracted administrator target to be scanned with zero findings, scanner errors, or analysis timeouts.
+
+### README version 1.5.420
+
+- **Runtime-stop loader ownership**: a retained hidden configuration page can no longer hide the global loader owned by a newer visible stop operation.
+- **Partial-import opt-outs**: adding a new fully scrubbed disabled user mapping remains allowed during active playback as a policy-only change, while unrelated or enabled mapping changes stay blocked.
+- **Regression coverage**: retained-page loader races and partial-import playback arbitration have focused tests.
+
+### README version 1.5.419
+
+- **Certificate target freshness**: direct trust prompts, credential preflights, and bridge registration re-check the current bridge address before trusting a fingerprint or sending a request; edited or hidden pages cannot mutate the old target or surface stale alerts.
+- **Import playback arbitration**: imports that disable one user mapping while changing unrelated settings remain blocked during active Hue playback. Only policy-only disables may proceed and stop the affected sessions.
+- **Rollback nullability**: failed mapping and configuration imports explicitly normalize legacy null mapping collections, removing the remaining nullable-assignment warning while preserving atomic rollback.
+- **Regression coverage**: trust-prompt lifecycle races and mixed-import playback conflicts have focused regression tests.
+
+### README version 1.5.418
+
+- **Global configuration ownership**: bridge address, stored App Key/Client Key presence, and selected entertainment area snapshots are now retained per configuration page, so sibling retained pages cannot overwrite another page's credentials or selection.
+- **Regression coverage**: two-page configuration-load and bridge-discovery races verify snapshot ownership, with static guards preventing the retired singleton reads from returning.
+- **Mapping editor ownership**: retained administrator pages now keep mapping editor state on their owning page, preventing duplicate-page edits, credentials, and saves from crossing page boundaries.
+- **Registration and discovery ownership**: page teardown only cancels the registration preflight it owns, and playback-device discovery cache reads remain restricted to the owning page while bridge registration stays serialized.
+- **Regression coverage**: configuration-page contracts cover retained-page state isolation, sibling pagehide cancellation, and playback-device cache ownership.
+- **Bounded FFmpeg cleanup test**: the stderr-reader regression now waits within the existing five-second deadline for inherited pipe descriptors to settle after bounded `Stop()` cleanup, removing scheduler-timing flakes without weakening the cleanup contract.
+- **Regression coverage**: the full 1,391-test suite and repeated stderr-reader stress runs cover the bounded cleanup lifecycle.
+- **Page-scoped retained configuration listeners**: all inline administrator controls now bind through the active plugin configuration page, so hidden retained pages cannot steal duplicate-ID handlers or leave current controls unbound.
+- **Scheduled target snapshot parity**: scheduled cue snapshots now preserve the optional default target when selected user mappings are also targeted, ensuring execution and history represent and invoke every configured target.
+- **Regression coverage**: configuration-page validation and scheduler tests cover retained-page listener scoping and selected-plus-default cue execution.
+- **Page-scoped mapping route editors**: retained configuration pages now keep route selectors, editor fields, credentials, area/channel loads, previews, and mapping saves isolated to their owning page.
+- **Weekly schedule boundary safety**: interval schedules anchored at the minimum supported date now compute week alignment without `DateTime` underflow.
+- **Page-scoped playback-device routing**: discovery results and route refreshes stay on the configuration page that initiated the request, preventing retained pages from receiving another page's devices.
+- **Solar boundary fail-closed behavior**: solar calculations return no event instead of throwing when date, offset, or local conversion arithmetic would overflow.
+- **Runner isolation documentation**: the self-hosted runner runbook now distinguishes the build/release identities' lack of Docker access from Dependabot's separately confined rootless Docker socket.
+- **Discovery lifecycle ownership**: global and per-mapping bridge discovery requests are page-scoped, abort on pagehide, and ignore stale target edits before applying candidates or status.
+- **Release-helper safety**: Linux and PowerShell release helpers verify clean Git state before deleting previous artifacts, preserving existing outputs when a dirty checkout is rejected.
+- **Administrator import file guard**: configuration restore rejects local files larger than 8 MiB before FileReader parsing and validates top-level collection shapes before rendering migration credential fields.
+- **Bounded entertainment channels**: bridge entertainment-configuration responses are capped at 256 channels before downstream enumeration.
+- **Bounded bridge discovery**: local mDNS and cloud discovery now share a 256-candidate ceiling across datagrams, address families, and merge stages, stopping local discovery once the cloud result is full.
+
+### README version 1.5.407
+
+- **Trusted runner binding**: workflow validators now require every concrete build and security job to use the non-publishing `harmonizeproject-jellyfin` runner; only GitHub Release publication may use the isolated release runner, with executable negative fixtures for accidental reassignment.
+- **Hue state sanitization**: captured XY coordinates and color-temperature Mirek values are range-checked, and restore payloads clamp brightness while omitting invalid color data instead of sending unsafe state to a bridge.
+- **Dedicated Dependabot runner**: document the third rootless-Docker `dependabot` runner, its isolation/resource limits, and the owner-controlled GitHub setting required before Dependabot jobs leave `ubuntu-latest`.
+
+### README version 1.5.406
+
+- **Playback retry isolation**: each playback worker clones the injected Hue transport before applying its per-session retry policy, so API and diagnostic calls cannot inherit another session's mutable retry setting.
+- **Playback-device discovery lifecycle**: discovery is scoped to its owning configuration page, rejects competing live-page ownership, aborts on cancellation/pagehide, clears only its own cache, and ignores stale user-target responses while restoring controls and loading state.
+- **Regression coverage**: constructor isolation, retained-page ownership, selection-clear cancellation, pagehide abort, stale completion, retry, and current-success contracts cover the new boundaries.
+
+### README version 1.5.405
+
+- **Dependency inspection lifecycle**: saved-scene and color-preset dependency checks now share generation, selection, and request ownership; duplicate submissions are suppressed, page teardown aborts in-flight work, and stale responses cannot overwrite a reused administrator page.
+- **Control recovery and regression coverage**: the inspect control recovers after success, failure, selection changes, and pagehide cancellation, with executable current-success, stale-selection, duplicate, and teardown contracts.
+- **Playback pause race hardening**: pause events must still match the active playback session under the lifecycle lock before they can publish paused state or start cleanup, so a stale event from a stopped session cannot alter a newer handoff.
+
+### README version 1.5.404
+
+- **Pre-binding request-size hardening**: bulk actions, target-selection previews/captures, mapping reconciliation controls, bridge registration, certificate trust, connection tests, saved-scene controls, and schedule state changes reject bodies over 64 KiB before model binding traverses user-supplied collections or text.
+- **Regression coverage**: reflection contracts cover every bounded selection/control endpoint, while valid maximum selections and oversized JSON bodies verify the pre-binding boundary.
+
+### README version 1.5.403
+
+- **Playlist dependency inspection lifecycle**: dependency checks are generation-owned, selection-aware, duplicate-suppressed, and canceled on page teardown; stale responses cannot overwrite a reused administrator page and the inspect control always recovers.
+
+### README version 1.5.402
+
+- **Scheduled-cue and playlist lifecycle ownership**: direct and bulk mutations are generation-owned, duplicate-suppressed, stale-safe, and canceled on teardown; controls remain locked through refresh and cancellation barriers.
+- **Bulk-run configuration barrier**: sequential scheduled-cue runs hold scheduler evaluation across preflight and every cue so saved configuration cannot change between cues.
+
+### README version 1.5.395
+
+- **Playback cleanup ownership**: failed restoration/deactivation retains the playback lease, blocks queued starts and same-target diagnostics, and retries with a fresh bounded cleanup token.
+- **Pause deactivation recovery**: dim/keep-last pause cleanup retries failed or thrown deactivation without restoring the saved playback snapshot.
+- **Bulk user-mapping mutation lock**: selection, bulk controls, and opposite mutations are locked to one page-generation-owned operation and recomputed safely after completion.
+- **Regression coverage**: queued-start, diagnostic arbitration, pause retry/transport failure, and bulk mapping lifecycle contracts cover these boundaries.
+- **Playback cleanup retry**: incomplete light restoration retains its snapshot and retries restoration/deactivation with a fresh bounded cleanup token before a new playback session is allowed.
+- **Bulk user-mapping deletion lifecycle**: confirmations and requests are generation-owned, canceled on page teardown, and stale completions cannot mutate a reused page.
+- **PowerShell release-helper strict mode**: the documented Windows helper now enables strict mode so missing properties and invalid command assumptions fail closed.
+- **Regression coverage**: runtime restoration retry and configuration lifecycle contracts cover these boundaries.
+- **Release-helper fail-closed shell**: the Linux release helper now enables `pipefail` alongside `errexit`, so pipeline failures stop packaging.
+- **One-time cancellation recovery**: automatic one-time cues restore their enabled state when host cancellation interrupts bridge work, retain deferred occurrences, and remain eligible for a safe retry after restart.
+- **Restoration persistence repair**: failed cancellation-restoration writes are retried on the next scheduler pass while ambiguous durable state fails closed against replay.
+- **Stale mapping cleanup lifecycle**: reconciliation and destructive stale-mapping cleanup are generation-owned, canceled on page teardown, and prevented from applying stale confirmation, status, or reload callbacks.
+- **Pinned SDK parity**: trusted and pull-request workflows now verify that their .NET SDK pin exactly matches `global.json` before building.
+- **Regression coverage**: scheduler cancellation/restart, cleanup lifecycle, and SDK parity contracts cover the new boundaries.
+- **Trusted-workflow parity**: pull-request validation now executes the trusted-workflow boundary contract, covering exact triggers, permissions, release provenance, immutable actions, and security-scan boundaries before merge.
+- **Bridge certificate trust lifecycle**: approved certificate trust POSTs are owned by the active configuration-page generation, canceled on teardown, and prevented from applying stale pin-cache or status callbacks.
+- **Regression coverage**: PR workflow and certificate-trust tests cover validator enforcement and in-flight pagehide cancellation.
+- **HueStream packet budget**: packets now enforce the AES-GCM DTLS application payload limit before allocation or transport writes, and oversized playback/preview areas fail closed before bridge activation.
+- **Repository ownership coverage**: CODEOWNERS now protects release, build, dependency-lock, security, project, and validation-script paths so changes receive the configured owner review.
+- **Regression coverage**: packet tests cover the exact maximum channel boundary and oversized-area rejection; workflow contracts require every protected ownership entry.
+- **Saved-scene deletion lifecycle**: confirmation and DELETE requests are now owned by the active configuration-page generation, canceled on teardown, guarded against duplicate submissions, and prevented from applying stale form, status, or reload callbacks.
+- **Repository ownership coverage**: CODEOWNERS now protects release, build, dependency-lock, security, project, and validation-script paths so changes receive the configured owner review.
+- **Regression coverage**: configuration lifecycle contracts cover stale confirmation/completion and duplicate saved-scene deletion; workflow contracts require every protected ownership entry.
+- **Scheduled-cue deletion lifecycle**: confirmation and DELETE requests are owned by the active configuration-page generation, canceled on teardown, guarded against duplicate submissions, and prevented from applying stale status or reload callbacks.
+- **Bounded FFmpeg diagnostics**: stderr is drained in fixed-size chunks, capped to 8 KiB per diagnostic line, and marked once when truncated while continuing to drain the process pipe.
+- **Regression coverage**: configuration lifecycle contracts cover stale confirmation/completion and duplicate deletion; FFmpeg tests cover multi-megabyte unterminated stderr and bounded cleanup.
+- **mDNS class validation**: discovery accepts only Internet-class DNS questions and records while preserving mDNS cache-flush/unicast-response flag bits, so unrelated class data cannot be treated as a Hue endpoint.
+- **Regression coverage**: discovery tests reject non-Internet question and resource-record classes and verify cache-flush compatibility.
+- **mDNS compression safety**: discovery rejects forward DNS compression pointers, which are invalid on the wire and could otherwise manufacture service/host associations from later records.
+- **Regression coverage**: discovery tests verify forward-pointer responses fail closed without returning a bridge address.
+- **mDNS RDATA boundary hardening**: PTR and SRV discovery names are now required to fit entirely within their declared DNS record data, preventing malformed local responses from borrowing bytes from adjacent records.
+- **Regression coverage**: discovery tests verify truncated SRV records fail closed without returning a bridge address.
+- **Run-scoped Semgrep isolation**: self-hosted and pull-request security scans isolate their hash-locked virtual environment, reviewed rule snapshots, extracted administrator JavaScript, and reports by workflow run/attempt, so canceled-run cleanup cannot invalidate a newer scan.
+- **Security workflow contract**: the Semgrep validator requires isolated run-scoped paths and rejects the legacy shared `RUNNER_TEMP` scanner state while keeping every finding, scanner error, and timeout fail-closed.
+- **Scoped IPv6 bridge transport**: mDNS-discovered link-local IPv6 addresses preserve their interface scope in HTTPS request URIs, allowing bridges on multi-interface hosts to remain reachable.
+- **Certificate-pin parity**: URI-encoded IPv6 zone identifiers normalize back to the persisted bridge address before certificate-pin lookup, with regression coverage for both transport and identity handling.
+- **Strict channel-profile bound**: the 4,096-character limit is applied before blank-value handling, including whitespace-only input; ordinary blank fields below the limit still preserve all-channel/inherited behavior.
+- **Regression coverage**: parser tests cover oversized valid-token and whitespace-only values.
+- **Bounded channel-profile input**: global, per-user, and device-route channel profile text is capped at 4,096 characters before tokenization; valid channel IDs and delimiter behavior remain unchanged.
+- **Regression coverage**: the configuration suite verifies oversized channel text is rejected before parsing, and the administrator editors expose the same limit.
+- **Cleanup resolver trust boundary**: durable cleanup recovery re-checks injected or host-provided bridge resolver results against the private/link-local/unique-local boundary before treating an alias as the same physical bridge.
+- **Regression coverage**: scheduler recovery tests reject non-local resolver results without contacting a bridge.
+- **Administrator delete lifecycle safety**: single user-mapping deletes now bind confirmation and DELETE callbacks to the active configuration page, cancel on page teardown, prevent duplicate submissions, and suppress stale reloads/resets.
+- **Durable cleanup alias recovery**: scheduled cleanup journals now reconcile IP/.local bridge aliases through vetted local addresses or matching certificate pins, while mismatched/ambiguous targets remain fail-closed.
+- **Regression coverage**: lifecycle and scheduler tests cover stale mapping-delete confirmation/completion, alias recovery, and unrelated-target rejection.
+- **Reviewed Semgrep snapshots**: blocking self-hosted and PR scans now use SHA-256-verified local registry snapshots, preventing mutable aliases or CDN responses from changing policy mid-run.
+- **Install-failure isolation**: sub-scans only run after a successful hash-locked Semgrep install, preventing stale runner-temp files from being mistaken for current scan inputs.
+- **Regression coverage**: the Semgrep lock validator verifies snapshot paths, file digests, workflow parity, and safe scan gating.
+- **Gitleaks false-positive boundary**: the default Gitleaks rules remain active while only public example fixtures in the reviewed Semgrep snapshot directory are allowlisted, with a contract test preventing broader exclusions.
+- **Certificate trust alias safety**: bridge certificate pins now resolve IP and .local aliases against a single vetted local address, fail closed on conflicting fingerprints, and keep registration, credential-free probes, transport TLS validation, playback arbitration, and pin management aligned.
+- **Regression coverage**: API and certificate-validation tests cover alias equivalence, conflict rejection, alias cleanup, unknown-target protection, and credential-free probe behavior.
+- **User-mapping save lifecycle safety**: mapping saves are tracked against the active configuration page, duplicate submissions are bounded, teardown and edit cancellation abort in-flight writes, and stale callbacks cannot alert, reload mappings, or reset a newer draft.
+- **Regression coverage**: configuration contracts cover complete mapping payloads, duplicate-submit protection, pagehide cancellation, stale callback suppression, success reloads, and button-state restoration.
+- **Scheduled-run identity safety**: manual Run Now cancellation remains bound to the cue ID that started the run, even if the administrator changes the selection; stale run callbacks cannot mutate a reused page.
+- **Preview/capture lifecycle safety**: page teardown cancels in-flight preview, capture, and cancellation requests; stale callbacks cannot hide loading UI or overwrite an active page.
+- **Recurrence search hardening**: cached normalized exclusion dates avoid reparsing exclusions for every candidate, and a maximum `DateTime` boundary guard prevents overflow with stale skip markers.
+- **Selector and accessibility hardening**: persisted entertainment-area IDs are matched without selector interpolation, and diagnostics/mapping tables expose captions and column scopes.
+- **Regression coverage**: configuration contracts cover cancellation identity, page lifecycle races, unsafe area IDs, and scheduler boundary conditions.
+- **Semgrep snapshot integrity**: the blocking default ruleset pin is refreshed after the registry rotation and continues to fail closed on any unreviewed snapshot change.
+- **Long-interval recurrence visibility**: internal next-run and Skip Next resolution now search beyond the public 366-day preview horizon, so valid weekly, monthly, and yearly cues with large configured intervals remain actionable.
+- **Stale certificate trust-prompt cancellation**: approving a bridge certificate prompt after the configuration page is hidden now fails closed without mutating the server trust store.
+- **Semgrep snapshot integrity**: the blocking default ruleset pin is refreshed after the registry rotation and continues to fail closed on any unreviewed snapshot change.
+- **Regression coverage**: scheduler tests cover long recurrence intervals and the administrator configuration contract covers stale certificate trust prompts.
+- **Audio terminal status**: naturally completed audio playback now reports an audio stream ending after shared cleanup instead of the video terminal message.
+- **Legacy schedule target preservation**: partial schedule edits and configuration imports retain an omitted legacy `targetUserId`; explicit target selectors, including an explicit empty value for the global bridge, remain mode switches.
+- **Certificate pin lifecycle management**: administrators can review credential-free bridge certificate pins in the configuration page and explicitly forget a retired or rotated bridge pin; deletion is validated, atomic, and fail-closed until replacement trust is confirmed.
+- **Semgrep snapshot integrity**: the blocking default ruleset pin is refreshed after the registry rotation and continues to fail closed on any unreviewed snapshot change.
+- **Regression coverage**: lifecycle and API tests cover audio cleanup status, omitted legacy target retention, selected-target switching, explicit global targeting, and partial-import parity.
+- **Nested device-route API parity**: the current-light capture documentation now shows single-target `targetDeviceId` and batch `targetRoutes` request shapes, including the owning Jellyfin user and exact playback-device ID.
+- **Documentation regression coverage**: the API-doc contract requires the exact single and batch nested-route examples.
+- **Explicit background-task ownership**: reconnect scheduling call sites now discard the returned observer task explicitly, removing compiler diagnostics while retaining cancellation-safe observation.
+- **Regression coverage**: the Hue streamer suite continues to await the scheduled observer for unrelated callback cancellation and canceled-result safety.
+- **Cancellation-safe reconnect observation**: background DTLS reconnect continuations now handle canceled tasks without reading `Task.Result`, preventing unobserved cancellation exceptions during callback and lifecycle races.
+- **Regression coverage**: the Hue streamer suite exercises preparation cancellation from an unrelated token and verifies the scheduled reconnect observation completes cleanly.
+- **Semgrep snapshot integrity**: the blocking default ruleset pin is refreshed after the registry rotation and continues to fail closed on any unreviewed snapshot change.
+- **Staged device-route diagnostics**: Test Connection and color Preview now send the staged route App Key and Client Key from the matching editor, so a newly staged route can be verified before the parent mapping is saved while persisted routes keep server-side credential fallback.
+- **Regression coverage**: the configuration lifecycle contract verifies staged route credentials in both connection-test and preview payloads.
+- **Single-mapping saved-scene previews**: selecting exactly one mapped user now sends only the selected-target representation for both individual and bulk previews, so the API no longer rejects the request as an ambiguous legacy/selected-target mix.
+- **Regression coverage**: the configuration lifecycle contract verifies the corrected payload for individual and bulk saved-scene previews.
+- **Semgrep snapshot integrity**: the blocking default ruleset pin is refreshed after the registry rotation and continues to fail closed on any unreviewed snapshot change.
+- **Process-tree-safe FFmpeg teardown**: serialized capture lifecycle transitions retain and observe stderr/health tasks, close redirected streams, terminate descendants, and bound cleanup so playback restarts cannot strand child processes or pipe readers.
+- **Manual one-time cue completion**: successful Run Now executions now disable one-time schedules through the existing persistence-retry path, increment run state, and prevent later automatic replay.
+- **Semgrep scanner freshness**: the hash-locked scanner is updated to Semgrep 1.175.0 with reviewed compatible dependency hashes, and both blocking workflows use the same pin.
+- **Regression coverage**: FFmpeg process-tree cleanup and manual one-time schedule replay prevention are covered by focused tests.
+- **Playback-device discovery resilience**: invalid user filters fail with `400`, session enumeration failures return a sanitized `503`, null session lists remain empty, and credential-free device routes stay deterministically sorted and bounded to 256 results.
+- **Probe process cleanup hardening**: bounded FFmpeg/version probes now cancel, terminate the entire process tree, close redirected streams, observe reader failures, and drain cleanup with a one-second limit so cancellation and oversized-output paths cannot strand diagnostics.
+- **Locked restore enforcement**: `Directory.Build.props` now enables `RestoreLockedMode` globally, and the release-doc validator fails closed if the committed NuGet lock-file contract is removed.
+- **Stale queued-run runbook**: self-hosted runner operations now document read-only inspection, safe cancellation, and owner escalation for queued Actions runs with no assigned job, without deleting workflow history.
+- **Regression coverage**: API tests cover invalid filters, sanitized session failures, null enumerations, and 256-route bounds; environment-probe tests cover bounded output and cancellation cleanup.
+- **Semgrep snapshot integrity**: reviewed and refreshed the default ruleset SHA-256 pin after the registry rotated; the current 121-rule production/configuration scan remains fail-closed with zero findings, scanner errors, or analysis timeouts.
+- **Null-safe playback events**: Jellyfin playback-start events with missing item metadata are logged safely and remain filtered as unsupported instead of throwing before lifecycle arbitration.
+- **Bounded environment probes**: FFmpeg version, diagnostic stderr, and PCM capability output are capped; oversized output terminates the probe and fails closed without allowing a misbehaving executable to grow memory indefinitely.
+- **Regression coverage**: lifecycle and environment-probe tests cover null playback items, unbounded version stdout/stderr, and unbounded PCM output.
+- **Security-scan concurrency isolation**: scheduled scans and trusted main-push security gates use separate event-scoped lanes, so a weekly scan cannot cancel a release-critical gate.
+- **Semgrep snapshot integrity**: refreshed the reviewed SHA-256 pin for the default ruleset after the registry rotated; blocking scans continue to fail closed on any unreviewed change.
+- **Fail-closed entertainment-area identity**: Hue configuration responses reject present malformed area IDs instead of treating them as legacy ID-less responses, preventing an unverified area's channel layout from being used for the requested target while preserving the documented ID-less fallback.
+- **Weighted multi-target brightness**: aggregate current-light capture now weights brightness by captured light count, including off lights, so rooms with different numbers of lights seed the scene editor accurately.
+- **Regression coverage**: client and API tests cover malformed area identities, legacy ID-less responses, unequal target sizes, and off-light brightness weighting.
+- **Semgrep snapshot integrity**: refreshed the reviewed SHA-256 pins for the current default and Python ruleset snapshots after the registry rotated, with local findings, scanner errors, and fixpoint timeouts at zero.
+- **Semgrep snapshot integrity**: blocking Semgrep workflows vary each ruleset request per run and attempt while retaining SHA-256 fail-closed verification, so any changed snapshot requires an explicit pin review.
+- **Cross-platform Git provenance parity**: the PowerShell release helper applies an explicit safe.directory override when binding the source commit, matching Linux helper behavior on hardened self-hosted runners.
+- **Source-bound release provenance**: release manifests now carry the exact 40-character source commit that produced the tested package, and the isolated release runner verifies that binding before publication.
+- **Manifest schema hardening**: advance the deterministic manifest contract to schema version 2 with a required source-commit field and regression coverage for malformed or missing provenance.
+- **Cross-platform helper parity**: both documented release helpers pass their checked-out commit into the manifest generator so Linux helper output remains byte-for-byte identical to the canonical package manifest.
+- **Semgrep snapshot integrity**: refreshed the SHA-256 pin for the reviewed default ruleset snapshot in both blocking workflows after the registry snapshot rotated.
+- **Deterministic release manifest**: every release now publishes exact packaged-file sizes and SHA-256 digests, the deterministic archive digest, and the plugin's resolved hash-locked NuGet graph.
+- **Manifest parity gate**: the documented Linux release helper must produce a byte-for-byte matching manifest before the canonical package can publish.
+- **Release asset integrity**: the isolated release runner verifies the manifest and both checksum sidecars, then binds all four GitHub release asset digests to locally verified bytes.
+- **Regression coverage**: a dependency-free manifest self-test and executable workflow/package markers protect the provenance contract.
+- **Semgrep snapshot integrity**: refreshed the SHA-256 pin for the reviewed default ruleset snapshot in both blocking workflows after the registry snapshot rotated again.
+- **Matrix scene effect**: add a deterministic green/cyan cascading data-rain pattern with smooth trails and independent channel phases across previews, saved scenes, playlists, scheduled cues, and credential-free portability.
+- **Semgrep snapshot integrity**: refreshed the SHA-256 pin for the reviewed default ruleset snapshot in both blocking workflows after the registry snapshot rotated again.
+- **Case-insensitive cleanup recovery**: pending scheduled cleanup snapshots now match Hue entertainment-area UUIDs without treating upper/lowercase spelling differences as a target change, keeping imported or hand-edited target casing consistent with playback arbitration.
+- **Regression coverage**: scheduler recovery tests verify deactivation and light restoration when persisted and configured area-ID casing differs.
+- **Semgrep snapshot integrity**: refreshed the SHA-256 pin for the reviewed default ruleset snapshot in both blocking workflows after the registry snapshot rotated.
+- **Restart-safe recurring claims**: recurring automatic scene occurrences persist an exact UTC occurrence slot and credential-free timing-definition key before bridge activity, so a scheduler restart cannot replay the same-minute or recovered catch-up cue.
+- **Fail-closed occurrence persistence**: failed claim writes leave the cue eligible without contacting Hue, while cancellation, playback conflicts, skipped occurrences, schedule edits, and deleted cues reconcile durable claims safely.
+- **Semgrep ruleset integrity**: the blocking workflows verify the refreshed SHA-256 pin for the reviewed default ruleset snapshot before scanning.
+- **Regression coverage**: scheduler contracts cover same-minute restart suppression, catch-up suppression, next-occurrence execution, timing-definition edits, and persistence-failure retry.
+- **Playback-conflict durability**: Defer scheduled cues now preserve their exact occurrence slot when playback starts after the scheduler's initial check, without consuming a run; active playback remains authoritative across direct scenes and continuous playlists.
+- **Mapping editor safety**: disabled per-user mappings now disable all persisted audio-profile overrides until sync is re-enabled.
+- **Regression coverage**: lifecycle-gate, stream, scheduler, playlist, and configuration-page contracts cover playback arbitration and disabled mapping controls.
+- **Playback-generation identity**: concurrent playback routing treats `PlaySessionId` as the authoritative generation key, refusing to attach unknown IDs to stale workers from the same Jellyfin client and allowing rapid same-client transitions to a new Hue target.
+- **Bounded bridge responses**: bridge REST and cloud-discovery bodies use header-first streaming with a strict 1 MiB limit, rejecting oversized success or error payloads without logging their contents.
+- **Regression coverage**: concurrent playback, bounded response, history lifecycle, API conflict, and serialized persistence tests cover the new runtime and transport boundaries.
+- **Active-lifecycle history clearing**: `DELETE /HueSync/History` and `DELETE /HueSync/SceneSchedules/History` use an independent serialized history lease, so clearing retained telemetry does not stop active playback, diagnostics, or scheduler evaluation while configuration snapshots remain protected.
+- **Cross-service persistence ordering**: session and scheduled-cue history writes share synchronization, preventing a clear or persistence repair from racing another telemetry update.
+- **Regression coverage**: lifecycle-gate, mutation-filter, API, scheduler-history, and session-history tests cover active playback clears, configuration conflicts, and serialized persistence.
+- **Immediate sync-policy shutdown**: saving a disabled global or per-user policy now stops affected active Hue sessions after the durable write, restores captured lights, and requires a fresh playback event after re-enabling.
+- **Selective lifecycle reconciliation**: global, single-user, bulk-user, and imported policy changes filter concurrent sessions by effective user state; duplicate or ambiguous mappings remain fail-closed.
+- **Security-reporting accuracy**: SECURITY.md now makes private reporting conditional on the repository capability and directs reporters to an established private owner channel when that capability is unavailable.
+- **Regression coverage**: lifecycle, API rollback, duplicate-mapping, import, gate, and toggle contracts cover immediate policy shutdown and safe restoration.
+- **Shutdown-durable manual runs**: service shutdown now rejects new manual cues, cancels active runs outside the ownership lock, and awaits their bounded restorative cleanup before the hosted service stops.
+- **Cancellation-safe automatic occurrences**: host-canceled transport failures retain scheduler slots and deferred markers across direct scenes and fallback playlists, while natural stream failures keep their ordinary failure accounting.
+- **Saved-scene duplication lifecycle safety**: duplicate requests are tracked, bounded to one submission, canceled on page teardown, and prevented from updating a hidden or reused administrator page.
+- **Regression coverage**: scheduler tests cover shutdown awaiting, transport-failure wording, fallback playlist retry, deferred-occurrence retention, and the duplicate saved-scene page lifecycle contract.
+- **Restart-durable one-time claims**: automatic one-time cues persist their disabled state before bridge activity or deferred-expiry handling; failed claims fail closed, release the occurrence slot, and retry without replaying a cue after restart.
+- **Deferred expiry durability**: expired deferred one-time occurrences retain their marker until the disabled state and skipped outcome are safely processed, preserving retry behavior across persistence failures.
+- **Saved-scene lifecycle safety**: color-preset saves now cancel on page teardown, reject duplicate submissions, and ignore stale responses before updating a hidden or reused administrator page.
+- **Regression coverage**: serializer-backed scheduler tests cover preclaim failure, deferred retry, reconstructed restart suppression, and the administrator color-preset lifecycle contract.
+- **Lifecycle-safe scene saves**: saved playlists and scheduled cues now cancel on page teardown, reject duplicate submissions, and ignore stale responses so a hidden or reused administrator page cannot overwrite current state.
+- **One-time completion repair**: a successful one-time cue remains disabled in memory and retries its completion write on the next scheduler pass when the initial persistence fails, without replaying bridge activity.
+- **Repository governance**: CODEOWNERS now covers workflow, Dependabot, and Semgrep policy files for owner review while the owner-only direct-main bypass remains available for the trusted release path.
+- **Regression coverage**: configuration-page lifecycle tests and serializer-backed scheduler tests cover stale saves, teardown cancellation, one-time repair, and no-duplicate execution.
+- **Finite-schedule persistence retry**: failed finite run-count and auto-disable writes remain dirty and retry on the next scheduler pass even when retained schedule history is disabled.
+- **Regression coverage**: serializer-backed scheduler tests verify authoritative finite state survives transient persistence failures without duplicate bridge activity.
+- **Weekday-mask update parity**: partial schedule updates preserve an existing valid weekly weekday mask when the field is omitted, while new cues retain the all-days default and malformed legacy masks fall back safely.
+- **History-repair persistence retry**: failed normalization, save, and empty-history clears retain a dirty marker and retry the authoritative in-memory history on a later read or write.
+- **Paginated draft discovery**: trusted release publication searches all GitHub release pages so older drafts remain resumable after the repository exceeds 100 releases.
+- **Regression coverage**: controller schedule updates, serializer-backed history retries, and paginated trusted-workflow fixtures cover the new boundaries.
+- **User-mapping reconciliation lifecycle safety**: stale report and apply callbacks are cancelled or ignored after page teardown, so hidden pages cannot show obsolete confirmations, status, or mapping reloads.
+- **Retry-preserving shutdown cleanup**: failed entertainment-area deactivation retains its target snapshot so deferred cleanup can retry safely with a fresh cancellation token.
+- **Post-publication asset integrity**: the trusted release gate rechecks GitHub-recorded ZIP and checksum digests after publication, closing replacement races after pre-publication verification.
+- **Regression coverage**: configuration lifecycle, shutdown deactivation retry, and final release-digest contracts cover the new safety boundaries.
+- **Null-safe draft lookup**: trusted release publication treats GitHub CLI's empty no-release response as an explicit null and does not confuse a missing draft with a published release.
+- **Release-ID integrity gate**: draft discovery, asset digest verification, and publication remain bound to one verified release record and workflow commit.
+- **Regression coverage**: the trusted-workflow contract covers empty lookup normalization, draft state, target identity, asset digests, and API publication.
+- **Runner-stable Semgrep script gate**: repository-validator scans explicitly exclude only the non-applicable Express raw-HTML rule; all other JavaScript findings, scanner errors, and fixpoint timeouts remain blocking.
+- **Draft-safe release publication**: trusted automation resolves draft releases through GitHub's release API and publishes by verified release ID, so the digest gate works before and after a draft becomes public.
+- **Idempotent asset handling**: release retries remain bound to the exact workflow commit and verified ZIP/checksum assets without creating duplicate releases.
+- **Regression coverage**: the trusted-workflow contract requires draft lookup, release-ID digest verification, and API-based publication markers.
+- **Cancellation-safe shutdown restoration**: if host shutdown cancellation interrupts light restoration, the bridge snapshot is retained and deferred cleanup retries restoration and entertainment-area deactivation with a fresh token.
+- **Page lifecycle-safe runtime stops**: stale Stop and per-session Stop callbacks no longer restart polling or show alerts after navigation, while the explicit server-side stop request is preserved.
+- **Release asset digest verification**: trusted publication checks GitHub's recorded ZIP and checksum-asset SHA-256 digests against the locally verified bytes before making the release public.
+- **Regression coverage**: host-cancellation cleanup retry, runtime Stop page teardown, release digest markers, and the complete configuration/security contracts are exercised before release.
+- **Bridge response identity validation**: state capture rejects malformed or mismatched Hue light resource IDs rather than labeling another light as the requested resource, preventing unsafe restoration.
+- **Workflow inventory hardening**: every tracked workflow remains in the reviewed set, uses immutable selected actions, and keeps persistent self-hosted jobs behind per-job `main` guards; pull-request jobs stay on fixed ephemeral runners without secrets or write permissions.
+- **Disabled mapping preview safety**: the administrator's Preview Current Color control follows the selected mapping's Sync Enabled state and remains correct after metadata, lifecycle, and busy-state updates.
+- **Regression coverage**: malformed/mismatched bridge IDs, disabled-mapping preview state, and workflow-boundary contracts are exercised before release.
+- **Deferred scheduler durability**: expired deferred one-time cues now clear stale Skip Next markers together with their completed disabled state, and deferred queue/removal/expiry/normalization writes retry from the authoritative runtime snapshot after transient persistence failures.
+- **Regression coverage**: scheduler tests verify expired-marker cleanup, queue and removal persistence retries, no duplicate bridge activity, and no deferred replay after a failed write.
+- **Deferred one-time cue cancellation**: mark a one-time cue that is waiting behind active playback with **Skip Next Cue**; the scheduler consumes the pending occurrence without touching the bridge, disables the cue, clears its durable defer state, and records skipped/deferred telemetry. The atomic bulk Skip Next action has the same bounded behavior while retaining active-run, execution-limit, and stale-state protections.
+- **Regression coverage**: single and bulk deferred-cue tests verify marker persistence, scheduler consumption, one-time disablement, deferred cleanup, and credential-free history/status parity.
+- **Complete Semgrep target coverage**: extract and scan the DLL-embedded administrator JavaScript and include the PowerShell release helper in the blocking, hash-pinned ruleset gates.
+- **Regression coverage**: trusted and pull-request workflow contracts require every extracted-script, target-extension, report, and timeout gate.
+- **History-only scheduler clears**: clearing retained cue history preserves pending deferred occurrences, their status/waiting message, and retry behavior.
+- **Cancellation-safe host shutdown cleanup**: interrupted sync-loop waits defer bridge restoration until the predecessor exits and then retry deactivation with a fresh non-canceled cleanup token.
+- **Fail-closed Semgrep analysis**: split production/non-JavaScript and repository-script scans, block fixpoint timeouts, and verify reviewed SHA-256-pinned rule snapshots before use.
+- **Regression coverage**: scheduler history, host-shutdown cleanup, and Semgrep workflow contracts cover the new safety boundaries.
+- **Cancellation-safe deferred schedules**: host-shutdown cancellation retains deferred occurrences, releases occurrence slots, and leaves finite run counters unchanged until a cue completes.
+- **Snapshot-consistent scheduler conflicts**: matching-target playback arbitration uses the evaluated configuration snapshot's certificate identity.
+- **Regression coverage**: cancellation/retry and snapshot-identity tests protect deferred persistence and target arbitration.
+- **.NET 8 ABI guard**: Dependabot ignores major `System.Text.Json` and `System.Text.Encodings.Web` updates because the plugin does not ship framework assemblies; security and minor/patch monitoring remain enabled.
+- **Executable Dependabot policy contract**: every tracked NuGet project block is required to carry the ABI guard so unsupported major PRs do not reopen unattended.
+- **Complete NuGet Dependabot coverage**: monitor the plugin, test, and benchmark project directories explicitly so nested package manifests cannot be skipped by a repository-root configuration.
+- **Configuration regression contract**: validate every tracked NuGet project directory plus the GitHub Actions and hash-locked Semgrep update blocks in both trusted and pull-request workflows.
+- **Release verification**: keep locked restore, vulnerability scanning, immutable-action checks, and the self-hosted release gates authoritative for the expanded dependency configuration.
+- **Alias-safe target fan-out**: scheduler and current-light capture deduplicate IP and `.local` target aliases with the configured certificate identity and channel profile, preventing duplicate work against one physical Hue area.
+- **Target ID contract**: selected target fields use Jellyfin user IDs, while stable `mappingId` values remain reserved for exact-row administration; API/UI examples and regression coverage enforce the distinction.
+- **Reconciliation persistence**: generated legacy mapping-row identities now save atomically for healthy users and roll back on unavailable directories or persistence failures.
+- **Alias-safe playback arbitration**: trusted bridge certificate fingerprints provide a stable physical-bridge identity, so an IP address and its `.local` alias cannot acquire concurrent playback leases while separate pinned bridges remain independent.
+- **Manual scheduler snapshot barrier**: manual Run now acquires scheduler evaluation before resolving configuration and holds it through the tracked lifecycle, preventing edits or deletes from racing a stale schedule snapshot.
+- **Regression coverage**: lifecycle, scheduler, and import-validation tests cover certificate-identity aliasing and barrier lifetime.
+- **Captured playback scope**: Live Sync Status now reports the effective media scope captured when playback starts, even if global or per-user settings change while the session is active; seek restarts retain the same policy.
+- **Same-target playback handoff**: a replacement session for the same bridge and entertainment area now waits for the predecessor stream, reuses its lifecycle lease, and preserves the original light-state snapshot for safe restoration.
+- **Bracketed IPv6 bridge support**: pinned private and link-local IPv6 bridge URLs now pass local-host certificate validation when written in the standard bracketed URI form.
+- **Regression coverage**: lifecycle and certificate-validation tests cover scope mutation, same-target replacement, saved-state retention, and bracketed IPv6 pins.
+- **Credential-bearing administrator preflight**: bridge area/channel loading, connection tests, and single-target previews now require an explicit certificate pin before sending App Keys, with stale page lifecycle guards that cannot start a request after navigation.
+- **Strict mapping credential input**: non-string App Key and Client Key JSON values are rejected atomically, and device-route stored-credential flags must prove the required key pair before reuse.
+- **Fail-closed release retries**: the trusted release job resumes only a matching draft and refuses to overwrite an already-published release.
+- **Regression coverage**: API, configuration-page lifecycle, route credential, and trusted-workflow contracts cover the new safety boundaries.
+
+### README version 1.5.330
+
+- **Local bridge certificate pinning**: credential-free probes expose a SHA-256 fingerprint and explicit administrator trust/re-pin is required before registration or any App Key request; unpinned, changed, malformed, or conflicting certificates fail closed.
+- **Per-target retry isolation**: scheduled scene and playlist runs clone Hue transport state so mapping retry overrides cover discovery, capture, activation, reconnect, deactivation, and restoration without cross-room races.
+- **Scheduler clock correctness**: long-running cues advance an absolute UTC logical clock and derive due slots from the advanced evaluation instant across midnight and DST transitions.
+- **Media-scope documentation parity**: administrator copy and README now accurately describe supported video/audio sync and certificate trust setup.
+- **Regression coverage**: API, configuration, certificate-validation, mutation-filter, and static documentation contracts cover the new safety boundaries.
+- **Concurrent playback transport**: the shared HTTP timeout is configured once by the typed client factory, so creating a concurrent playback client never mutates a client after request startup.
+- **Route-specific channel profiles**: administrators can load channel IDs directly into the selected device route; route Test Connection and Preview use route channels and fall back to outer/global profiles when blank.
+- **Release-helper parity**: trusted self-hosted CI executes the documented Linux release helper and verifies its archive and checksum against the canonical package contract.
+- **Regression coverage**: transport and configuration-page tests cover shared-client concurrency and route/outer channel isolation.
+- **Manual/scheduled cue slot recovery**: when a scheduler evaluation loses a race with a manually running cue, its claimed occurrence slot is released so the same occurrence can run after the manual lifecycle completes instead of being silently suppressed.
+- **Scoped device-route credential caching**: temporary administrator route credentials are now isolated by normalized user/mapping, bridge, and case-sensitive device identity, preventing a reused device ID on another bridge or mapping from inheriting the wrong keys.
+- **Exact configuration-action classification**: configuration mutation arbitration now matches route segments and HTTP methods exactly, so saved scenes, playlists, and scheduled cues whose names contain `Preview`, `Run`, or `Cancel` cannot bypass the writer lease; only the documented preview/run/cancel actions remain pass-through.
+- **Stale-progress stop safety**: natural playback-stop cleanup now marks the exact session as in-flight and rejects delayed progress/resume events until cleanup completes, preventing lights from restarting after playback has ended while preserving newer-session queueing.
+- **Lifecycle-safe configuration imports**: pending `FileReader` operations are aborted on page teardown or replacement, and success/error callbacks require both the current page generation and reader identity before changing import state.
+- **Selected Actions policy**: repository Actions now permits only the seven action repositories required by the workflows and the pinned Codecov composite dependency, keeps broad owner/verified allowances disabled, and requires full commit-SHA references.
+- **Exact-session stop safety**: explicit `playSessionId` stop requests now fail closed when a listed worker is stale or unknown, preventing an unrelated primary playback session from being stopped; matching primary IDs remain supported.
+- **Lifecycle-safe duplicate resolution**: administrator duplicate-mapping confirmation now participates in page-generation cancellation, suppresses late callbacks after navigation, and cannot start a destructive request after `pagehide`.
+- **Explicit coverage publication**: trusted CI retains Cobertura artifacts, records when optional Codecov publication is skipped because no token is configured, and fails closed when a configured upload cannot complete.
+- **Optimistic configuration-import concurrency**: `ValidateImport` now returns a credential-safe snapshot token, and `Import` requires the matching token so stale administrator tabs cannot overwrite newer settings, credentials, mappings, scenes, playlists, or cues; runtime and retained telemetry changes do not invalidate an approval.
+- **Fail-closed release publication**: the trusted self-hosted release job verifies the exact ZIP/checksum asset set before publishing, retries final release reads, and only resumes a draft whose tag points at the current workflow commit.
+- **Resumable release publication**: the trusted self-hosted release job resumes partial drafts, retries transient GitHub API failures, and verifies the published tag, commit, ZIP, and checksum assets before succeeding.
+- **Stable multi-target previews**: raw, saved-scene, and saved-playlist previews now snapshot validated target credentials and saved-scene values under a short configuration read lease before releasing the lease for bridge I/O. Bulk previews retain one detached target/preset snapshot across every item, return a retryable conflict during active configuration mutation, and cannot be redirected by later edits.
+
+### README version 1.5.319
+
+- **Schedule target integrity**: explicit all-enabled broadcast requests that also select users, device routes, or the default target are rejected as ambiguous, while partial imports and edits switch away from inherited broadcast mode safely before validation.
+- **Security gate**: the committed lifecycle test sentinel is explicitly documented as non-secret historical data and excluded by a fingerprint-only Gitleaks rule; the active fixture no longer resembles a credential.
+- **Regression coverage**: direct-save and import tests cover mixed-target rejection, partial-target conversion, and atomic rollback.
+
+### README version 1.5.318
+
+- **Restoration fidelity**: current-light snapshots preserve writable Hue v2 gradient, effects/effects_v2, timed-effects, alert, and effect parameters with canonical bounded payloads while excluding read-only bridge metadata.
+- **Lifecycle and targeting safety**: diagnostics cancel all active target operations, stream generations prevent stale reconnect races, duplicate user mappings are blocked in target controls, and partial scheduled-cue target edits correctly switch away from inherited broadcast mode with atomic rollback.
+- **Regression coverage**: focused tests cover advanced state capture/restore, lifecycle races, duplicate mapping controls, and schedule target-mode transitions.
+
+### README version 1.5.317
+
+- **Credential-resolution lifecycle isolation**: bridge-area, channel, and connection-test routes take a short shared configuration read lease while resolving persisted credentials, fail closed during configuration mutation, and release it before network I/O.
+- **Regression coverage**: API tests verify mutation contention produces no bridge calls across all three routes.
+
+### README version 1.5.316
+
+- **Raw preview credential isolation**: direct single-target previews take a short shared configuration read lease while resolving stored bridge credentials, fail closed with a retryable conflict during configuration mutation, and release the lease before bridge I/O.
+- **Regression coverage**: API tests verify mutation contention produces no bridge or stream calls.
+
+### README version 1.5.315
+
+- **Capture lifecycle isolation**: single and batch current-light capture routes reserve the shared diagnostic lifecycle before resolving persisted mappings and credentials, returning a retryable conflict instead of observing a concurrent configuration mutation.
+- **Regression coverage**: API tests verify capture target resolution is blocked before any bridge request while configuration changes are active.
+
+### README version 1.5.314
+
+- **Configuration read isolation**: all credential-free scene, playlist, status, diagnostics, and user-mapping projections now take a short shared read lease, rejecting requests while an administrator mutation or scheduler evaluation is applying.
+- **Export conflict fidelity**: JSON, CSV, and iCalendar schedule exports preserve the retryable 409 response instead of being misreported as a 404 or empty report during a configuration mutation.
+- **Regression coverage**: API tests cover every protected projection under configuration mutation and scheduler-evaluation barriers, plus diagnostics after its environment probe.
+
+### README version 1.5.313
+
+- **Shutdown cancellation resilience**: host cancellation during a lifecycle-lock wait now schedules an observed deferred cleanup pass, preserving bridge deactivation, sync-state clearing, and playback-lease release.
+- **Concurrent worker retention**: isolated playback workers remain tracked until stop completes so cancellation can be retried instead of orphaning a target.
+- **Restart safety**: service startup waits for deferred cleanup before accepting a new session, preventing stale shutdown work from clobbering restarted playback.
+- **Regression coverage**: lifecycle tests cover canceled lock waits and eventual cleanup/lease release.
+- **Pause cleanup retry safety**: failed entertainment-area deactivation now remains eligible for the shutdown retry and surfaces a credential-free cleanup warning.
+- **Read-only administrator projections**: playlist, user-mapping, reconciliation, dependency, and target-diagnostics reads no longer initialize collections or manufacture mapping IDs in live configuration.
+- **Scheduler read isolation**: status/history API reads do not persist lazy repairs, and scheduler evaluation cannot overlap a configuration snapshot.
+- **Regression coverage**: lifecycle, scheduler, API, and gate tests cover failed pause deactivation, shutdown retry, non-mutating reads, and scheduler/read exclusion.
+- **Consistent configuration snapshots**: configuration reads and import validation now use a shared short-lived read lease, preventing hybrid responses while an administrator save or import is applying.
+- **Save lifecycle protection**: administrator configuration saves cancel stale loads, suppress hidden or superseded callbacks, and bound duplicate submissions with recoverable controls.
+- **Playback-stop fault observation**: playback-stop event work now flows through the service task observer so asynchronous cleanup faults are logged instead of escaping as `async void` exceptions.
+- **Regression coverage**: lifecycle, endpoint contention, configuration-page, and playback-stop handler contracts cover the new consistency and cancellation behavior.
+
+### README version 1.5.307
+
+- **Fail-closed channel validation**: connection diagnostics ignore malformed, non-numeric, negative, and out-of-range entertainment channel IDs and skip DTLS probing when no controllable channels remain.
+- **Playlist duration visibility**: saved playlist selectors and schedule status, upcoming-occurrence, and history tables render bounded total durations alongside their step and pass metadata.
+
+### README version 1.5.306
+
+- **Lifecycle-safe configuration import**: validation and submission cancel superseded or hidden-page requests, suppress stale responses, clear approval state on teardown, and block duplicate in-flight imports.
+- **Malformed mapping protection**: invalid nested device-target values return a sanitized 400 response without mutating persisted mappings.
+- **Deferred-cue correctness**: persisted playback-deferred occurrences are checked against the current schedule definition before replay, preventing stale timing after edits or imports.
+- **Regression coverage**: API, scheduler, and configuration-page contracts cover malformed input, stale lifecycle responses, page teardown, and edited deferred cues.
+
+### README version 1.5.305
+
+- **Stale mapping-edit protection**: administrator mapping edits cancel superseded requests and ignore late success, failure, and cleanup callbacks after navigation or pagehide.
+- **Fail-closed schedule routes**: malformed null target routes are rejected before direct-save or import mutation.
+- **Partial schedule state preservation**: omitted `Enabled` and `SkipNextOccurrence` fields retain existing values during partial updates, while explicit values override them.
+- **Lifecycle and import regression coverage**: API and configuration-page contracts cover stale responses, malformed routes, and omitted-versus-explicit schedule state.
+
+### README version 1.5.304
+
+- **Credential entry protection**: global and per-user Hue keys are masked password fields with `new-password` autocomplete hints.
+- **Ambiguous mapping rejection**: direct mapping writes fail closed on case-variant duplicate properties recursively, before nested targets or credential fields are materialized.
+- **DST fall-back scheduling**: due checks now match the resolved UTC occurrence minute, avoiding early or duplicate runs for ambiguous local times.
+
+### README version 1.5.303
+
+- **Ambiguous mapping input rejection**: direct user-mapping writes fail closed on duplicate property names that differ only by case, preventing inconsistent JSON binding before nested targets are materialized.
+- **Security regression coverage**: oversized case-variant device-target input is rejected without changing persisted mappings.
+
+### README version 1.5.302
+
+- **Export teardown recovery**: tracked administrator export cancellation restores button state after navigation, pagehide, or bfcache restore and prevents stale downloads.
+- **Export lifecycle harness**: CI gates execute deterministic VM coverage for all JSON, CSV, and iCalendar administrator exports.
+- **Bounded backend inputs and retries**: nested device-target imports and direct mapping payloads are rejected before materialization when oversized, and Hue retry values are clamped to a finite 0-10 range.
+
+### README version 1.5.301
+
+- **Lifecycle-safe exports**: configuration, scheduled-cue JSON/CSV/iCalendar, and session-history exports are bound to the active page and query scope; stale work is cancelled or ignored and controls recover after filter changes or navigation.
+- **Export regression contracts**: validator coverage protects request records, filter/horizon cancellation, credential-free downloads, and teardown cleanup.
+
+### README version 1.5.300
+
+- **Run/cancel lifecycle safety**: bulk scheduled-cue Run and Cancel actions no longer contend with the configuration-writer lease, so active runs execute and remain cancellable.
+- **Stale-safe occurrence exports**: occurrence JSON exports cancel superseded requests and ignore stale filter or page responses, including safe teardown reset.
+- **Dependabot and PR gate**: untrusted changes run read-only build, test, format, vulnerability, Gitleaks, and Semgrep checks on ephemeral `ubuntu-24.04`; trusted main packaging and release remain on the named self-hosted runners.
+
+### README version 1.5.299
+
+- **Bounded mapping saves**: public user-mapping saves reject a new 101st row before assignment or persistence while exact-limit edits remain supported.
+- **Scheduled-cue lifecycle safety**: runtime status, conflicts, occurrences, history, and conflict-report export requests cancel superseded work and ignore stale responses or filter scopes.
+- **Regression contracts**: mapping capacity and administrator report lifecycle checks preserve no-mutation and credential-free behavior.
+
+### README version 1.5.298
+
+- **Reproducible releases**: CI and both local release helpers use the same deterministic packager with canonical entry order, fixed timestamps/metadata, and fixed DEFLATE settings.
+- **Package determinism gate**: release validation proves identical staged bytes produce identical archive hashes despite source order and mtimes, then verifies the strict checksum sidecar.
+
+### README version 1.5.297
+
+- **Import capacity hardening**: preset, playlist, and schedule collections, playlist parallel step arrays and target selections, and schedule target/excluded-date collections are rejected before normalization when they exceed persisted limits.
+- **Mapping-area lifecycle safety**: entertainment-area requests now use page generations, target fingerprints, cancellation, and stale-response guards so bridge responses cannot overwrite a newer mapping draft or reopened page.
+
+### README version 1.5.296
+
+- **Target-scoped mapping safety**: entertainment-area, channel-ID, route-area, and playback-device discovery responses now carry page generations and target fingerprints, so a stale bridge response cannot overwrite a newer mapping draft.
+- **Cancelable mapping requests**: newer target requests and pagehide now abort the previous mapping request when the client supports it.
+
+### README version 1.5.295
+
+- **Bounded mapping storage**: persisted user mappings are capped at 100 rows, and oversized configuration imports are rejected before normalization or mutation.
+- **Capacity contract coverage**: exact-limit and limit-plus-one validation tests protect both runtime configuration and import preflight behavior.
+
+### README version 1.5.294
+
+- **Page lifecycle safety**: administrator configuration and metadata loaders now use page-scoped generations, tracked aborts, and stale-response guards so navigation or reopen cannot overwrite current edits with late responses.
+- **Administrator accessibility**: manual entertainment-area, scheduled weekday, and playback-device route controls now expose explicit labels and ARIA names.
+
+### README version 1.5.293
+
+- **Bridge-safe diagnostics**: target diagnostics and support bundles now hold the shared diagnostic lifecycle lease for their complete live-bridge snapshot and return `409 Conflict` while playback or another diagnostic owns the bridge.
+- **Cross-platform package verification**: the PowerShell release helper now parses and independently verifies the generated SHA-256 sidecar filename and digest.
+
+### README version 1.5.292
+
+- **Runtime observability**: Live Sync Status now shows the localized sync start timestamp alongside playback freshness and duration.
+- **Administrator accessibility**: runtime errors announce through live regions, and device-route/import credential controls now expose explicit accessible names.
+
+### README version 1.5.291
+
+- **Fail-closed runtime status**: failed or superseded status requests now clear stale playback, target, health, and session telemetry; hidden-page polling is invalidated and aborted when supported.
+- **API contract parity**: the documented `GET /HueSync/Status` contract now names `playbackObservedAtUtc`, matching the live API and administrator panel.
+
+### README version 1.5.290
+
+- **Resolved-peer security**: `.local` bridge names are resolved once and every answer must be private, link-local, or unique-local before the exact address is used for REST or managed DTLS credentials; mixed/public answers fail closed.
+- **Playback freshness**: Live Sync Status shows the localized timestamp of the latest Jellyfin playback observation and clears it when no timeline is active.
+- **Lifecycle and interoperability coverage**: public replacement starts serialize with reconnects so stale cleanup cannot close a new stream, while deterministic loopback DTLS tests negotiate Hue's PSK contract and bound cancellation without hardware.
+
+### README version 1.5.288
+
+- **Self-hosted runner resilience**: the diagnostics FFmpeg version probe now tolerates bounded process-start contention, and CI preflights the exact short PCM capture required for audio playback before running tests.
+
+### README version 1.5.287
+
+- **Reproducible release tooling**: Linux and PowerShell release helpers now enforce locked NuGet restores, matching CI and failing closed on dependency-graph drift; the release-documentation validator protects that contract.
+
+### README version 1.5.286
+
+- **Per-target scheduled-cue observability**: administrator scheduler status and retained history now render each credential-free target's label, success/skip/failure state, message, channel counts, and cleanup warning, so partial multi-room outcomes remain visible beside the aggregate result.
+
+### README version 1.5.285
+
+- **Host-cancellation-aware shutdown**: service stop propagates Jellyfin's host shutdown token through workers, paused cleanup, lifecycle acquisition, sync-loop waits, and bridge cleanup so a blocked capture or DTLS loop cannot indefinitely delay application termination; interrupted cleanup remains visible as a credential-free warning.
+
+### README version 1.5.283
+
+- **Stable-row configuration import**: credential-safe imports match per-user mappings by exact `mappingId`, fall back to a unique user row for cross-server migrations, reject ambiguous duplicate groups, preserve exact-row credentials, and replace only the selected row during partial merges.
+
+### README version 1.5.282
+
+- **Honest target diagnostics**: saved-target validation now reports credential-free duplicate mapping groups, blocks affected rows before bridge contact, and prevents the administrator UI from displaying an all-ready result while any duplicate group remains unresolved.
+
+### README version 1.5.281
+
+- **Fail-closed current-light capture**: direct, selected-route, and all-target diagnostic capture rejects ambiguous duplicate Jellyfin-user mappings before resolving credentials or contacting a bridge.
+
+### README version 1.5.280
+
+- **Deterministic duplicate mapping resolution**: administrators can choose one exact stable row to retain from a duplicate Jellyfin-user group; an optimistic reconciliation version, complete sibling selection, enabled/valid keeper checks, candidate validation, and atomic rollback protect saved scenes, device routes, and credentials.
+- **Fail-closed runtime targeting**: playback credentials, scene validation, and scheduled target resolution no longer select the first arbitrary duplicate row; unresolved duplicates remain blocked until explicitly resolved.
+
+### README version 1.5.279
+
+- **Exact-row mapping state changes**: bulk enable/disable carries stable mapping IDs so duplicate rows cannot update or scrub the wrong credentials; legacy user-ID-only state changes fail closed with `409 Conflict` when ambiguous.
+
+### README version 1.5.278
+
+- **Exact-row mapping deletion**: single-row, bulk, and dependency actions carry stable mapping IDs so deleting one duplicate cannot remove its siblings; legacy user-ID-only deletion fails closed with `409 Conflict` when ambiguous.
+
+### README version 1.5.277
+
+- **Duplicate-safe mapping edits**: mapping editors carry stable row IDs, exact-row edits preserve sibling duplicates, and ambiguous user-ID-only edits fail closed before mutation.
+
+### README version 1.5.276
+
+- **Safe stale mapping cleanup**: administrators can remove exact missing or malformed mapping rows only after an optimistic reconciliation-report check and dependency preflight; duplicate, referenced, and healthy rows remain protected without exposing credentials.
+
+### README version 1.5.275
+
+- **User-mapping lifecycle reconciliation**: elevated administrators can compare persisted mapping IDs and names with Jellyfin's live user directory, safely refresh existing unique users atomically, and review missing, malformed, or duplicate mappings without exposing Hue credentials.
+
+### README version 1.5.274
+
+- **Credential-free playback progress**: Live Sync Status, `GET /HueSync/Status`, and support bundles now show active media position, duration, bounded progress percentage, pause state, and observation time without exposing playback tokens or bridge credentials.
+- **Release-documentation guard**: validation now requires exactly one current release heading matching `meta.json`.
+
+### README version 1.5.273
+
+- **Accurate release requirements**: release instructions now state that only FFmpeg is an external prerequisite; the managed Hue DTLS transport is included in the package and OpenSSL is not required.
+
+### README version 1.5.272
+
+- **Credential-safe DTLS**: replace the OpenSSL child process with managed Bouncy Castle DTLS 1.2 PSK, keeping Hue App/Client Keys out of process arguments and `/proc` command-line inspection.
+- **Dependency-complete packaging**: release archives include `BouncyCastle.Cryptography.dll`; managed DTLS startup is cancellation-bounded and no longer depends on an OpenSSL executable.
+- **Regression coverage**: verify the Hue cipher contract, connected UDP transport, and nonresponsive-handshake cancellation cleanup.
+
+### README version 1.5.271
+
+- **Bounded cancellation cleanup**: diagnostic, preview, pause, startup rollback, and playback restoration use an independent 30-second budget that survives page/request cancellation while preventing an unreachable bridge from holding the lifecycle lease indefinitely.
+- **Partial restoration telemetry**: timed-out cleanup retains credential-free attempted/restored/failed counts and surfaces the existing cleanup warning instead of claiming success.
+
+### README version 1.5.270
+
+- **Credential-free cue metadata parity**: valid GUID mapping IDs now serialize as canonical D-format text across scheduler status, upcoming occurrences, playlist/scene preview results, skip/failure telemetry, and restored history while malformed opaque legacy IDs remain unchanged and fail closed.
+- **Legacy route editor matching**: the administrator cue editor compares brace/N-format route and mapping IDs by GUID value, so legacy persisted targets remain selectable instead of appearing unavailable.
+
+### README version 1.5.269
+
+- **GUID-equivalent target references**: schedule and playlist target user IDs now canonicalize on save/import, and runtime/mapping dependency resolution treats valid brace/N-format legacy IDs as the same Jellyfin user without broadening malformed-ID matching.
+- **Import target warning**: the migration confirmation now explains that stored bridge keys are preserved only for an unchanged target and that changed targets require replacement keys or an explicit credential clear.
+- **Legacy route coverage**: API and scheduler tests cover brace/N-format device routes plus legacy mapping update/delete behavior.
+
+### README version 1.5.268
+
+- **Global credential target binding**: omitted bridge credentials are preserved only when the configured global bridge target is unchanged; changing targets requires replacement keys or an explicit clear operation and fails closed before mutation.
+- **Import refresh parity**: successful configuration imports now refresh scheduled cues along with settings, mappings, saved scenes, and playlists.
+
+### README version 1.5.267
+
+- **Import-safe canonical mapping IDs**: configuration backup imports now require valid Jellyfin user GUIDs, normalize brace/N-format values before merge and credential preservation, and reject malformed or canonical-equivalent duplicate mappings without mutation.
+- **Import rollback coverage**: malformed import, credential-preserving normalization, and duplicate detection paths are covered by API regression tests and static documentation contracts.
+
+### README version 1.5.266
+
+- **Canonical Jellyfin mapping IDs**: public per-user mapping saves now require valid Jellyfin user GUIDs and normalize brace/N-format inputs to the canonical form used by runtime lookups.
+- **Fail-before-mutation mapping validation**: malformed mapping IDs return a clear `400` before persisted mappings can change, with API/documentation regression coverage.
+
+### README version 1.5.265
+
+- **Portable scheduled time zones**: scheduled-cue exports and API results include a canonical IANA `timeZoneIanaId` alongside the host `timeZoneId`; Windows and IANA aliases resolve on either supported OS, and imports normalize legacy values without falling back to server-local time.
+- **Timezone migration coverage**: the administrator selector submits the canonical value, upcoming occurrences/runtime status expose it, and tests cover cross-platform aliases plus fail-closed unmappable IDs.
+
+### README version 1.5.264
+
+- **Setup-complete device-route editor**: add, update, remove, and discover areas for nested playback-device routes without hand-editing JSON; route credentials remain write-only and blank existing keys preserve server-side secrets.
+- **Scoped discovery and preview metadata**: device discovery filters by valid user ID server-side, and direct previews return credential-free user/device target metadata.
+
+### README version 1.5.263
+
+- **Direct preview route parity**: Preview Current Color carries the selected nested `deviceId` through the direct preview API, keeping bridge credentials and route resolution consistent with areas, channels, and connection tests.
+- **Nested route regression coverage**: blank redacted keys resolve only the exact configured playback-device target.
+
+### README version 1.5.262
+
+- **Playback-device route discovery**: the administrator mapping editor discovers recent Jellyfin device IDs, selects exact configured routes, and keeps nested credentials server-side while loading areas/channels or testing a route.
+- **Route-aware API and security coverage**: area, channel, and connection diagnostics accept an explicit device ID and fail closed on wrong-case, wrong-user, or wrong-bridge routes; bounded discovery returns identity/activity metadata only.
+
+### README version 1.5.261
+
+- **Health checks before threshold suppression**: static scenes now verify DTLS stream health and attempt reconnection before color-change threshold skips, preventing a dead managed DTLS session from remaining broken indefinitely.
+
+### README version 1.5.258
+
+- **Skip retry safety**: failed `SkipNextOccurrence` persistence releases the in-memory occurrence slot and preserves deferred state for a safe retry.
+- **Mapping credential writes**: JSON user-mapping POSTs preserve explicitly entered top-level and nested device bridge keys while read models remain credential-free.
+- **Structured dependency gate**: the self-hosted NuGet check validates JSON output and blocks on top-level or transitive vulnerability entries.
+- **Failure-path coverage**: scheduler retry, mapping credential round-trip/redaction, and structured vulnerability-report contracts are covered.
+
+### README version 1.5.257
+
+- **Session restart isolation**: canceled video/audio capture loops are awaited before shared FFmpeg and Hue streamers are reused, preventing stale predecessor colors from crossing a playback restart.
+- **IPv6 bridge discovery**: local mDNS discovery queries scoped IPv6 multicast on each multicast-capable interface, alongside the existing IPv4 path.
+- **Lifecycle and discovery coverage**: gated restart and ULA/link-local AAAA contracts cover the new runtime and discovery boundaries.
+
+### README version 1.5.256
+
+- **Self-hosted checkout isolation**: all CI/security/release checkouts disable persisted GitHub credentials; only the release tag step receives an explicit scoped auth header for its tag operation.
+- **Tested-artifact release integrity**: release packaging consumes the exact publish artifact produced by the tested build job instead of rebuilding a separate DLL.
+- **Reproducible SDK**: CI and repository tooling use the pinned .NET 8.0.424 SDK from `global.json`.
+- **Read-only scheduler telemetry**: schedule status/history GETs defer persisted history and deferred-run repairs whenever a configuration mutation or scheduler lifecycle owns the barrier.
+
+### README version 1.5.255
+
+- **Generic configuration-route isolation**: the built-in Jellyfin plugin-configuration JSON omits global, per-user, and nested device-route Hue credentials.
+- **Guarded configuration writes**: the generic plugin configuration update route is rejected; use the authenticated `/HueSync/Configuration` endpoint for normalized, lifecycle-safe updates.
+
+### README version 1.5.254
+
+- **Configuration writer serialization**: administrator configuration writers share the lifecycle gate with imports, while scheduler evaluation and manual cue lifecycles block stale writes and post-run persistence races.
+- **Import readiness contract**: validation exposes explicit scheduler/lifecycle, diagnostic, and concurrent-import flags while keeping responses credential-free.
+
+### README version 1.5.253 (withdrawn; superseded)
+
+- **Configuration lifecycle barrier**: imports coordinate with the shared bridge lifecycle gate and scheduler evaluation barrier, closing playback-start and stale-scheduler snapshot races before replacing configuration.
+- **Lifecycle blocker telemetry**: validation exposes explicit diagnostic and concurrent-import flags while keeping responses credential-free.
+
+### README version 1.5.252 (withdrawn; superseded)
+
+- **Active-cue import guard**: configuration validation reports scheduled-run blocking and imports return `409 Conflict` without replacing a cue that is actively running.
+- **Import lifecycle coverage**: blocking-stream regression coverage verifies validation, conflict responses, configuration preservation, and successful import after completion.
+
+### README version 1.5.251
+
+- **Occurrence target contract**: safe rendering and exact target-selection metadata are covered without exposing bridge credentials.
+
+### README version 1.5.250
+
+- **Active-cue update guard**: existing scheduled cues cannot be replaced while their restorative run is active; the API returns `409 Conflict` and preserves the original definition.
+- **Schedule lifecycle coverage**: in-flight update rejection and configuration preservation are covered through the controller path.
+
+### README version 1.5.249
+
+- **Pause telemetry status parity**: `/HueSync/Status` and support-bundle runtime diagnostics now expose effective pause behavior and pause brightness while keeping the response credential-free.
+- **Hosted status coverage**: live-service projection, support-bundle inheritance, safe serialization, and null/no-service behavior are covered by regression tests.
+
+### README version 1.5.248
+
+- **History target-mode UI parity**: the administrator cue-history table now distinguishes all-enabled targets, default-bridge inclusion, selected mapping IDs, and nested user/device routes while retaining legacy labels.
+- **Credential-free accessible rendering**: target details use text-only cells and the history status region announces updates without exposing bridge secrets.
+
+### README version 1.5.247
+
+- **Scheduled-history target-mode parity**: retained cue history now preserves `targetAllEnabledMappings` through in-memory results, persisted reloads, JSON exports, and credential-free CSV rows.
+- **History target-mode coverage**: all-enabled mode, legacy false defaults, route metadata, and secret absence are covered by regression tests.
+
+### README version 1.5.246
+
+- **Active-cue deletion guard**: single scheduled-cue deletion now shares the transactional active-run protection used by bulk deletion and returns `409 Conflict` without mutating the cue.
+- **Deletion lifecycle coverage**: active-run rejection and configuration preservation are covered through the authenticated controller path.
+
+### README version 1.5.245
+
+- **RFC 5545-safe calendar folding**: iCalendar exports now fold by UTF-8 octets without splitting Unicode scalars, preserving valid calendar interoperability for multibyte schedule and target metadata.
+- **Multibyte calendar coverage**: physical-line limits, continuation semantics, unfolded metadata, and credential absence are covered by regression tests.
+
+### README version 1.5.244
+
+- **iCalendar target parity**: upcoming cue calendars now preserve all-enabled mapping mode, exact selected user IDs, nested userId/deviceId routes, and default-target inclusion as credential-free VEVENT properties.
+- **Calendar export coverage**: escaped route JSON and credential absence are covered alongside the existing UTC/timing metadata.
+
+### README version 1.5.243
+
+- **Duplicate registration prevention**: global and per-user Link Bridge controls disable after confirmation, reject duplicate in-flight requests, and always recover their enabled state after failures.
+- **Credential-safe registration UX**: both registration surfaces keep status and error messages generic without logging bridge addresses, response bodies, or credentials.
+
+### README version 1.5.242
+
+- **Bridge registration retry hardening**: Link Button registration is single-attempt, preventing generic network retries from repeating credential-creation requests after transient transport failures.
+- **Registration retry coverage**: transient registration failures are verified to make exactly one request even when normal Hue retry attempts are enabled.
+
+### README version 1.5.241
+
+- **Scheduled-occurrence CSV target parity**: upcoming-occurrence exports now preserve exact selected user IDs, nested `userId`/`deviceId` routes, and default-target inclusion as credential-free JSON fields.
+
+### README version 1.5.240
+
+- **Scheduled-history CSV target parity**: history exports now preserve exact selected user IDs, nested `userId`/`deviceId` routes, and default-target inclusion as credential-free JSON fields.
+- **Bridge registration API contract**: authenticated Link Button registration is documented with private/local target validation and explicit App Key/Client Key secret-handling guidance.
+
+### README version 1.5.239
+
+- **Audio capability probe resilience**: the real FFmpeg PCM startup check keeps a bounded 10-second budget, reducing false unavailable diagnostics during busy self-hosted runner startup.
+
+### README version 1.5.238
+
+- **Preview target safety**: ambiguous legacy `userId` plus broadcast/selected-target requests fail closed before bridge activity, direct and bulk preview failures retain credential-free route metadata, and malformed/incomplete nested device routes stay unavailable in the administrator selectors.
+
+### README version 1.5.237
+
+- **Scheduled-route telemetry labels**: status, occurrence, history, and preview surfaces now show exact credential-free `userId / deviceId` route identifiers for nested playback-device selections.
+
+### README version 1.5.236
+
+- **Preview route failure parity**: raw, saved-scene, and saved-playlist preview endpoints document exact nested device routes, while failure telemetry retains normalized user/device IDs without credentials.
+- **Preview API contract validation**: the trusted main build checks route fields in every preview endpoint row and confirms the corresponding request/source support.
+
+### README version 1.5.235
+
+- **Scheduled-route dependency protection**: mapping dependency audits, disable/delete guards, and device-target edits now protect exact nested device routes referenced by scheduled cues; partial imports preserve omitted routes and direct run telemetry retains route IDs.
+- **Scheduled device-route targeting**: scheduled scene cues can select exact nested Jellyfin playback-device routes, retain those credential-free IDs through API/status/history/occurrence/backup round-trips, and fail closed when a route is missing or disabled.
+- **Release installation parity**: installation instructions now download the published ZIP and SHA-256 sidecar, verify the archive, and install both the plugin DLL and required `meta.json` manifest together.
+- **Release documentation contract**: the trusted main build validates that README package guidance, workflow asset names, archive contents, and checksum verification remain synchronized.
+
+### README version 1.5.234
+
+- **Fail-closed preview target metadata**: target selectors and preview, capture, and playlist controls remain disabled while saved-scene, playlist, or mapping metadata is unavailable; failed target lists show an explicit reload message instead of silently falling back to the default bridge, and direct preview entry points are guarded before any POST.
+- **Configuration-page contracts**: static validation covers separate scene/playlist metadata readiness, failure-state controls, unavailable-target messaging, and direct/bulk/saved-scene/playlist/capture/mapping preview guards.
+
+### README version 1.5.232
+
+- **Fail-closed bulk mapping deletion**: null or blank user mapping IDs are rejected before normalization or configuration mutation, preserving atomic bulk-delete behavior.
+- **Release artifact verification**: the release ZIP and deterministic dependency manifest sidecars are verified between the package and release runners and published for downstream integrity and provenance checks.
+
+### README version 1.5.231
+
+- **Fail-closed preview target selection**: direct, saved-scene, bulk saved-scene, playlist, and bulk playlist previews reject blank target user IDs before default-bridge fallback or bridge activity.
+- **Test runner refresh**: xUnit Visual Studio adapter 4.0.0 is now locked for the test project only; production dependencies remain on the .NET 8-compatible set.
+
+### README version 1.5.230
+
+- **Hash-locked Semgrep**: blocking static analysis installs a reviewed Python 3.12/x86_64 dependency lock with SHA-256 hashes, platform/version validation, and `pip check`; current rulesets are separately reviewed and SHA-256-pinned before use.
+- **Import preflight enforcement**: Review and Import stays disabled until successful validation and is invalidated when migration credentials change; submission also fails closed.
+- **Actions policy enforcement**: repository policy now requires immutable commit-SHA action references.
+- **Scanner dependency maintenance**: Dependabot now monitors the hash-locked Semgrep environment and its transitive packages.
+
+### README version 1.5.229
+
+- **Credential-safe bridge registration**: registration no longer logs response credentials or raw errors in the administrator browser console, and recovery guidance is credential-free.
+- **Fail-closed capture selection**: current-light capture rejects blank target user IDs before default-target fallback, without contacting a bridge.
+
+### README version 1.5.228
+
+- **Malformed capture routes**: batch current-light capture rejects null or blank-user routes before default-target fallback, with no bridge activity.
+- **Bulk preview telemetry**: saved-scene and playlist bulk previews now show per-target route outcomes instead of only generic completion text.
+
+### README version 1.5.227
+
+- **Case-sensitive device routes**: current-light capture and selected scene cues require exact Jellyfin `DeviceId` matching; batch selection keeps distinct case-sensitive routes separate while preserving case-insensitive user mapping IDs and avoiding delimiter-key collisions.
+
+### README version 1.5.226
+
+- **Fail-closed release verification**: tag creation waits for package/changelog checks, remote lookup failures stop publication, and the created tag is verified against the workflow commit.
+
+### README version 1.5.225
+
+- **Release provenance**: release tags are created and verified at the exact workflow commit before publication, preventing serialized runs from attaching a package to a newer moving `main` tip.
+
+### README version 1.5.224
+
+- **Disabled target safety**: preview selectors disable disabled user mappings and discard restored selections that are no longer eligible, avoiding predictable preview failures.
+
+### README version 1.5.223
+
+- **Device-route profile preservation**: selected previews keep same-area device routes distinct when their channel profiles differ, preventing a requested route from being silently dropped.
+
+### README version 1.5.222
+
+- **Diagnostic cancellation recovery**: the administrator diagnostics Cancel control now re-enables for a safe retry when cancellation fails or reports no active operation while diagnostics remain active.
+
+### README version 1.5.221
+
+- **Preview route telemetry**: normal, saved-scene, and playlist preview results now return sanitized explicit `{userId, deviceId}` selections so device-specific outcomes remain identifiable without exposing credentials. The administrator Cancel control recovers for safe retries when cancellation fails or reports no active operation.
+- **Malformed playlist resilience**: color-preset rename validates null saved-scene references and returns a safe validation response without mutating configuration.
+
+### README version 1.5.220
+
+- **Device-route preview parity**: normal, saved-scene, bulk saved-scene, and playlist previews accept credential-free `{userId, deviceId}` routes and resolve nested device bridge profiles without exposing secrets or changing persisted target selections. Preview selectors expose nested device routes while preserving legacy default, user-mapping, and all-target behavior.
+- **Fail-closed validation**: malformed route payloads are rejected before credential-bearing fallback, device IDs remain case-sensitive, and single-playlist previews preflight selected routes.
+
+### README version 1.5.219
+
+- **Malformed nested-target resilience**: configuration-import matching ignores null persisted device targets, validation runs even when global sync is disabled, and mapping identity comparisons normalize whitespace before replacement.
+
+### README version 1.5.218
+
+- **Credential lifecycle control**: clear stored global Hue credentials from the administrator page behind an explicit confirmation, without touching per-user or device-route secrets.
+- **Malformed mapping resilience**: runtime bridge, playback, override, and summary lookups ignore null mapping entries safely.
+
+### README version 1.5.217
+
+- **Device-route current-light capture**: select an explicit per-user device route from the dedicated capture target control, capture device-only mappings, and review redacted device identity in single or batch results without exposing bridge credentials.
+
+### README version 1.5.216
+
+- **Device-route migration and diagnostics**: enter replacement App/Client keys for each exported nested device route, and review explicit device identity, route labels, and readiness in target diagnostics and support bundles.
+- **Fail-safe configuration validation**: malformed null user mappings are reported safely, and complete device-only routes no longer require an unused global bridge target.
+
+### README version 1.5.215
+
+- **Live device-route telemetry**: expose the active device identity and route-match state through the top-level status API and administrator live panel.
+
+### README version 1.5.214
+
+- **Import nullability hardening**: disabled or legacy mappings with absent nested route collections now normalize safely without compiler warnings.
+
+### README version 1.5.213
+
+- **Automatic playback device routing**: configure bounded, exact-match per-user device routes with private bridge validation, device-over-user-over-global channel precedence, credential-safe summaries/imports, runtime/session telemetry, rollback-safe bulk mapping changes, and administrator JSON controls.
+
+### README version 1.5.212
+
+- **Redirect-safe bridge transport**: automatic HTTP redirects are disabled for Hue bridge clients, preventing bridge requests from being followed to an unintended host while retaining scoped local-certificate validation.
+- **Bridge response privacy**: registration, entertainment-area start, and stop failures retain only operation/status telemetry; raw bridge response bodies are never written to Jellyfin logs.
+
+### README version 1.5.211
+
+- **Bridge target validation**: loopback, unspecified, multicast, and broadcast addresses are rejected before bridge requests; private, link-local, unique-local, and `.local` Hue targets remain supported.
+
+### README version 1.5.210
+
+- **FFmpeg capability boundary**: custom flags are limited to decoder, thread, and hardware-tuning options with bounded values; alternate inputs/outputs, protocols, headers, filters, scripts, arbitrary paths, duplicates, option smuggling, and oversized text fail closed before playback.
+
+### README version 1.5.209
+
+- **Support-bundle FFmpeg redaction**: support documents omit global and per-user custom FFmpeg flag values while exposing only configured-state telemetry; intentional backup exports remain available for migration.
+- **POST-only entertainment-area loading**: the secret-bearing legacy GET route is removed so Hue app keys are not sent in URLs or access logs.
+
+### README version 1.5.208
+
+- **In-process schedule overlap recovery**: long restorative cues no longer make later scheduled cues disappear when their minute passes; the scheduler re-evaluates elapsed occurrences once without changing the configured restart catch-up window.
+- **Safe one-time semantics**: recovered one-time cues retain stable run-slot claims, catch-up telemetry, and automatic disable behavior.
+- **Administrator UI hardening**: user-mapping action attributes encode quotes and backticks, keeping imported identifiers confined to their data attributes.
+
+### README version 1.5.207
+
+- **Complete non-success telemetry**: skipped and failed direct-scene cues retain effective brightness in runtime/history results and CSV exports.
+- **Stable schedule request API shape**: omitted duration fields preserve existing cues without changing the public integer request property; explicit zero clears a duration override.
+
+### README version 1.5.206
+
+- **Scheduled-scene brightness overrides**: optionally override brightness per single-scene cue from 0-100%; blank values inherit the saved scene and playlist cues retain per-step brightness.
+- **Credential-free brightness parity**: expose effective brightness in scheduler status, runtime/history telemetry, upcoming occurrence JSON/CSV/iCalendar exports, backup/restore, and the administrator editor.
+- **Safe partial schedule edits**: omitted duration or brightness fields preserve existing cue values while explicit null clears an override.
+
+### README version 1.5.205
+
+- **Credential-free playlist rename**: atomically migrate scheduled-cue references when renaming a saved-scene playlist, with collision validation, rollback-safe persistence, and administrator controls
+- **Scheduled-scene RGB overrides**: optionally override red, green, and blue channels per single-scene cue from 0-255; blank channels inherit the saved scene and playlist cues retain per-step colors
+- **Operational hardening**: bound every self-hosted build, security, package, and release job with a documented timeout budget
+- **Regression coverage**: validate rename migration, RGB inheritance/range rules, explicit null clearing, runtime payloads, status/history/occurrence exports, and credential-free API/UI contracts
+
+### README version 1.5.204
+
+- **Per-step playlist RGB colors**: nullable `stepRed`, `stepGreen`, and `stepBlue` values override saved-scene channel colors within 0-255; blank/null values inherit the referenced scene
+- **Complete color telemetry parity**: effective RGB travels through non-continuous and continuous previews, scheduled occurrence plans, runtime/history, API/UI, CSV/iCalendar metadata, duplication, and credential-free backup/restore
+- **Regression coverage**: color validation/inheritance, stream payloads, continuous multi-target execution, API/export round trips, and configuration-page contracts
+
+### README version 1.5.203
+
+- **Per-step playlist effects**: nullable `stepEffects` values select any canonical effect per step; blank/null inherits the referenced scene, and effective effects appear in preview, occurrence, and retained-history plans
+- **Single-lifecycle playlist streaming**: validate the expanded plan before bridge mutation and render every step per target through one capture, activation, continuous DTLS stream, deactivation, and restoration
+- **Unambiguous target outcomes**: preserve independent result telemetry for distinct resolved targets even when their administrator-facing labels are identical
+- **Reproducible and isolated CI**: enforce content-hashed NuGet lock files, locked-mode restores, an unused release tag, and the dedicated least-privileged `harmonize-runner` account
+
+### README version 1.5.202
+
+- **Per-step playlist effect speeds**: add nullable `stepEffectSpeedPercent` overrides bounded to 25-400%; omitted/null values inherit each referenced scene's animation rate
+- **End-to-end speed parity**: apply effective per-step speeds to non-solid previews, scheduled runs, expanded plans, runtime/history telemetry, API/UI, duplication, and credential-free backup/restore
+- **Regression coverage**: verify speed validation/inheritance, stream propagation, scheduler/history telemetry, API round trips, backup portability, and configuration-page contracts
+- **Fail-closed self-hosted release security**: require build/tests, formatting, dependency vulnerability checks, full-history Gitleaks, and Semgrep before packaging or publishing; pin both scanners, checksum-verify the official Gitleaks manifest/archive, and run them from isolated temporary paths without privileged host installation
+
+### README version 1.5.201
+
+- **Per-step playlist fade curves**: add nullable `stepTransitionCurves` overrides for Linear, SmoothStep, EaseIn, EaseOut, and EaseInOut; omitted/null values inherit each referenced scene's curve
+- **End-to-end curve parity**: apply effective per-step curves to previews, easing-capable stream calls, scheduled plans, runtime/history telemetry, API/UI, occurrence displays, duplication, and credential-free backup/restore
+
+### README version 1.5.200
+
+- **Per-step playlist transitions**: add nullable `stepTransitionSeconds` and `stepTransitionOutSeconds` overrides bounded to 0-30 seconds; blank/null values inherit each saved scene's fade settings and short holds clamp safely at runtime
+- **End-to-end transition/offset parity**: carry effective per-step fades and cumulative start offsets through previews, scheduled cues, runtime/status/history telemetry, occurrence JSON/CSV/iCalendar plans, API/UI, duplication, and credential-safe backup/restore
+
+### README version 1.5.199
+
+- **Expanded upcoming playlist plans**: expose the exact credential-free per-occurrence playlist sequence, including stable shuffle/repeat order, saved positions, effective brightness, hold duration, transitions, and cumulative offsets
+- **Export and administrator parity**: carry the expanded plan through occurrence JSON/CSV/iCalendar responses and the upcoming-cue administrator table without exposing credentials
+- **Regression coverage**: verify override inheritance, repeat offsets, shuffle stability, export metadata, and configuration-page contracts
+
+### README version 1.5.198
+
+- **Per-step playlist brightness**: add optional credential-free `stepBrightnessPercent` overrides in parallel with `presetNames`; `null` or an omitted list inherits each saved scene's brightness while explicit 0-100% values apply only to that step
+- **End-to-end brightness/history parity**: carry effective per-step brightness through previews, scheduled cues, repeat passes, runtime/status/history telemetry, API/UI, duplication, and backup/restore, including persisted credential-free playlist step results across restart
+- **Regression coverage**: verify validation, inheritance, API/UI round trips, preview/scheduler payloads, persistence, duplication, and credential-safe portability
+
+### README version 1.5.197
+
+- **Per-step playlist timing**: add credential-free `stepDurationSeconds` overrides for saved playlist steps, with `0` inheriting each saved scene's duration and bounded 1-30 second holds
+- **End-to-end duration parity**: carry effective step timing through previews, scheduled cues, repeat totals, runtime/history/status/occurrence telemetry, API/UI, duplication, and backup/restore while preserving legacy playlists
+- **Regression coverage**: verify validation, inheritance, API/UI round trips, preview timing, scheduler totals, and credential-safe portability
+
+### README version 1.5.196
+
+- **Configurable transition curves**: add Linear, SmoothStep, EaseIn, EaseOut, and EaseInOut easing for saved-scene and direct-preview fade-in/fade-out transitions, with Linear preserved for older configurations
+- **End-to-end transition parity**: carry the normalized curve through playlists, scheduled execution, runtime/history/status/occurrence metadata, API/UI responses, CSV/iCalendar exports, duplication, and credential-free backup/restore
+- **Regression coverage**: verify curve normalization/validation, deterministic easing math, legacy linear behavior, and configuration-page/API contracts
+
+### README version 1.5.195
+
+- **Deterministic playlist shuffle**: add saved `Sequential` or date-seeded `Shuffle` playback order per repeat pass, with stable retry behavior and original saved-position telemetry
+
+### README version 1.5.194
+
+- **Starlight scene effect**: add deterministic cool white/blue twinkles with sharp glints and independent channel phases to previews, saved scenes, playlists, and scheduled cues
+
+### README version 1.5.193
+
+- **Solar-noon scheduled cues**: schedule saved scenes and playlists at NOAA solar noon with bounded offsets, portable decimal coordinates, and the selected cue time zone
+- **Scheduler parity**: carry SolarNoon through due/upcoming/catch-up behavior, API/status/CSV/iCalendar metadata, backup/restore, and administrator controls; solar noon remains available on polar day/night dates
+- **Regression coverage**: verify NOAA equation-of-time math, timezone-aware scheduling, offset behavior, canonical API persistence, and configuration-page contracts
+
+### README version 1.5.192
+
+- **Complete twilight scheduling**: add NauticalDawn/NauticalDusk and AstronomicalDawn/AstronomicalDusk using NOAA's 12° and 18° below-horizon events
+- **Scheduler parity**: carry all twilight bands through due/upcoming/catch-up behavior, API/status/CSV/iCalendar metadata, backup/restore, and administrator controls
+- **Regression coverage**: verify chronological dawn/dusk ordering, timezone-aware scheduling, canonical API persistence, and configuration-page contracts
+
+### README version 1.5.191
+
+- **Civil twilight scheduled cues**: schedule saved scenes and playlists at CivilDawn or CivilDusk using the sun's 6°-below-horizon events in each cue's time zone
+- **Scheduler parity**: carry civil dawn/dusk through validation, due/upcoming/catch-up behavior, API/status/CSV/iCalendar metadata, backup/restore, and administrator controls
+- **Regression coverage**: verify timezone-aware civil twilight calculations, canonical API persistence, and configuration-page contracts
+
+### README version 1.5.190
+
+- **Lightning scene effect**: add deterministic electric blue/white storm flashes with independent channel phases to previews, saved scenes, playlists, and scheduled cues
+
+### README version 1.5.189
+
+- **Cross-midnight solar offsets**: keep the base solar date as the recurrence anchor while allowing ±12-hour sunrise/sunset offsets to resolve into the adjacent local date
+- **Scheduler correctness**: match shifted solar events across neighboring base dates for due checks, stable run-slot de-duplication, next-run previews, and missed-cue recovery
+- **Regression coverage**: verify cross-date UTC/local resolution, upcoming previews, due detection, and catch-up behavior
+
+### README version 1.5.188
+
+- **Solar-aware scheduled cues**: schedule saved scenes and playlists at Fixed, Sunrise, or Sunset in the selected cue time zone with bounded offsets and decimal coordinates; polar no-event dates are skipped safely
+- **Portable schedule telemetry**: carry timing mode, solar metadata, and resolved UTC/local occurrences through status, API CRUD, occurrence previews, CSV, iCalendar, backup/restore, and the administrator editor
+- **Regression coverage**: verify NOAA solar calculations, midnight-crossing events, validation, normalization, DST-safe occurrence resolution, and polar handling
+
+### README version 1.5.186
+
+- **Quarter-turn orientation calibration**: correct sideways-mounted entertainment-area layouts with clockwise or counterclockwise 90-degree transforms
+- **Video and audio consistency**: apply quarter-turn orientation to video sampling coordinates and audio spatial/stereo routing, including per-user inheritance
+- **Portable controls and telemetry**: expose both modes through validation, configuration portability, administrator controls, and regression coverage
+
+### README version 1.5.185
+
+- **Spatial orientation calibration**: correct mirrored, vertically flipped, or 180-degree-rotated entertainment-area layouts with a Normal default
+- **Video and audio consistency**: apply orientation to video sampling coordinates and audio spatial/stereo routing, including per-user inheritance
+- **Portable controls and telemetry**: expose orientation in runtime status, configuration backup/import, mapping summaries, administrator controls, and regression coverage
+
+### README version 1.5.184
+
+- **Color temperature correction**: tune global or per-user white balance from 1000-20000 K with a neutral 6500 K daylight default, applied consistently to video and audio streams
+- **Portable profiles and telemetry**: carry color temperature through configuration save/load, backup/import, mapping summaries, runtime status, and administrator controls
+- **Validation and regression coverage**: normalize warm/cool profiles safely and cover color-temperature math, bounds, inheritance, and API/UI round trips
+
+### README version 1.5.183
+
+- **Contrast correction**: tune global or per-user contrast around mid-gray from 50-200% with the neutral 100% default, applied consistently to video and audio streams
+- **Portable profiles and telemetry**: carry contrast through configuration save/load, backup/import, mapping summaries, runtime status, and administrator controls
+- **Validation and regression coverage**: clamp runtime values safely and cover contrast math, bounds, inheritance, and API/UI round trips
+
+### README version 1.5.182
+
+- **Gamma color correction**: tune global or per-user mid-tone brightness from 0.5-2.5 with the neutral 1.0 default, applied consistently to video and audio streams
+- **Portable profiles and telemetry**: carry gamma through configuration save/load, backup/import, mapping summaries, runtime status, and the administrator controls
+- **Validation and regression coverage**: clamp malformed runtime values safely and cover gamma math, bounds, inheritance, and API/UI round trips
+
+### README version 1.5.181
+
+- **Configurable dark-scene behavior**: choose Blackout or KeepLastColors when sampled frames fall below the blackout threshold, with consistent video/audio handling and no redundant Hue writes for preserved colors
+- **Per-user dark-scene profiles**: inherit the global policy or override it per mapped user; effective policy is visible in runtime status and credential-safe mapping summaries
+- **Portable administrator controls**: carry the policy through configuration save/load, backup/import, and the administrator page with validation and regression coverage
+
+### README version 1.5.180
+
+- **Blocking security checks**: Gitleaks and Semgrep now fail CI on detected secrets, static-analysis findings, missing reports, or scanner errors while retaining redacted JSON artifacts
+- **Reliable SAST configuration**: Semgrep uses the explicit `p/default` ruleset with metrics disabled, preventing the previous auto-configuration failure from being hidden
+- **Action supply-chain hardening**: all third-party workflow actions are pinned to immutable commit SHAs and every job uses the named self-hosted runner
+- **Dependency and action refresh**: update Microsoft.NET.Test.Sdk, coverlet.collector, setup-dotnet, and Codecov to current stable major versions
+
+### README version 1.5.179
+
+- **Safe pause lifecycle**: capture the required light snapshot even when final restoration is disabled, apply brightness-only updates with retries, preserve resume ownership, and clear snapshots after playback cleanup
+- **Pause telemetry and coverage**: expose the effective pause policy and dim level in runtime status, add per-user override support, and cover brightness payloads, validation, and pause/resume lifecycle behavior
+
+### README version 1.5.177
+
+- **Effective policy telemetry**: schedule API results, runtime status, credential-safe backup/import, and the administrator editor expose the saved override and the policy actually applied
+- **Policy-aware cleanup and regression coverage**: stale persisted deferred waits are removed when a cue is no longer effectively deferred; global inheritance and both per-cue overrides are covered by tests
+
+### README version 1.5.176
+
+- **Restart-safe deferred cues**: persist one credential-free deferred occurrence per scheduled cue so a Jellyfin restart cannot silently lose a cue that is still inside its playback wait window
+- **Restored-cue telemetry**: report pending occurrences restored after scheduler startup and mark their eventual success or safe expiry in status, history, JSON, CSV, and administrator controls
+- **Recovery cleanup**: discard malformed, duplicate, disabled, and deleted-cue deferred state safely while preserving the existing bounded wait and one-occurrence semantics
+
+### README version 1.5.175
+
+- **Playback-aware scheduled cues**: choose Skip to preserve the historical immediate attempt or Defer to hold one due occurrence while playback owns the bridge and retry it after playback ends without consuming a finite execution limit
+- **Bounded deferral and telemetry**: configure a 1-120 minute wait window; pending, expired, deferred, and playback-active states remain visible in credential-free status/history and expire safely as skipped outcomes
+- **Portable controls and regression coverage**: validation, API settings, backup/import, administrator UI, and focused tests cover conflict policy round trips and lifecycle behavior
+
+### README version 1.5.174
+
+- **Configurable beat-pulse onset threshold**: require a bounded minimum normalized energy rise before beat flashes attack, while 0% preserves the existing response
+- **Per-user threshold profiles**: inherit or override threshold with active telemetry, administrator controls, credential-safe backup/import, validation, and regression coverage
+
+### README version 1.5.173
+
+- **Configurable audio response smoothing**: blend each analysis window with the previous window from 0-90% to reduce spectral flicker while preserving the immediate default at 0%
+- **Regression coverage**: verify smoothing math across mixed and source-channel energy, bounds, inheritance, and configuration/API/UI wiring
+
+### README version 1.5.172
+
+- **Configurable audio band gains**: independently scale low, mid, and high audio energy from 0-200%; neutral 100% values preserve the original analyzer balance while zero mutes a band
+- **Per-user band-balance profiles**: inherit or override each gain with bounded runtime clamping, live telemetry, administrator controls, and credential-safe backup/import support
+- **Regression coverage**: verify band-gain math, defaults, bounds, inheritance, and configuration/API/UI wiring
+
+### README version 1.5.171
+
+- **Configurable audio noise gate**: suppress sub-threshold mixed RMS windows with a bounded 0-100% threshold; zero preserves the existing analyzer behavior
+- **Per-user noise-floor profiles**: inherit or override the global gate with active status telemetry, validation, administrator UI, configuration API, and credential-safe backup/import support
+- **Regression coverage**: verify gate math, bounds, defaults, per-user inheritance, and API/UI wiring
+
+### README version 1.5.170
+
+- **Configurable beat-pulse release**: carry enabled audio beat flashes into subsequent frames with a bounded 0-100% tail; zero preserves the instant transient default
+- **Per-user release profiles**: inherit or override release independently, with live status telemetry, validation, administrator UI, configuration API, and credential-safe backup/import support
+- **Regression coverage**: verify release math, bounds, defaults, per-user inheritance, and runtime resolution
+
+### README version 1.5.169
+
+- **Configurable history retention**: choose 1-25 completed playback sessions and 1-100 scheduled-cue runs to retain in memory and optionally across Jellyfin restarts, with legacy defaults preserved
+- **Safe runtime trimming**: reducing a retention window trims newest-first sanitized history immediately on save without affecting active playback, credentials, or finite cue counters
+- **Portable configuration**: carry retention preferences through the settings API, credential-safe backup/import, administrator UI, validation, and lifecycle regression coverage
+
+### README version 1.5.168
+
+- **Selectable audio source channels**: choose a backward-compatible Mono mix, Stereo left/right spatial blending, or isolate the Left or Right PCM source channel for Spatial routing
+- **Per-user source-channel profiles**: inherit or override Mono/Stereo/Left/Right with active runtime telemetry and credential-free backup/import support
+- **Regression coverage**: verify source-channel isolation, symmetric non-Spatial behavior, validation, API/UI markers, and mapping/configuration round trips
+
+### README version 1.5.167
+
+- **Stereo audio source routing**: optionally preserve left/right PCM energy for physical Spatial placement; Mono remains the backward-compatible default and Uniform/Mirror stay symmetric
+- **Per-user source-channel profiles**: inherit or override Mono/Stereo with active runtime telemetry and credential-free backup/import support
+- **Regression coverage**: verify stereo analysis, source-aware spatial output, symmetric routing, validation, API/UI markers, and mapping/configuration round trips
+
+### README version 1.5.166
+
+- **Regression coverage**: verify spatial, uniform, and mirrored channel output plus configuration, API, UI, and mapping round trips
+
+### README version 1.5.165
+
+- **Audio visualizer palettes**: choose Spectrum (the backward-compatible default), Band RGB, Warm, Cool, or Monochrome rendering for Audio and All-media playback
+- **Per-user palette profiles**: inherit or override the global palette with active runtime telemetry and credential-free backup/import support
+- **Regression coverage**: verify palette determinism, safe fallback, validation, API/UI markers, and mapping/configuration round trips
+
+### README version 1.5.164
+
+- **Audio Beat Pulse**: add an opt-in 0-100% transient brightness response to rising audio energy so beats and attacks create visible flashes without changing steady loudness behavior
+- **Per-user pulse profiles**: inherit or override the global beat response, expose the effective setting in live status, and preserve it through configuration, mapping, and backup/import flows
+- **Regression coverage**: verify onset math, bounded resolution, validation, UI markers, status wiring, and credential-safe round trips
+
+### README version 1.5.163
+
+- **Configurable audio-band spread**: average each low/mid/high spectral center across a bounded 0-100% neighborhood so between-center content remains reactive while 0% preserves exact-center analysis
+- **Per-user audio spread profiles**: inherit or override spread independently, with bounded validation and effective runtime telemetry
+- **Portable profile coverage**: carry spread through configuration save/load, backup/export, import mappings, administrator controls, status, and regression tests
+
+### README version 1.5.162
+
+- **Configurable audio band centers**: tune low/mid/high spectral-analysis centers from 20-3900 Hz globally or per user while retaining 90/420/1600 Hz defaults
+- **Live band telemetry**: show the effective audio sensitivity and band centers in sanitized runtime status and the configuration page
+- **Portable profile coverage**: carry audio centers through configuration save/load, backup/export, import mappings, validation, and regression tests
+
+### README version 1.5.161
+
+- **Audio capability diagnostics**: verify that the configured FFmpeg can emit a bounded PCM s16le 8 kHz stereo capture, not just report a version string
+- **Audio readiness gating**: require the capture probe only for global or per-user Audio-only/All-media scopes, and expose the result through diagnostics, the configuration page, and support bundles
+- **Credential-safe coverage**: keep probe output bounded and tokenized, avoid returning process output, and cover missing-tool and status propagation paths
+
+### README version 1.5.160
+
+- **Audio visualizer controls**: tune low/mid/high audio-reactive intensity from 25-400% globally or per user; the sensitivity control is independent from final brightness boost and is shown in live status
+
+### README version 1.5.159
+
+- **Audio-reactive playback**: choose Audio-only or All-media playback scopes to decode a bounded PCM window and drive low/mid/high spectral energy through spatial Hue colors, with existing bridge leases, light restoration, retries, seek recovery, per-user scopes, and sanitized telemetry preserved
+- **Safe audio capture**: emit tokenized FFmpeg `s16le` output without shell parsing, use cancellation/stall cleanup identical to video, and keep the default AllVideo behavior unchanged
+
+### README version 1.5.158
+
+- **Aurora scene effect**: use a deterministic drifting green/cyan/blue/violet Aurora effect in manual previews, saved scenes, playlists, and scheduled cues; its RGB seed controls output level while effect speed controls the wave
+
+### README version 1.5.157
+
+- **Multi-room current-light capture**: capture one, selected, or all distinct enabled targets from the scene editor; each result is credential-free and honors the target's saved channel profile
+- **Weighted scene seeding**: successful room samples are combined into aggregate RGB/brightness values, with partial bridge failures and inherited-target deduplication reported explicitly
+
+### README version 1.5.156
+
+- **Temperature scene effect**: use the new deterministic warm-to-cool Temperature effect in manual previews, saved scenes, playlists, and scheduled cues; its RGB seed controls output level while the effect sweeps Hue-compatible white balance
+- **Effect compatibility**: Temperature is accepted through the configuration validator, API, stream tester, administrator editor, backup/restore metadata, and scheduler alongside Solid, Pulse, Rainbow, and Candle
+
+### README version 1.5.155
+
+- **Current-light scene seeding**: capture one selected Hue target's live color and brightness into the administrator preview editor, then save it as a reusable scene without sending bridge credentials from the browser
+- **Hue color conversion**: convert xy chromaticity and mirek color-temperature states to averaged sRGB while keeping off-light brightness and partial capture counts explicit
+- **Safe lifecycle and coverage**: serialize capture with playback/diagnostics, support cancellation and stale-channel validation, and cover conversions, target resolution, lifecycle contention, and credential-safe API responses
+
+### README version 1.5.154
+
+- **Early FFmpeg flag validation**: global and per-user custom FFmpeg flags now use the playback parser during configuration validation, so malformed quoted values are rejected when saved instead of failing at playback startup
+
+### README version 1.5.153
+
+- **Safe FFmpeg process arguments**: playback uses tokenized process arguments so media paths containing spaces or quotes remain reliable across platforms
+- **Custom FFmpeg flag parsing**: quoted values and escaped quotes/backslashes are preserved without shell interpretation; malformed quotes fail clearly before startup
+- **Cross-platform playback parity**: FFmpeg follows the safe process-launch model used by environment diagnostics while Hue streaming uses the managed DTLS transport
+
+### README version 1.5.152
+
+- **Service-level target override normalization**: empty or whitespace-only target lists preserve each playlist's saved target mode across direct service execution and API calls
+- **Credential-safe playlist parity**: direct playlist previews normalize, trim, and deduplicate target IDs just like the administrator endpoints
+- **Regression coverage**: verify empty service overrides preserve target telemetry and never expose persisted bridge credentials
+
+### README version 1.5.151
+
+- **Empty target override normalization**: empty target ID arrays no longer turn explicit all-target playlist previews into an invalid selected-target request; saved targets remain unchanged when no target is selected
+- **Playlist preview parity**: individual and bulk playlist endpoints now normalize target-selection metadata consistently before server-side validation and execution
+- **Regression coverage**: verify empty target selections still fan out to every enabled target without exposing persisted bridge credentials
+
+### README version 1.5.150
+
+- **One-off playlist target overrides**: preview an individual saved playlist on its saved target, the default bridge, every enabled target, or a deliberate subset of enabled mappings without changing the saved playlist
+- **Credential-free individual playlist previews**: the browser sends only nullable target-selection metadata; server-side credentials, channel profiles, validation, and restorative execution remain authoritative
+- **Administrator preview target picker**: use the saved-target/default/all options or combine selected mappings beside Preview Playlist, while Preview Playlist on All Targets remains an explicit broadcast override
+
+### README version 1.5.149
+
+- **Target-aware bulk playlist previews**: preview selected saved playlists using each playlist's saved target by default, or choose the default bridge, every enabled target, or a deliberate subset of enabled mappings with optional default-bridge inclusion
+- **Credential-free playlist target override**: the browser sends only selected IDs and mode flags; persisted credentials, channel profiles, validation, and restorative execution remain server-side
+- **Administrator bulk target picker**: use the exclusive saved-target/default/all options or combine selected mappings for Preview Selected, while Preview Selected on All Targets remains an explicit broadcast action
+
+### README version 1.5.147
+
+- **Saved-scene preview target parity**: preview one or many saved scenes on the default bridge, every enabled target, or a deliberate subset of enabled mappings with optional default-bridge inclusion
+- **Credential-free target telemetry**: saved-scene preview results expose selected mapping IDs, default-target inclusion, and per-target outcomes without bridge credentials
+- **Administrator target selector**: choose saved-scene preview targets from the shared default/all/mapping multi-select; the explicit All Targets action remains a broadcast override
+
+### README version 1.5.146
+
+- **Persisted saved-playlist targets**: save the global bridge, every enabled mapping, or a deliberate subset of enabled mappings with optional default-bridge inclusion; the selected mode survives CRUD, previews, duplication, scheduled playlist cues, and backup/restore
+- **Playlist target lifecycle safety**: validate selected playlist mappings atomically and include saved-playlist target references in mapping dependency reports and disable/delete protection
+- **Credential-free administrator workflow**: edit playlist targets with an exclusive All enabled option or a deliberate multi-selection, while normal previews preserve each playlist's saved target mode
+
+### README version 1.5.145
+
+- **Selected scheduled-cue targets**: choose a credential-free subset of enabled mappings with optional default-bridge inclusion for scene and playlist cues
+- **Target-safe telemetry and migration**: carry selected IDs and default inclusion through status, occurrences, history, backup/restore, and per-target run results without credentials
+- **Administrator multi-target editor**: use an exclusive All enabled option or a deliberate multi-selection with atomic validation and mapping dependency protection
+
+### README version 1.5.144
+
+- **Per-cue run serialization**: automatic and manual executions of the same scheduled cue refuse to overlap, protecting bridge state, counters, and retained history
+- **Navigation-safe bulk runs**: leaving the administrator page requests cleanup-aware cancellation of an in-flight bulk sequence before it can start another cue
+
+### README version 1.5.143
+
+- **Atomic bulk scheduled-cue Run Now**: run up to 50 selected cues sequentially with full reference/target preflight and restorative cleanup between cues
+- **Per-cue outcomes and cancellation**: retain credential-free success/failure telemetry, continue after runtime failures, and stop remaining cues safely after cancellation
+- **Administrator workflow**: add Run Selected and Cancel Selected Runs controls with aggregate progress and per-cue status summaries
+
+### README version 1.5.142
+
+- **Bulk saved-scene previews**: preview up to 50 selected scenes sequentially on the default target or every enabled target with restorative state cleanup between scenes
+- **Bulk playlist previews**: preview selected playlists sequentially while preserving saved default, selected-subset, or all-target modes, or applying an explicit target override
+- **Preflight and cancellation safety**: resolve all selected scenes/playlists, references, and targets before bridge calls; preserve per-item failures, continue safely, and stop remaining work on cancellation
+- **Administrator workflow**: add credential-free aggregate/per-item status and Preview Selected controls beside existing bulk duplicate/delete actions
+
+### README version 1.5.141
+
+- **Atomic bulk scene duplication**: create independent copies of up to 50 selected saved scenes with preserved visual/effect metadata and bounded unique names
+- **Atomic bulk playlist duplication**: create independent copies of up to 50 selected playlists with fresh IDs, preserved ordered scenes, repeat passes, and target mode
+- **Capacity and rollback safety**: missing sources, collection limits, validation failures, and persistence failures leave originals, references, and complete collections unchanged
+- **Administrator duplication workflow**: add Duplicate Selected controls beside saved-scene and playlist dependency-safe deletion
+
+### README version 1.5.140
+
+- **Atomic bulk cue duplication**: create disabled copies of up to 50 selected scheduled cues with fresh IDs, unique bounded names, reset counters, and cleared Skip Next markers
+- **All-or-nothing capacity safety**: missing IDs, schedule-capacity limits, validation failures, and persistence failures leave the original cue collection unchanged
+- **Administrator cue variants**: add Duplicate Selected beside bulk enable/disable, skip, counter-reset, and deletion controls
+
+### README version 1.5.139
+
+- **Atomic bulk mapping enable/disable**: change up to 50 selected per-user mappings together with all IDs resolved before any mutation
+- **Lifecycle-safe state changes**: scheduled-cue dependencies block disabling, incomplete custom targets block enabling, and persistence failures restore the complete selected state
+- **Administrator mapping controls**: add Enable Selected and Disable Selected actions; disabling clears stored custom bridge targets and never returns credentials
+
+### README version 1.5.138
+
+- **Atomic bulk counter reset**: reset and re-enable up to 50 selected scheduled cues while clearing pending Skip Next markers in one persistence transaction
+- **Lifecycle-safe recovery**: active cues, missing IDs, and persistence failures leave every selected cue unchanged and retained cue history intact
+- **Administrator recovery workflow**: add Reset Counters beside bulk enable/disable, skip, and delete actions
+
+### README version 1.5.137
+
+- **Atomic bulk mapping deletion**: remove up to 50 selected per-user bridge mappings by user ID while preserving every dependent scheduled cue when references block the operation
+- **All-or-nothing dependency safety**: missing IDs, scheduled-cue references, and persistence failures leave the full mapping collection unchanged with sanitized details
+- **Administrator mapping cleanup**: add select-all, clear-selection, and Delete Selected controls with credential-free refresh
+
+### README version 1.5.136
+
+- **Atomic bulk scene deletion**: remove up to 50 selected saved scenes by normalized name while preserving every dependent playlist and cue when references block the operation
+- **All-or-nothing dependency safety**: missing names, direct or playlist-backed scheduled-cue references, and persistence failures leave the full scene collection unchanged with sanitized details
+- **Administrator scene cleanup**: add select-all, clear-selection, and Delete Selected controls with post-action playlist and schedule refresh
+
+### README version 1.5.135
+
+- **Atomic bulk playlist deletion**: remove up to 50 selected saved-scene playlists by stable ID while preserving every dependent schedule when references block the operation
+- **All-or-nothing dependency safety**: missing IDs, scheduled-cue references, and persistence failures leave the full playlist collection unchanged and return sanitized blocking details
+- **Administrator playlist cleanup**: add select-all, clear-selection, and Delete Selected controls with post-action playlist and schedule refresh
+
+### README version 1.5.134
+
+- **Credential-safe import diff**: Validate Import now compares the finalized normalized candidate against the live configuration and reports added, removed, changed, and unchanged counts for mappings, scenes, playlists, and scheduled cues
+- **Migration safety**: global settings and App Key/Client Key changes are visible as booleans while secret values remain absent from the API and administrator summary
+- **Administrator review**: show the exact server-calculated change summary in the Backup and Restore wizard before import
+
+### README version 1.5.133
+
+- **Atomic bulk scheduled-cue deletion**: remove up to 50 selected scheduled cues while preserving retained cue history and leaving active lifecycles protected
+- **All-or-nothing safeguards**: active, missing, and persistence-blocked selections restore the complete previous cue collection
+- **Administrator cleanup workflow**: add a confirmed Delete Selected action beside bulk enable/disable and skipped-occurrence controls
+
+### README version 1.5.132
+
+- **Atomic bulk skipped-occurrence administration**: mark or clear the next automatic occurrence for up to 50 selected cues without changing recurrence definitions, targets, scenes, or finite-run counters
+- **All-or-nothing safeguards**: active, disabled, exhausted, futureless, missing, and persistence-blocked cues leave the complete selection unchanged
+- **Administrator multi-action workflow**: add Skip Next Selected and Clear Selected Skips alongside bulk enable/disable controls
+
+### README version 1.5.131
+
+- **Spreadsheet-ready telemetry**: export upcoming occurrences, duration-aware conflicts, scheduled-cue history, and completed playback history as credential-free CSV
+- **Filter-preserving reports**: CSV downloads retain selected cue, outcome, and 7/31/90/366-day horizon filters from the administrator views
+- **Safe deterministic format**: UTF-8 CSV uses invariant values, explicit local/UTC columns, RFC quoting, and spreadsheet formula-marker protection for labels
+
+### README version 1.5.130
+
+- **Atomic bulk scheduled-cue administration**: select up to 50 cues and enable or disable them together without changing their timing, target, scene, or execution counters
+- **All-or-nothing safeguards**: active cues, exhausted finite cues, missing IDs, and persistence failures leave the complete selected set unchanged
+- **Administrator selection workflow**: add select-all, clear-selection, and post-action credential-free status refresh controls
+
+### README version 1.5.129
+
+- **Per-user playback media scope**: inherit the global scope or override it per user mapping for all video, movies, TV episodes, other video, audio-only music, or all media while retaining safe cleanup for active sessions
+- **Effective status and portability**: expose the active effective scope and carry credential-free overrides through mapping summaries and backup/restore
+
+### README version 1.5.128
+
+- **Playback media scope**: choose all video, movies, TV episodes, other video, audio-only music, or all media as the global start policy; existing sessions still receive cleanup lifecycle events when the policy changes
+- **Visible policy telemetry**: expose the selected scope through configuration, Live Sync Status, diagnostics, and credential-safe exports
+
+### README version 1.5.127
+
+- **Credential-safe support bundle**: export local and bridge-target diagnostics, runtime state, playback and scheduler history, scheduler status, and redacted configuration metadata in one administrator JSON download while keeping bridge credentials and playback tokens out of the file
+
+### README version 1.5.126
+
+- **Configurable schedule report horizon**: choose 7, 31, 90, or 366 days and apply the same server-bounded scope to upcoming occurrence/conflict tables, JSON diagnostics, and calendar export
+
+### README version 1.5.125
+
+- **Exportable schedule diagnostics**: download the filtered upcoming-occurrence and duration-aware conflict reports as credential-free JSON for support, automation verification, and offline troubleshooting
+
+### README version 1.5.124
+
+- **Cue-scoped schedule telemetry**: focus the upcoming occurrence preview, iCalendar download, retained cue history, and JSON export on one configured cue while preserving an all-cues view
+- **Filter continuity**: retain selected cue and outcome filters across schedule refreshes, label disabled cues, and keep all filtering credential-free through existing `scheduleId` query parameters
+
+### README version 1.5.123
+
+- **Configuration import preflight**: validate backup normalization, saved-object dependencies, complete settings, planned totals, matching-key preservation, and active-playback readiness without mutating the live configuration
+- **Administrator migration safety**: add a Validate Import action before the atomic Backup and Restore confirmation
+
+### README version 1.5.122
+
+- **Outcome-filtered scheduled-cue history**: inspect only succeeded, failed, skipped, or recovered cue runs in the administrator monitor and credential-free export
+
+### README version 1.5.121
+
+- **Cue-scoped conflict diagnostics**: filter the upcoming overlap report to one enabled cue while preserving the opposing schedule and add a focused administrator conflict selector
+
+### README version 1.5.120
+
+- **Scheduled-cue conflict diagnostics**: detect upcoming duration overlaps with time-zone-aware instants, priorities, target labels, overlap seconds, and serialized-execution guidance before a cue can delay another
+
+### README version 1.5.119
+
+- **Fail-safe scheduled lifecycle**: failed Skip Next persistence never falls through into an unintended cue run, and failed one-time completion saves restore the enabled state
+
+### README version 1.5.118
+
+- **Transactional global settings**: failed administrator configuration saves restore all prior settings and retained session/scheduled-cue history instead of leaking serializer errors
+
+### README version 1.5.117
+
+- **Transactional scene persistence**: failed saved-scene updates restore the prior in-memory scene collection and return sanitized persistence errors
+- **Transactional scheduled-cue lifecycle**: failed save/delete/direct counter-reset operations roll back instead of rethrowing raw persistence exceptions
+
+### README version 1.5.116
+
+- **Per-user mapping dependency audit**: inspect every scheduled cue that targets a user mapping through a credential-free API before disabling or deleting it
+- **Transactional mapping lifecycle**: roll back in-memory mapping changes and return sanitized persistence errors for failed save/delete operations
+- **Administrator reference inspection**: use View References beside each per-user mapping to understand scheduled-cue and saved-playlist target protections without trial-and-error
+
+### README version 1.5.115
+
+- **Saved-playlist dependency audit**: inspect every scheduled cue that references a playlist through a credential-free API before deletion
+- **Administrator cue-reference inspection**: use View Cue References in the Saved Scene Playlists editor to understand why deletion is blocked without trial-and-error
+
+### README version 1.5.114
+
+- **Complete saved-scene dependency graph**: show scheduled cues that reach a scene through a dependent playlist, including direct-versus-playlist reference type
+
+### README version 1.5.113
+
+- **Saved-scene dependency audit**: inspect dependent playlists, repeated scene-step counts, and direct scheduled cues before changing or deleting a scene through a credential-free API
+- **Administrator reference inspection**: use View References in the Saved Scene editor to understand why deletion is blocked without trial-and-error
+
+### README version 1.5.112
+
+- **Reference-safe saved-scene rename**: preserve all visual/effect metadata while atomically migrating playlist and direct scheduled-cue references to the new scene name
+- **Administrator rename workflow**: enter a replacement scene name and use Rename Scene to avoid creating an unreferenced duplicate or breaking existing automation
+
+### README version 1.5.111
+
+- **Reference-safe saved-scene deletion**: reject deletion while a playlist or scheduled cue references the scene, with sanitized dependency counts
+- **Administrator dependency feedback**: explain the protected scene dependency in the Saved Scene editor
+
+### README version 1.5.110
+
+- **Reference-safe playlist lifecycle**: migrate scheduled-cue references atomically when a playlist is renamed and reject deletion while dependent cues still use it
+- **Administrator dependency feedback**: refresh scheduled-cue selectors after playlist saves and report dependent cue counts when deletion is blocked
+
+### README version 1.5.109
+
+- **Repeatable saved playlists**: repeat a saved sequence for up to 10 passes while enforcing the bounded 10-minute aggregate duration cap
+- **Pass-aware observability**: expose repeat counts and expanded per-pass outcomes through previews, scheduled cue telemetry, iCalendar metadata, history, and backup/restore
+
+### README version 1.5.108
+
+- **Scheduled playlist cues**: schedule saved scenes or playlists with target overrides, saved-order or stable-shuffle restorative execution, per-step saved-position telemetry, total-duration metadata, and credential-safe status/history/calendar/backup behavior
+
+### README version 1.5.107
+
+- **Saved scene playlists**: compose up to 20 existing saved scenes into reusable sequences with bounded repeat passes, credential-free CRUD, duplicate/delete actions, and default-target, selected-subset, or all-enabled-target previews
+- **Sequential restorative execution**: preview each playlist step through the existing cancellation and light-state restoration lifecycle, with per-step results, aggregate target outcomes, channel counts, and cleanup warnings
+- **Portable definitions**: include saved-scene order, repeat count, playback order, selected mapping IDs/default inclusion, target mode, and duration metadata in credential-safe backup/restore without exposing bridge credentials
+
+### README version 1.5.106
+
+- **Saved-scene preview execution**: preview any saved scene directly from the administrator page or `POST /HueSync/ColorPresets/{name}/Preview`, with default-target, selected-mapping, and all-enabled-target modes using server-side credentials and channel profiles
+- **Credential-free saved-scene actions**: return sanitized per-target results, aggregate channel counts, transition metadata, and cleanup warnings while never sending bridge credentials to the browser
+
+### README version 1.5.105
+
+- **Channel-profile target diagnostics**: validate effective global and per-user channel selections against each bridge area's live channel list, with selected counts and stale IDs shown before playback
+- **Credential-safe preflight**: malformed or stale profiles are reported without opening DTLS streams or changing bridge state
+
+### README version 1.5.104
+
+- **Immediate all-enabled-target preview**: preview the selected effect sequentially on the default bridge and every distinct enabled mapped target, using each target's saved channel profile and showing sanitized per-target outcomes and channel counts
+- **Credential-safe broadcast API**: `POST /HueSync/Preview` accepts `targetAllEnabledMappings: true` without direct target fields and rejects incomplete enabled targets before any bridge state is changed
+
+### README version 1.5.103
+
+- **All-enabled-target scheduled cues**: run one saved scene sequentially on the default bridge and every distinct enabled mapped bridge/area, with sanitized per-target success, failure, and cleanup telemetry
+- **Portable broadcast mode**: preserve the target mode through schedule CRUD, duplicate cues, status, upcoming occurrences, iCalendar metadata, and credential-safe backup/restore; incomplete enabled targets are rejected before execution
+
+### README version 1.5.102
+
+- **Saved-scene duplication**: create a uniquely named editable copy from any saved effect scene while preserving its effect, animation speed, color, brightness, duration, and fade transitions
+- **Credential-free copy workflow**: duplicate scenes from the administrator page or API without changing source schedules or exposing bridge credentials
+
+### README version 1.5.101
+
+- **Deterministic scheduled-cue priorities**: assign each cue a bounded 0-100 priority so higher-priority cues run first when multiple automatic cues are due together, while equal priorities retain saved order
+- **Priority-aware administration**: edit, duplicate, back up, restore, preview, and inspect cue priority through the administrator UI and credential-free API/status surfaces
+
+### README version 1.5.100
+
+- **Missed-cue recovery**: optionally recover the most recent automatic scheduled cue missed during a short Jellyfin restart or outage using a bounded 0-120 minute global window; older missed cues are never replayed in a burst
+- **Recovery observability**: recovered executions, including recovered skips, are labeled in scheduler status and sanitized history and preserve existing recurrence, run-limit, restoration, and one-time semantics
+
+### README version 1.5.99
+
+- **Skip Next Cue**: omit one upcoming automatic occurrence without deleting or editing a recurring schedule; future occurrences remain intact
+- **Restart-safe skip state**: pending skips are persisted, reversible, reflected in upcoming previews/status, and recorded as sanitized history; one-time cues disable after a skipped event and manual Run Now is unaffected
+
+### README version 1.5.98
+
+- **Per-cue enable/disable control**: pause or resume one scheduled rule without changing its timing, target, scene, or recurrence definition
+- **Guarded state transitions**: active cues cannot be changed, and exhausted finite cues require Reset Run Counter before re-enabling
+
+### README version 1.5.97
+
+- **Safe scheduled-cue duplication**: create a fresh disabled copy with a unique stable ID, copied timing/target/recurrence/effect metadata, and a reset execution counter
+- **Credential-free administrator API**: expose duplication through `POST /HueSync/SceneSchedules/{id}/Duplicate` with full configuration validation before saving
+
+### README version 1.5.96
+
+- **Resettable finite cues**: reset a persisted execution counter and re-enable an exhausted scheduled cue without deleting its retained audit history
+- **Safe administrator action**: refuse resets while a cue is active and expose the same behavior through `POST /HueSync/SceneSchedules/{id}/ResetRunCount`
+
+### README version 1.5.95
+
+- **Finite scheduled-cue limits**: stop recurring scene cues after a bounded 1-365 execution count, or keep the default `0` for unlimited runs
+- **Restart-safe counters**: persist finite-cue run counts, disable cues automatically at the limit, and retain the state through credential-safe backup/restore
+- **Limit-aware administration**: configure maximum executions in the cue editor and inspect current, maximum, and remaining runs in scheduler telemetry
+
+### README version 1.5.94
+
+- **Portable speed metadata**: preserve effect speed through scene CRUD, scheduled execution, status, upcoming occurrences, iCalendar, history, and credential-safe backup/restore
+- **Speed-aware editor and telemetry**: edit, apply, and inspect the selected rate in preview controls, cue lists, runtime status, upcoming runs, and retained history
+
+### README version 1.5.93
+
+- **Saved-scene effects**: add bounded Solid, breathing Pulse, hue-cycling Rainbow, and warm flickering Candle effects to manual previews and reusable scenes
+- **Scheduled effect playback**: preserve effect metadata through cue execution, status, occurrences, iCalendar export, history, and credential-safe backup/restore
+- **Effect-aware editor**: select, save, apply, and preview scene effects on the default or current mapping target while legacy scenes remain Solid
+
+### README version 1.5.92
+
+- **Scheduled effect playback**: preserve effect metadata through cue execution, status, occurrences, iCalendar export, history, and credential-safe backup/restore
+- **Effect-aware editor**: select, save, apply, and preview scene effects on the default or current mapping target while legacy scenes remain Solid
+
+### README version 1.5.91
+
+- **Cancellable system diagnostics**: show **Cancel Active Diagnostics** while prerequisite or saved-target checks run, with cancellation status and page-leave cleanup
+- **Shared diagnostics cancellation**: cancel every active non-mutating check through a bounded server-side gate without exposing credentials or changing bridge state
+
+### README version 1.5.90
+
+- **Cancellable connection diagnostics**: show **Cancel Active Diagnostic** while default or per-user mapping Test Connection runs, with completion/error status and page-leave cleanup
+- **Shared restorative cancellation**: reuse the credential-free preview cancellation endpoint so diagnostics stop safely and restore captured light state before ending
+
+### README version 1.5.89
+
+- **Cancellable administrator previews**: add visible cancellation for default and mapping previews, with page-leave cleanup and serialized-operation guards
+- **Cancellable manual scene cues**: add a Run Now cancellation button and `POST /HueSync/SceneSchedules/{id}/Cancel` endpoint with linked token cleanup
+- **Sanitized cancellation responses**: expose only bounded status/message results while preserving bridge deactivation and captured-light restoration
+
+### README version 1.5.88
+
+- **Saved-scene fade-out transitions**: optionally ramp previews and scheduled cues from their target scene back to dark at the end of the configured hold time
+- **Bookended transition timing**: validate and clamp combined fade-in/fade-out durations so shorter per-cue overrides preserve the full restorative lifecycle
+- **Portable fade metadata**: carry `transitionSeconds` and `transitionOutSeconds` through scene CRUD, scheduler status/occurrences, iCalendar export, and credential-safe backup/restore
+
+### README version 1.5.87
+
+- **Saved-scene fade-in transitions**: ramp previews and scheduled cues from dark to a target scene over a bounded optional duration within the configured hold time
+- **Portable transition metadata**: carry `transitionSeconds` through scene CRUD, scheduler status/occurrences, iCalendar export, and credential-safe backup/restore
+
+### README version 1.5.86
+
+- **Bounded scheduled-cue intervals**: run daily, weekly, monthly, monthly-weekday, or yearly cues every N calendar units from 1 through 365
+- **Portable cadence anchors**: preserve `recurrenceInterval` and the recurring `startDate` anchor through CRUD, status/preview, calendars, and credential-safe backup/restore
+
+### README version 1.5.85
+
+- **Yearly scheduled cues**: run scenes on a selected month and calendar day each year for birthdays, anniversaries, and holidays, with short-month clamping
+- **Portable yearly recurrence**: preserve `monthOfYear` and yearly date rules through CRUD, status/preview, calendars, and credential-safe backup/restore
+
+### README version 1.5.84
+
+- **Monthly weekday scheduled cues**: run scenes on the first through fifth or last matching weekday of each month, such as first Monday or last Friday
+- **Portable monthly weekday recurrence**: preserve ordinal-weekday fields through CRUD, status/preview, calendars, and credential-safe backup/restore
+
+### README version 1.5.83
+
+- **Daily scheduled cues**: run scenes every calendar day at a selected local time, with date windows and exclusions
+- **Portable daily recurrence**: preserve the new daily mode through CRUD, status/preview, calendars, and credential-safe backup/restore
+
+### README version 1.5.82
+
+- **Monthly scheduled cues**: run scenes on a calendar day each month, with day 31 clamped to the final day in shorter months
+- **Portable monthly recurrence controls**: preserve monthly mode and day-of-month through CRUD, status/preview, calendars, and credential-safe backup/restore
+
+### README version 1.5.81
+
+- **Per-cue hold duration overrides**: reuse one saved scene at different event lengths, inheriting the scene duration with blank/`0` or overriding it with a bounded 1-30 second cue value
+- **Portable duration telemetry**: preserve overrides through CRUD, effective status/occurrence previews, iCalendar event lengths, and credential-safe backup/restore
+
+### README version 1.5.80
+
+- **One-time scheduled cues**: schedule a saved scene for one exact date in its selected time zone without weekday-mask workarounds
+- **Portable one-time automation**: preserve one-time dates through CRUD, status/preview, iCalendar export, and credential-safe backup/restore
+
+### README version 1.5.79
+
+- **Calendar interoperability**: download the bounded upcoming scene-cue preview as a credential-free iCalendar feed with UTC event times and cue timezone metadata
+- **Administrator calendar action**: add a one-click `.ics` download beside the existing upcoming-occurrence preview
+
+### README version 1.5.78
+
+- **Global scheduled-automation pause**: pause or resume recurring scene cues without changing individual cue definitions while keeping **Run Now** available for manual checks
+- **Pause-aware status**: expose the automation state through scheduler telemetry and the administrator configuration summary
+
+### README version 1.5.77
+
+- **Upcoming cue preview**: show the next 31 days of credential-free cue-local and UTC occurrences after applying timezone, DST, weekday, date-window, and exclusion rules
+- **Occurrence API**: add bounded `GET /HueSync/SceneSchedules/Occurrences` previews with cue filtering for automation verification and troubleshooting
+
+### README version 1.5.76
+
+- **Scheduled cue exclusions**: skip up to 100 explicit `yyyy-MM-dd` holidays or blackout dates in each cue's selected timezone
+- **Portable scheduler exceptions**: preserve normalized exclusions through the admin editor, status/API, and credential-safe backup/restore
+
+### README version 1.5.75
+
+- **Bounded scheduled cues**: add optional inclusive `yyyy-MM-dd` start/end dates evaluated in each cue's selected time zone; blank values remain ongoing
+- **Date-window observability and portability**: expose ranges in the admin editor/status/API and preserve them through credential-safe backup and restore
+
+### README version 1.5.74
+
+- **Per-cue time zones**: schedule each recurring scene in a validated host time zone while preserving server-local behavior for existing cues
+- **DST-aware scheduler telemetry**: expose cue-local and UTC next-run values, selected zone labels, and deterministic handling for nonexistent spring-forward times
+
+### README version 1.5.73
+
+- **Persistent scheduled-cue history**: optionally retain the newest 100 sanitized cue runs across Jellyfin restarts and restore last outcomes/run counts into the scheduler monitor
+- **Cue history controls**: add `GET /HueSync/SceneSchedules/History`, export JSON, clear history, and a credential-free administrator history table
+
+### README version 1.5.72
+
+- **Scheduled cue readiness diagnostics**: identify missing saved scenes, disabled mappings, invalid times/days, missing credentials/areas, and invalid channel profiles before a cue runs
+- **Preflight scheduler monitor**: display a credential-free ready/not-ready reason beside each cue's next run and execution history
+
+### README version 1.5.71
+
+- **Scheduled cue observability**: inspect each cue's next server-local run, active state, run count, last outcome/message, cleanup warnings, and restart-safe pending cleanup records through the scheduler monitor and `GET /HueSync/SceneSchedules/Status`
+- **Resilient automation loop**: isolated bridge/network failures become sanitized cue failures instead of terminating the hosted scheduler
+
+### README version 1.5.70
+
+- **Scheduled scene cues**: run saved color scenes automatically on selected days and server-local times, with a one-click Run Now action
+- **Target-aware safe automation**: resolve the global target or enabled user mapping at execution time and reuse the restorative preview lifecycle while yielding to playback
+- **Portable scene automation**: include credential-free recurring cues in configuration backup and restore
+
+### README version 1.5.67
+
+- **Completed-session history**: retain the 25 most recent sanitized playback summaries, including concurrent multi-room worker sessions, and expose them through `GET /HueSync/History` plus a refreshable Recent Hue Sessions administrator table
+- **Credential-safe diagnostics**: history remains in memory only and includes aggregate telemetry/target labels without bridge credentials or Jellyfin playback tokens
+
+### README version 1.5.66
+
+- **Credential-entry migration wizard**: Backup and Restore now offers password fields for replacement global and per-user bridge keys, so cross-server imports do not require hand-editing JSON; entered values remain in page memory and are never exported
+
+### README version 1.5.65
+
+- **Credential-safe configuration portability**: Export global settings, user profiles, target labels, and saved color scenes without serializing App/Client Keys; atomically import with same-server key preservation and explicit migration-key support
+
+### README version 1.5.64
+
+- **Concurrent multi-room playback**: Independent sessions mapped to distinct Hue targets stream concurrently while same-target lifecycles remain serialized
+
+### README version 1.5.63
+
+- **Startup playback recovery**: Recover active unpaused video sessions when the plugin starts, including independent target workers
+
+### README version 1.5.62
+
+- **Completed-session telemetry**: Retain a sanitized last-session summary and ignore audio-only playback before lifecycle startup
+
+### README version 1.5.61
+
+- **Seek-aware playback recovery**: large forward skips and backward seeks restart video capture at the viewer's current position without restoring the active light scene
+- **Seek telemetry**: Live Sync Status and `GET /HueSync/Status` report capture restart count and the last seek position without exposing bridge credentials
+
+### README version 1.5.59
+
+- **Saved target validation**: System Diagnostics can now validate every enabled default, inherited, and custom bridge mapping in one non-mutating pass, showing reachability, area selection, channel counts, and sanitized credential status
+
+### README version 1.5.58
+
+- **Active mapping visibility**: Live Sync Status and the status API now identify the Jellyfin user driving the current bridge/area, making per-user routing verifiable during playback
+
+### README version 1.5.57
+
+- **Complete multi-bridge discovery**: Cloud and local mDNS results are combined and de-duplicated; the configuration page offers every private bridge candidate for global or per-user mapping setup
+
+### README version 1.5.56
+
+- **Credential-safe custom mapping diagnostics**: Existing custom mappings can refresh areas and channels or run Test Connection/Preview without re-entering stored secrets; resolution requires the matching mapping user ID and bridge target
+
+### README version 1.5.55
+
+- **Credential-safe global configuration**: Configuration responses expose only global credential presence flags; blank secret edits preserve stored keys, explicit clearing is supported, and implicit fallback is restricted to the configured bridge target
+- **Credential-safe administrator UI**: The browser keeps global App/Client Keys blank while still loading areas, channels, connection tests, and previews through the protected server-side fallback
+
+### README version 1.5.54
+
+- **Cancellation-safe DTLS lifecycle**: Playback and diagnostics cancel managed DTLS startup, color writes, delayed reconnects, and area reactivation; stopped streams cannot resurrect a background tunnel
+
+### README version 1.5.53
+
+- **Local bridge discovery**: Discover Bridge now falls back to bounded mDNS/DNS-SD (`_hue._tcp.local`) when cloud discovery is unavailable or incomplete
+
+### README version 1.5.52
+
+- **Activation-failure cleanup**: Test Connection and solid-color Preview now deactivate the entertainment area and restore captured lights even when an activation response fails or is ambiguous
+
+### README version 1.5.51
+
+- **Playback-aligned diagnostics**: System Diagnostics now probes Jellyfin's configured FFmpeg encoder path before falling back to `PATH`, so bundled encoder installations report accurate readiness
+
+### README version 1.5.50
+
+- **End-to-end request cancellation**: Bridge discovery, registration, entertainment-area reads, area configuration reads, and streaming-area activation now honor the originating API request token
+- **Activation cleanup safety**: If cancellation arrives while the bridge activation request is in flight, the diagnostic still deactivates the area and restores the captured light state before releasing the lifecycle lease
+
+### README version 1.5.49
+
+- **System Diagnostics**: Add a non-mutating setup and runtime report for configuration validity, FFmpeg availability/version, managed DTLS readiness, lifecycle contention, and playback/diagnostic readiness
+- **Actionable setup feedback**: Add a configuration-page diagnostics panel that explains missing prerequisites without exposing bridge credentials
+
+### README version 1.5.48
+
+- **Cancellation-safe diagnostics**: Test Connection probes and solid-color previews observe request cancellation during capture, activation waits, DTLS startup, and preview holds
+- **Guaranteed cleanup on cancellation**: A canceled diagnostic still stops the stream and restores the entertainment area and captured light state before releasing the shared bridge lease
+
+### README version 1.5.47
+
+- **Shared bridge lifecycle gate**: Playback and Test Connection/preview diagnostics now reserve one process-wide bridge lease, closing the race between the API's point-in-time playback check and startup
+- **Safe contention handling**: Playback reports a diagnostic-busy error, while diagnostics return the existing busy result during active playback; leases are released on stop, pause, rollback, shutdown, and restoration
+
+### README version 1.5.46
+
+- **Process-wide diagnostic lock**: The shared Test Connection/preview gate now lives in the singleton tester service, so concurrent API requests cannot bypass serialization by resolving separate tester instances
+
+### README version 1.5.45
+
+- **Diagnostic lifecycle serialization**: Test Connection probes and solid-color previews now reserve one shared lifecycle; a concurrent request returns a clear busy result without touching the bridge
+- **Bridge-state isolation**: Prevent overlapping capture, activation, DTLS, deactivation, and restoration operations from corrupting one another's snapshots
+
+### README version 1.5.44
+
+- **Safe state capture**: Capture each selected light with the configured retry policy, report attempted/captured/failed counts, and deduplicate shared light IDs
+- **Mutation guardrails**: Playback, Test Connection, and solid-color previews refuse to activate or dim the area unless every selected light has a restorable snapshot
+- **Startup rollback**: A failed capture cannot trigger cinema-mode output during cleanup, while existing sanitized restoration and deactivation warnings remain visible
+
+### README version 1.5.43
+
+- **Restoration reliability**: Retry each saved light independently using the active network policy, report aggregate restore counts, and preserve a sanitized cleanup warning when any light or the entertainment-area deactivation fails
+- **Probe and preview safety**: Test Connection and solid-color previews now report cleanup failures instead of claiming success after an incomplete restore
+- **Runtime diagnostics**: Surface cleanup warnings in Live Sync Status and `GET /HueSync/Status` without exposing bridge credentials
+
+### README version 1.5.42
+
+- **Inherited-target visibility**: Per-user mapping lists now label global-bridge inheritance and show the global default target instead of presenting a valid inherited mapping as incomplete
+- **Inherited-target editing**: Editing a mapping that uses the global bridge loads the global entertainment areas and uses the global target for connection tests, previews, and channel discovery while keeping the saved mapping fields blank
+- **Mapping API diagnostics**: `GET /HueSync/UserMappings` reports `InheritsDefaultBridge` without exposing credentials
+
+### README version 1.5.41
+
+- **Default-bridge mapping inheritance**: Enabled per-user mappings can leave Bridge Address, App Key, Client Key, and Entertainment Area blank to inherit the global target; switching from a custom bridge clears stale credentials and area data
+
+### README version 1.5.40
+
+- **Reusable color scenes**: Save, apply, update, duplicate, and delete up to 50 named effect presets from the preview controls; duplication preserves the complete visual definition while assigning a bounded unique name, and scenes remain global, credential-free, and available for default or mapping previews
+- **Preset API**: Add authenticated CRUD endpoints with name uniqueness, value validation, and persistence regression coverage
+- **Preview reliability**: Re-activate the entertainment area before DTLS reconnects during probes and previews
+
+### README version 1.5.39
+
+- **Solid color preview**: Add an administrator color picker with brightness and duration controls for the default target and current per-user mapping, backed by a bounded DTLS preview that saves and restores light state
+- **Preview API**: Add `POST /HueSync/Preview` with channel-profile validation, active-playback protection, sanitized results, and regression coverage for color conversion and API wiring
+
+### README version 1.5.38
+
+- **Global channel profiles**: Choose a default entertainment-channel subset from the main configuration, inherit it from mappings with blank channel overrides, and keep explicit per-user selections authoritative
+
+### README version 1.5.37
+
+- **Channel-aware connection diagnostics**: Mapping Test Connection validates selected channel IDs against the area, reports stale IDs before probing, and limits the DTLS probe and temporary state capture to the selected channels
+
+### README version 1.5.36
+
+- **Per-user channel profiles**: Load available entertainment channel IDs for a selected area, choose which IDs each mapped user drives, and keep capture, cinema dimming, streaming, restoration, and Live Sync Status aligned with the captured selection
+
+### README version 1.5.35
+
+- **Per-user execution profiles**: Override GPU acceleration, additional FFmpeg flags, stall timeout, and Hue REST/DTLS retry attempts per mapping while inheriting global defaults; the captured policy and sanitized diagnostics are shown in Live Sync Status
+
+### README version 1.5.34
+
+- **Per-user color scene policies**: Override blackout and color-change thresholds per mapping while inheriting global defaults; the complete active color policy is captured at playback start and shown in Live Sync Status
+
+### README version 1.5.33
+
+- **Per-user light-state restoration**: Choose whether each mapped user captures/restores original light state or follows the cinema/default cleanup behavior; blank fields inherit the global setting and the active policy is reported in Live Sync Status
+
+### README version 1.5.32
+
+- **Per-user performance profiles**: Override capture FPS, frame resolution, video fit, deinterlacing, sampling, and temporal smoothing per mapping while preserving global inheritance and reporting the active session profile
+
+### README version 1.5.31
+
+- **RGB white-balance calibration**: Adjust red, green, and blue channel gains globally or per mapping (50-200%, neutral 100%) before saturation and hue processing
+
+### README version 1.5.30
+
+- **Per-user playback profiles**: Choose Cinema Mode, dim level, and pause behavior independently per mapping; blank fields inherit the global settings
+
+### README version 1.5.29
+
+- **Per-user cinema profiles**: Choose Cinema Mode independently per mapping and optionally set that user's dim level; blank fields inherit the global settings
+
+### README version 1.5.28
+
+- **Per-user color profiles**: Override Brightness Boost, Color Saturation, Hue Shift, and Output Brightness for an individual mapping; blank fields inherit the global settings
+
+### README version 1.5.27
+
+- **Global hue shift**: Rotate synced colors -180° to 180° for room-specific correction or creative palettes while preserving lightness
+
+### README version 1.5.26
+
+- **Output brightness control**: Cap synced light brightness from 0-100% after boost/saturation while preserving color balance
+
+### README version 1.5.25
+
+- **Configurable video deinterlacing**: Choose Off for progressive video, Auto for flagged interlaced frames, or On for sources that need forced deinterlacing; the active mode is reported in Live Sync Status
+
+### README version 1.5.24
+
+- **Configurable video fit modes**: Stretch (backward-compatible), Fit with letterbox bars, or Crop to fill the selected sampling resolution while preserving source aspect ratio
+
+### README version 1.5.23
+
+- **Configurable frame sampling resolution**: Choose 80×45 for the lowest CPU use, 160×90 for the compatible default, or 320×180 for finer spatial detail; the active resolution is reported in Live Sync Status
+
+### README version 1.5.22
+
+- **Configurable color sampling modes**: Choose stable Average neighborhood sampling, sharper CenterWeighted sampling, or exact CenterPixel sampling per playback session
+
+### README version 1.5.21
+
+- **Session-safe light restoration**: Keep-colors pause/resume no longer overwrites the original playback-start light snapshot, and service shutdown restores saved state before releasing Hue output
+
+### README version 1.5.20
+
+- **Configurable pause behavior**: Keep the last synced colors or restore the original captured light state when playback pauses; the previous keep-last-colors behavior remains the default
+- **Pause lifecycle diagnostics**: Live Sync Status reports the selected pause behavior and preserves the playback item while paused
+
+### README version 1.5.19
+
+- **Unified network recovery**: The existing Network Retry Attempts setting now controls both Hue REST retries and DTLS reconnect attempts, including an explicit zero-retry mode
+
+### README version 1.5.18
+
+- **Temporal color smoothing**: Optionally blend up to 90% of the previous frame into new colors to reduce flicker while preserving immediate blackout transitions
+
+### README version 1.5.17
+
+- **Configurable color sampling**: Tune the neighborhood sampled around each Hue channel from 1-50% to balance fine detail against visual stability; the default remains 15%
+
+### README version 1.5.16
+
+- **Credential-safe mapping edits**: Per-user mapping reads report credential presence without exposing App/Client Keys, and blank key fields preserve existing credentials during edits
+- **Scoped configuration flow**: Default settings load/save through `/HueSync/Configuration` without round-tripping per-user mappings through the browser
+
+### README version 1.5.15
+
+- **Mode-aware scene restoration**: Color-temperature lights return to their saved mirek state, while lights without color resources are restored without an invalid XY payload
+
+### README version 1.5.14
+
+- **FFmpeg stall recovery**: Configurable 1-60 second frame timeout with startup grace now ends stalled pipelines, restores lights, deactivates the area, and preserves an actionable Live Sync Status error
+
+### README version 1.5.13
+
+- **Startup rollback**: Partial startup failures and cancellations now dispose unowned FFmpeg streams, restore lights, deactivate the area, and preserve the diagnostic before playback moves on
+
+### README version 1.5.12
+
+- **Bounded stream recovery**: Repeated DTLS send failures now terminate sync safely, restore lights, deactivate the area, and publish an actionable error instead of leaving stale output active
+
+### README version 1.5.11
+
+- **Terminal cleanup**: Ended or failed FFmpeg frame streams now restore lights, stop the DTLS process, and deactivate the entertainment area without waiting for a later playback-stop event
+
+### README version 1.5.10
+
+- **Per-user opt-out**: Disable Hue sync for selected Jellyfin users without requiring or storing bridge credentials for that mapping; unmapped users continue using the default bridge
+
+### README version 1.5.9
+
+- **Safe runtime stop**: Administrators can stop the active Hue sync from the live status panel without stopping playback; saved lights are restored and the session remains suppressed until playback ends
+- **Session-safe lifecycle**: Stale playback stop notifications cannot reset a newer playback session after a manual stop
+
+### README version 1.5.8
+
+- **DTLS setup probe**: Test Connection can now verify the Client Key and send a low-intensity probe packet through the selected entertainment area before playback
+
+### README version 1.5.7
+
+- **Live runtime status**: The configuration page now shows lifecycle state, active bridge/area, frame count, sync duration, and FFmpeg/DTLS health with automatic refresh
+- **Actionable diagnostics**: Startup, pause, stop, bridge, and video-pipeline failures are surfaced as sanitized status messages without exposing Hue credentials
+
+### README version 1.5.6
+
+- **Connection diagnostics**: Test bridge reachability and selected-area readiness without starting playback
+
+### README version 1.5.5
+
+- **Mapping management**: Explicit Edit and Cancel controls for per-user bridge mappings
+- **Credential-safe area loading**: The configuration UI sends app keys in the request body instead of URLs
+
+### README version 1.5.4
+
+- **Bridge discovery**: Authenticated `/HueSync/DiscoverBridge` endpoint and one-click discovery for default and per-user mappings
+
+### README version 1.5.3
+
+- **Hue HTTPS compatibility**: Link-button registration uses the TLS-protected bridge API required by current firmware
+- **Scoped certificate handling**: Self-signed bridge certificates are accepted only for private/local bridge addresses; public discovery uses normal TLS validation
+- **Local bridge target validation**: Configuration and API mapping inputs reject public hosts and malformed URLs
+- **.NET 8 runtime compatibility**: Plugin JSON and encoding dependencies stay on the .NET 8 servicing line and pass the vulnerability scan
+
+### README version 1.5.0
+
+- **Playback lifecycle hardening**: Stop, pause, resume, and shutdown paths serialize cleanup and bridge deactivation safely
+- **Bridge resilience**: Transient HTTP/network failures are retried while authentication and input errors fail fast
+- **Process safety**: FFmpeg ownership/health checks and DTLS reconnects are safe across repeated starts and stops
+- **Configuration validation**: Per-user mappings validate addresses, credentials, area IDs, and duplicate users
+
+### README version 1.4.0
+
+- **Per-User Bridge Mappings**: Map different Jellyfin users to different Hue bridges and entertainment areas
+- **Multi-Room Support**: Perfect for households with multiple viewing locations
+- **Fallback Behavior**: Users without mappings automatically use default bridge settings
+
+### README version 1.3.0
+
+- **Scene Restoration**: Automatically saves and restores original light states
+- **Advanced Color Processing**: Brightness boost, saturation, hue shift, output brightness, and blackout detection
+- **Network Resilience**: Retry logic with exponential backoff for HTTP operations
+- **Status API**: New `/HueSync/Status` endpoint for monitoring sync state
+- **Cinema Mode**: Automatic light dimming during playback
+- **Performance**: ~30-50% reduction in unnecessary updates during static scenes
+
+### README version 1.2.0
+
+- Health monitoring for FFmpeg and the managed DTLS transport
+
+### README version 1.1.0
+
+- Fixed critical coordinate mapping bug for proper light positioning
+- Added pause/resume support for playback

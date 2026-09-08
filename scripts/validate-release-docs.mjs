@@ -1,6 +1,7 @@
 import fs from "node:fs";
 
 const readme = fs.readFileSync("README.md", "utf8");
+const contributing = fs.readFileSync("CONTRIBUTING.md", "utf8");
 const buildProps = fs.readFileSync("Directory.Build.props", "utf8");
 const buildResponseFile = fs.readFileSync("MSBuild.rsp", "utf8");
 const workflow = fs.readFileSync(".github/workflows/dotnet-ci.yml", "utf8");
@@ -63,17 +64,25 @@ const requiredReadmeMarkers = [
   "jellyfin-plugin-hue-release.manifest.json",
   "jellyfin-plugin-hue-release.manifest.json.sha256",
   "sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256",
-  "resolved hash-locked NuGet graph",
   "exact source commit",
-  "clean Git checkout",
   "BouncyCastle.Cryptography.dll",
   "Jellyfin.Plugin.Hue.dll",
   "meta.json",
-  "`LICENSE`",
-  "`NOTICE`",
+  "LICENSE",
+  "NOTICE",
   "Philips Hue Sync",
   "HueSync_<version>",
   "HueSync",
+  "Verify/Trust Certificate",
+  "SHA-256 fingerprint",
+  "explicitly confirm",
+  "Link Button",
+  "Restart Jellyfin",
+];
+const requiredContributorMarkers = [
+  "resolved hash-locked NuGet graph",
+  "exact source commit",
+  "clean Git checkout",
   "Jellyfin 10.9.0",
   "Jellyfin 10.10.7",
   "d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67",
@@ -98,22 +107,27 @@ for (const marker of requiredReadmeMarkers) {
     throw new Error(`README.md is missing release-installation marker: ${marker}`);
   }
 }
+for (const marker of requiredContributorMarkers) {
+  if (!contributing.includes(marker)) {
+    throw new Error(`CONTRIBUTING.md is missing release-reference marker: ${marker}`);
+  }
+}
 
 for (const staleInstruction of [
   "Download the latest release DLL",
   "You only need this one file",
 ]) {
-  if (readme.includes(staleInstruction)) {
-    throw new Error(`README.md still contains stale package guidance: ${staleInstruction}`);
+  if (readme.includes(staleInstruction) || contributing.includes(staleInstruction)) {
+    throw new Error(`Installation documentation still contains stale package guidance: ${staleInstruction}`);
   }
 }
 
 const currentVersion = String(meta.version || "").replace(/\.0$/, "");
-const currentHeadings = [...readme.matchAll(/^### Version ([^\n]+) \(Current\)$/gm)]
-  .map(match => match[1].trim());
-if (currentHeadings.length !== 1 || currentHeadings[0] !== currentVersion) {
+const currentHeadings = [...changelog.matchAll(/^## \[([\d.]+)\](?:[^\n]*)$/gm)]
+  .filter(match => match[1] === currentVersion);
+if (currentHeadings.length !== 1) {
   throw new Error(
-    `README.md must have exactly one current release heading matching meta.json (${currentVersion}); found: ${currentHeadings.join(", ") || "none"}`
+    `CHANGELOG.md must have exactly one release heading matching meta.json (${currentVersion}); found: ${currentHeadings.length}`
   );
 }
 
@@ -325,7 +339,7 @@ for (const marker of [
   "\"--security-opt\", \"no-new-privileges\"",
   "def current_runtime_user() -> str:",
   "def parse_security_options(raw_value: str) -> list[str]:",
-  "def resolve_container_user() -> str:",
+  "def resolve_container_user(*, deadline: float | None = None) -> str:",
   "def set_owner_mode(path: Path, mode: int) -> None:",
   "def parse_manifest(archive_entries: dict[str, bytes]) -> dict[str, object]:",
   "def resolve_plugin_directory_name(archive_entries: dict[str, bytes], requested_name: str | None) -> str:",
@@ -334,7 +348,7 @@ for (const marker of [
   "\"--user\", runtime_user",
   "return \"0:0\"",
   "def health_probe_command(container_name: str, timeout_seconds: int) -> list[str]:",
-  "def fetch_container_health(container_name: str, timeout_seconds: int) -> bool:",
+  "def fetch_container_health(container_name: str, timeout_seconds: int, *, deadline: float | None = None) -> bool:",
   "wait_for_runtime(",
   "cleanup_container(",
   "def run_self_test()",

@@ -1079,9 +1079,10 @@ namespace Jellyfin.Plugin.Hue.Api
             {
                 if (channel.ValueKind != System.Text.Json.JsonValueKind.Object ||
                     !channel.TryGetProperty("channel_id", out var channelIdProperty) ||
+                    channelIdProperty.ValueKind != System.Text.Json.JsonValueKind.Number ||
                     !channelIdProperty.TryGetInt32(out var channelId) ||
-                    channelId < ushort.MinValue ||
-                    channelId > ushort.MaxValue)
+                    channelId < byte.MinValue ||
+                    channelId > byte.MaxValue)
                 {
                     continue;
                 }
@@ -1136,8 +1137,8 @@ namespace Jellyfin.Plugin.Hue.Api
                     channel.TryGetProperty("channel_id", out var channelIdProperty) &&
                     channelIdProperty.ValueKind == System.Text.Json.JsonValueKind.Number &&
                     channelIdProperty.TryGetInt32(out var channelId) &&
-                    channelId >= ushort.MinValue &&
-                    channelId <= ushort.MaxValue)
+                    channelId >= byte.MinValue &&
+                    channelId <= byte.MaxValue)
                 {
                     channelIds.Add(channelId);
                 }
@@ -1689,7 +1690,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 if (!PluginConfiguration.TryParseChannelIds(request.ChannelIds, out var parsedChannelIds) ||
                     parsedChannelIds.Count == 0)
                 {
-                    return BadRequest($"channelIds must be a comma-separated list of IDs from 0 to 65535 (maximum {PluginConfiguration.MaxChannelIdsInputLength} characters).");
+                    return BadRequest($"channelIds must be a comma-separated list of IDs from 0 to 255 (maximum {PluginConfiguration.MaxChannelIdsInputLength} characters).");
                 }
 
                 requestedChannelIds = parsedChannelIds;
@@ -2196,7 +2197,7 @@ namespace Jellyfin.Plugin.Hue.Api
                 if (!PluginConfiguration.TryParseChannelIds(request.ChannelIds, out var parsedChannelIds) ||
                     parsedChannelIds.Count == 0)
                 {
-                    return BadRequest($"channelIds must be a comma-separated list of IDs from 0 to 65535 (maximum {PluginConfiguration.MaxChannelIdsInputLength} characters).");
+                    return BadRequest($"channelIds must be a comma-separated list of IDs from 0 to 255 (maximum {PluginConfiguration.MaxChannelIdsInputLength} characters).");
                 }
 
                 requestedChannelIds = parsedChannelIds;
@@ -11209,6 +11210,26 @@ namespace Jellyfin.Plugin.Hue.Api
                 return BadRequest("Plugin configuration not available.");
             }
 
+            var requestedAudioFrequencies = (
+                LowFrequencyHz: mapping.AudioLowFrequencyHzOverride ?? config.AudioLowFrequencyHz,
+                MidFrequencyHz: mapping.AudioMidFrequencyHzOverride ?? config.AudioMidFrequencyHz,
+                HighFrequencyHz: mapping.AudioHighFrequencyHzOverride ?? config.AudioHighFrequencyHz);
+            var effectiveAudioFrequencies = PluginConfiguration.NormalizeAudioFrequencyProfile(
+                requestedAudioFrequencies.LowFrequencyHz,
+                requestedAudioFrequencies.MidFrequencyHz,
+                requestedAudioFrequencies.HighFrequencyHz);
+            if (requestedAudioFrequencies != effectiveAudioFrequencies)
+            {
+                return BadRequest(new
+                {
+                    message = "User performance profile is invalid.",
+                    errors = new[]
+                    {
+                        $"{overrideLabel} effective audio frequencies must be strictly ordered low < mid < high and within {PluginConfiguration.MinAudioFrequencyHz}-{PluginConfiguration.MaxAudioFrequencyHz} Hz"
+                    }
+                });
+            }
+
             var globalSyncWasEnabled = config.SyncEnabled;
             var parsedPlaybackUserId = Guid.Empty;
             var userSyncWasEnabled = globalSyncWasEnabled &&
@@ -11311,7 +11332,8 @@ namespace Jellyfin.Plugin.Hue.Api
             // existing credential only while the mapping continues to target its
             // own bridge. Clearing the bridge address is an explicit request to
             // inherit the global bridge, so stale custom credentials must not return.
-            if (mapping.SyncEnabled && !inheritsDefaultBridge && existingMapping != null)
+            if (mapping.SyncEnabled && !inheritsDefaultBridge && existingMapping != null &&
+                IsSameBridgeTarget(mapping.HueBridgeIp, existingMapping.HueBridgeIp))
             {
                 if (string.IsNullOrWhiteSpace(mapping.HueAppKey))
                 {

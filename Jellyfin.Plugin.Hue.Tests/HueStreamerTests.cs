@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Hue;
+using Jellyfin.Plugin.Hue.Service;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Org.BouncyCastle.Security;
@@ -26,21 +27,334 @@ namespace Jellyfin.Plugin.Hue.Tests;
 ///   [12-13] 0x00 0x00 reserved
 ///   [14]    0x00  color space (RGB)
 ///   [15]    0x00  reserved
-///   Per channel (9 bytes):
-///     [0]   0x00 device type
-///     [1]   channelId >> 8
-///     [2]   channelId & 0xFF
-///     [3-8] R_hi R_lo G_hi G_lo B_hi B_lo
+///   [16-51] configuration UUID as ASCII
+///   Per channel (7 bytes): channel ID, R_hi R_lo G_hi G_lo B_hi B_lo
 /// </summary>
-public class HueStreamerTests
+public class HueStreamerTests : IDisposable
 {
+    private const string AreaId = "00112233-4455-6677-8899-aabbccddeeff";
     private readonly Mock<ILogger<HueStreamer>> _loggerMock;
     private readonly HueStreamer _streamer;
+    private readonly List<HueStreamer> _streamers = new();
 
     public HueStreamerTests()
     {
         _loggerMock = new Mock<ILogger<HueStreamer>>();
-        _streamer = new HueStreamer(_loggerMock.Object);
+        _streamer = CreateStreamer(_loggerMock.Object);
+    }
+
+    public void Dispose()
+    {
+        foreach (var streamer in _streamers)
+            streamer.StopStream();
+    }
+
+    [Fact]
+    public async Task V2Packet_SendIncludesConfigurationUuidAndByteAddressedRgb16()
+    {
+        var connection = new TestDtlsConnection();
+        var streamer = CreateStreamer(_loggerMock.Object, (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(connection));
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+
+        Assert.True(await streamer.SendColors(AreaId, new Dictionary<int, byte[]>
+        {
+            [255] = new byte[] { 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc }
+        }));
+
+        // Derived asymmetric fixture; UUID bytes are text, and RGB16 is big-endian.
+        var expected = Convert.FromHexString("48756553747265616d0200000000000030303131323233332d343435352d363637372d383839392d616162626363646465656666ff123456789abc");
+        Assert.Equal(expected, Assert.Single(connection.SentPackets));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("area-id")]
+    [InlineData("00112233445566778899aabbccddeeff")]
+    [InlineData("{00112233-4455-6677-8899-aabbccddeeff}")]
+    public async Task V2Packet_InvalidAreaFailsBeforeSendingOrReconnecting(string? areaId)
+    {
+        var connection = new TestDtlsConnection();
+        var connections = 0;
+        var streamer = CreateStreamer(_loggerMock.Object, (_, _, _, _) =>
+        {
+            connections++;
+            return Task.FromResult<IHueDtlsConnection>(connection);
+        });
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+
+        Assert.False(await streamer.SendColors(areaId!, CreateChannelColors(1)));
+        Assert.Empty(connection.SentPackets);
+        Assert.Equal(1, connections);
+        Assert.Equal(0, streamer.ReconnectAttempts);
+    }
+
+    [Fact]
+    public async Task V2Packet_CannotChangeAreaInsideLiveStream()
+    {
+        var clock = new ManualTimeProvider();
+        var connection = new TestDtlsConnection();
+        var streamer = CreateStreamer(_loggerMock.Object, (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(connection), clock);
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+        Assert.True(await streamer.SendColors(AreaId, CreateChannelColors(1)));
+
+        Assert.False(await streamer.SendColors("1a8d99cc-967b-44f2-9202-43f976c0fa6b", CreateChannelColors(1), colorChangeThreshold: 255));
+        Assert.Single(connection.SentPackets);
+        clock.Advance(TimeSpan.FromSeconds(5));
+        Assert.Equal(2, connection.SentPackets.Count);
+        Assert.All(connection.SentPackets, packet => Assert.Equal(AreaId, Encoding.ASCII.GetString(packet, 16, 36)));
+    }
+
+    [Fact]
+    public async Task V2Packet_RejectsChannel256InsteadOfTruncatingItsAddress()
+    {
+        var connection = new TestDtlsConnection();
+        var streamer = CreateStreamer(_loggerMock.Object, (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(connection));
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+
+        Assert.False(await streamer.SendColors(AreaId, new Dictionary<int, byte[]> { [256] = new byte[6] }));
+        Assert.Empty(connection.SentPackets);
+        Assert.Equal(0, streamer.ReconnectAttempts);
+    }
+
+    [Fact]
+    public void V2Packet_MatchesPublishedHyperionExample()
+    {
+        // Source-comment fixture, not a physical capture; provenance is in docs/HUE_STREAM_PROTOCOL.md.
+        SetPrivateField(_streamer, "_sequenceNumber", (byte)7);
+        var packet = _streamer.BuildHueStreamPacket("1a8d99cc-967b-44f2-9202-43f976c0fa6b", new Dictionary<int, byte[]>
+        {
+            [0] = new byte[] { 255, 255, 0, 0, 0, 0 },
+            [1] = new byte[] { 0, 0, 255, 255, 0, 0 },
+            [2] = new byte[] { 0, 0, 0, 0, 255, 255 },
+            [3] = new byte[] { 255, 255, 255, 255, 255, 255 }
+        });
+        var expected = Convert.FromHexString("48756553747265616d0200070000000031613864393963632d393637622d343466322d393230322d34336639373663306661366200ffff00000000010000ffff00000200000000ffff03ffffffffffff");
+
+        Assert.Equal(expected, packet);
+    }
+
+    [Fact]
+    public void V2Packet_PreservesByteSequenceRollover()
+    {
+        SetPrivateField(_streamer, "_sequenceNumber", (byte)254);
+        var sequences = Enumerable.Range(0, 3).Select(_ => _streamer.BuildHueStreamPacket(AreaId, CreateChannelColors(1))[11]).ToArray();
+
+        Assert.Equal(new byte[] { 254, 255, 0 }, sequences);
+    }
+
+    [Fact]
+    public async Task V2Packet_StandaloneBuilderDoesNotChangeStreamAreaAndStopClearsBinding()
+    {
+        var clock = new ManualTimeProvider();
+        var connection = new TestDtlsConnection();
+        var streamer = CreateStreamer(_loggerMock.Object, (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(connection), clock);
+        var colors = CreateChannelColors(1);
+        Assert.Throws<InvalidOperationException>(() => streamer.BuildHueStreamPacket(colors));
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+        Assert.True(await streamer.SendColors(AreaId.ToUpperInvariant(), colors));
+
+        var independentPacket = streamer.BuildHueStreamPacket("1a8d99cc-967b-44f2-9202-43f976c0fa6b", colors);
+        Assert.Equal("1a8d99cc-967b-44f2-9202-43f976c0fa6b", Encoding.ASCII.GetString(independentPacket, 16, 36));
+        Assert.Equal(AreaId, Encoding.ASCII.GetString(streamer.BuildHueStreamPacket(colors), 16, 36));
+        clock.Advance(TimeSpan.FromSeconds(5));
+        Assert.Equal(2, connection.SentPackets.Count);
+        Assert.All(connection.SentPackets, packet => Assert.Equal(AreaId, Encoding.ASCII.GetString(packet, 16, 36)));
+
+        streamer.StopStream();
+        Assert.Throws<InvalidOperationException>(() => streamer.BuildHueStreamPacket(colors));
+    }
+
+    [Fact]
+    public async Task V2Packet_ConfigurationStartBindsAreaBeforeHandshakeCompletes()
+    {
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var streamer = CreateStreamer(_loggerMock.Object, async (_, _, _, token) =>
+        {
+            entered.TrySetResult(true);
+            await release.Task.WaitAsync(token);
+            return new TestDtlsConnection();
+        });
+        var startup = streamer.StartStreamAsync(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-key",
+            HueClientKey = "client-key",
+            EntertainmentAreaId = AreaId
+        });
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(await streamer.SendColors("1a8d99cc-967b-44f2-9202-43f976c0fa6b", CreateChannelColors(1)).WaitAsync(TimeSpan.FromSeconds(1)));
+            Assert.Equal(AreaId, Encoding.ASCII.GetString(streamer.BuildHueStreamPacket(CreateChannelColors(1)), 16, 36));
+        }
+        finally
+        {
+            release.TrySetResult(true);
+            await startup.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("area-id")]
+    [InlineData("00112233445566778899aabbccddeeff")]
+    [InlineData("{00112233-4455-6677-8899-aabbccddeeff}")]
+    public async Task V2Packet_ConfigurationStartRejectsInvalidAreaBeforeTransportWork(string? areaId)
+    {
+        var connections = 0;
+        var streamer = CreateStreamer(_loggerMock.Object, (_, _, _, _) =>
+        {
+            connections++;
+            return Task.FromResult<IHueDtlsConnection>(new TestDtlsConnection());
+        });
+
+        await Assert.ThrowsAsync<ArgumentException>(() => streamer.StartStreamAsync(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-key",
+            HueClientKey = "client-key",
+            EntertainmentAreaId = areaId!
+        }));
+
+        Assert.Equal(0, connections);
+        Assert.False(streamer.IsHealthy());
+        Assert.Throws<InvalidOperationException>(() => streamer.BuildHueStreamPacket(CreateChannelColors(1)));
+    }
+
+    [Fact]
+    public async Task V2Packet_InvalidConfigurationStartPreservesAnExistingAreaBinding()
+    {
+        var connection = new TestDtlsConnection();
+        var connections = 0;
+        var streamer = CreateStreamer(_loggerMock.Object, (_, _, _, _) =>
+        {
+            connections++;
+            return Task.FromResult<IHueDtlsConnection>(connection);
+        });
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+        Assert.True(await streamer.SendColors(AreaId, CreateChannelColors(1)));
+
+        await Assert.ThrowsAsync<ArgumentException>(() => streamer.StartStreamAsync(new PluginConfiguration
+        {
+            HueBridgeIp = "192.168.1.101",
+            HueAppKey = "new-app",
+            HueClientKey = "new-client",
+            EntertainmentAreaId = "invalid-area"
+        }));
+
+        Assert.Equal(1, connections);
+        Assert.True(streamer.IsHealthy());
+        Assert.Equal(AreaId, Encoding.ASCII.GetString(streamer.BuildHueStreamPacket(CreateChannelColors(1)), 16, 36));
+    }
+
+    [Fact]
+    public async Task V2Packet_ReconnectCallbackCannotMutateTheOwnedFrame()
+    {
+        var clock = new ManualTimeProvider();
+        var initialConnection = new TestDtlsConnection();
+        var replacementConnection = new TestDtlsConnection();
+        var connections = 0;
+        var streamer = CreateStreamer(_loggerMock.Object,
+            (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(++connections == 1 ? initialConnection : replacementConnection), clock);
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+        var rgb = new byte[] { 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc };
+        var expected = (byte[])rgb.Clone();
+        var callerColors = new Dictionary<int, byte[]> { [255] = rgb };
+        streamer.OnBeforeReconnectWithCancellation = _ =>
+        {
+            rgb[0] = 99;
+            callerColors.Clear();
+            callerColors[256] = new byte[] { 1, 2, 3, 4, 5, 6 };
+            return Task.FromResult(true);
+        };
+        initialConnection.IsHealthy = false;
+
+        Assert.True(await streamer.SendColors(AreaId, callerColors).WaitAsync(TimeSpan.FromSeconds(5)));
+        clock.Advance(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, connections);
+        Assert.Equal(2, replacementConnection.SentPackets.Count);
+        Assert.All(replacementConnection.SentPackets, packet =>
+        {
+            Assert.Equal(255, packet[52]);
+            Assert.Equal(expected, packet[53..]);
+        });
+        Assert.True(callerColors.ContainsKey(256));
+    }
+
+    [Fact]
+    public async Task V2Packet_TransportCallbackCannotChangeTheCachedKeepAliveFrame()
+    {
+        var clock = new ManualTimeProvider();
+        var connection = new TestDtlsConnection();
+        var streamer = CreateStreamer(_loggerMock.Object,
+            (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(connection), clock);
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+        var rgb = new byte[] { 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc };
+        var expected = (byte[])rgb.Clone();
+        var callerColors = new Dictionary<int, byte[]> { [255] = rgb };
+        connection.OnSend = () =>
+        {
+            rgb[0] = 99;
+            callerColors.Clear();
+            callerColors[256] = new byte[] { 1, 2, 3, 4, 5, 6 };
+        };
+
+        Assert.True(await streamer.SendColors(AreaId, callerColors));
+        clock.Advance(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, connection.SentPackets.Count);
+        Assert.All(connection.SentPackets, packet =>
+        {
+            Assert.Equal(255, packet[52]);
+            Assert.Equal(expected, packet[53..]);
+        });
+        Assert.Equal(0, streamer.PacketSendFailures);
+    }
+
+    [Theory]
+    [InlineData(256, 6)]
+    [InlineData(-1, 6)]
+    [InlineData(0, 5)]
+    [InlineData(0, 7)]
+    public void V2Packet_InternalSerializerCannotBypassFrameValidation(int channelId, int colorLength)
+    {
+        var method = typeof(HueStreamer).GetMethod("BuildHueStreamPacketCore",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var colors = new Dictionary<int, byte[]> { [channelId] = new byte[colorLength] };
+
+        var exception = Assert.Throws<System.Reflection.TargetInvocationException>(() =>
+            method.Invoke(_streamer, new object[] { Guid.Parse(AreaId), colors }));
+
+        Assert.IsAssignableFrom<ArgumentException>(exception.InnerException);
+        Assert.Equal((byte)0, GetPrivateField<byte>(_streamer, "_sequenceNumber"));
+    }
+
+    [Fact]
+    public void V2Packet_StandaloneBuilderAllocatesOnlyItsOutputBuffer()
+    {
+        var colors = CreateChannelColors(HueStreamer.MaxHueStreamChannels);
+        _streamer.BuildHueStreamPacket(AreaId, colors);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+
+        var packet = _streamer.BuildHueStreamPacket(AreaId, colors);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(allocated <= packet.Length + 64, $"Allocated {allocated} bytes for a {packet.Length}-byte packet.");
+    }
+
+    private HueStreamer CreateStreamer(
+        ILogger<HueStreamer> logger,
+        Func<string, string, string, CancellationToken, Task<IHueDtlsConnection>>? connect = null,
+        TimeProvider? timeProvider = null)
+    {
+        var streamer = new HueStreamer(logger, connect, timeProvider);
+        _streamers.Add(streamer);
+        return streamer;
     }
 
     [Theory]
@@ -73,7 +387,7 @@ public class HueStreamerTests
     [Fact]
     public async Task StartStreamAsync_WhenHandshakeIsCanceledDoesNotLeaveABackgroundTask()
     {
-        var streamer = new HueStreamer(
+        var streamer = CreateStreamer(
             _loggerMock.Object,
             async (_, _, _, cancellationToken) =>
             {
@@ -102,7 +416,7 @@ public class HueStreamerTests
         var reconnectStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseReconnect = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var connectionNumber = 0;
-        var streamer = new HueStreamer(
+        var streamer = CreateStreamer(
             _loggerMock.Object,
             async (_, _, _, cancellationToken) =>
             {
@@ -129,7 +443,7 @@ public class HueStreamerTests
 
         firstConnection.ThrowOnSend = true;
         Assert.False(await streamer.SendColors(
-            "area-id",
+            AreaId,
             new Dictionary<int, byte[]> { [1] = new byte[] { 1, 1, 2, 2, 3, 3 } }));
 
         await reconnectStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -146,7 +460,7 @@ public class HueStreamerTests
 
         Assert.True(streamer.IsHealthy());
         Assert.True(await streamer.SendColors(
-            "area-id",
+            AreaId,
             new Dictionary<int, byte[]> { [1] = new byte[] { 4, 4, 5, 5, 6, 6 } }));
     }
 
@@ -154,7 +468,7 @@ public class HueStreamerTests
     public async Task ScheduleReconnect_WhenPreparationCancelsWithUnrelatedToken_DoesNotReadCanceledResult()
     {
         var connection = new TestDtlsConnection();
-        var streamer = new HueStreamer(
+        var streamer = CreateStreamer(
             _loggerMock.Object,
             (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(connection));
 
@@ -193,7 +507,7 @@ public class HueStreamerTests
                 streamer!.StopStream();
         };
 
-        streamer = new HueStreamer(
+        streamer = CreateStreamer(
             logger,
             (_, _, _, _) =>
             {
@@ -209,7 +523,7 @@ public class HueStreamerTests
         Assert.Equal(0, connectionCount);
         Assert.False(streamer.IsHealthy());
         Assert.False(await streamer.SendColors(
-            "area-id",
+            AreaId,
             new Dictionary<int, byte[]> { [1] = new byte[] { 1, 1, 2, 2, 3, 3 } }));
         Assert.Equal(0, streamer.ReconnectAttempts);
     }
@@ -230,7 +544,7 @@ public class HueStreamerTests
             }
         };
 
-        streamer = new HueStreamer(
+        streamer = CreateStreamer(
             logger,
             (_, _, _, _) =>
             {
@@ -242,7 +556,8 @@ public class HueStreamerTests
         {
             HueBridgeIp = "192.168.1.100",
             HueAppKey = "app-key",
-            HueClientKey = "stream-client-key"
+            HueClientKey = "stream-client-key",
+            EntertainmentAreaId = AreaId
         };
 
         await streamer.StartStreamAsync(config);
@@ -251,7 +566,7 @@ public class HueStreamerTests
         Assert.False(streamer.IsHealthy());
         streamer.MaxReconnectAttempts = 1;
         Assert.False(await streamer.SendColors(
-            "area-id",
+            AreaId,
             new Dictionary<int, byte[]> { [1] = new byte[] { 1, 1, 2, 2, 3, 3 } }));
         Assert.Equal(1, connectionCount);
         Assert.Equal(0, streamer.ReconnectAttempts);
@@ -273,7 +588,7 @@ public class HueStreamerTests
         var firstConnection = new TestDtlsConnection();
         var failedReconnectStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var connectionNumber = 0;
-        var streamer = new HueStreamer(
+        var streamer = CreateStreamer(
             _loggerMock.Object,
             (_, _, _, _) =>
             {
@@ -297,13 +612,13 @@ public class HueStreamerTests
 
         firstConnection.ThrowOnSend = true;
         var colors = new Dictionary<int, byte[]> { [1] = new byte[] { 1, 1, 2, 2, 3, 3 } };
-        Assert.False(await streamer.SendColors("area-id", colors));
+        Assert.False(await streamer.SendColors(AreaId, colors));
 
         await failedReconnectStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         // The first reconnect returns an unhealthy connection. The saved target must
         // survive that failure so this subsequent frame can perform attempt two.
-        Assert.True(await streamer.SendColors("area-id", colors));
+        Assert.True(await streamer.SendColors(AreaId, colors));
         Assert.Equal(3, connectionNumber);
         Assert.Equal(2, streamer.ReconnectAttempts);
         Assert.True(streamer.IsHealthy());
@@ -317,7 +632,7 @@ public class HueStreamerTests
         var firstConnection = new TestDtlsConnection { ThrowObjectDisposedOnSend = true };
         var reconnectStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var connectionNumber = 0;
-        var streamer = new HueStreamer(
+        var streamer = CreateStreamer(
             _loggerMock.Object,
             (_, _, _, _) =>
             {
@@ -335,12 +650,12 @@ public class HueStreamerTests
             "00112233445566778899aabbccddeeff");
 
         var colors = new Dictionary<int, byte[]> { [1] = new byte[] { 1, 1, 2, 2, 3, 3 } };
-        Assert.False(await streamer.SendColors("area-id", colors));
+        Assert.False(await streamer.SendColors(AreaId, colors));
 
         await reconnectStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         // The next frame joins the in-flight bounded reconnect and proves that a
         // transport disposal cannot leave the stream permanently wedged.
-        Assert.True(await streamer.SendColors("area-id", colors));
+        Assert.True(await streamer.SendColors(AreaId, colors));
         Assert.Equal(2, connectionNumber);
         Assert.Equal(1, streamer.ReconnectAttempts);
 
@@ -354,7 +669,7 @@ public class HueStreamerTests
         cancellationSource.Cancel();
 
         var sent = await _streamer.SendColors(
-            "area-id",
+            AreaId,
             new Dictionary<int, byte[]> { [1] = new byte[] { 1, 1, 2, 2, 3, 3 } },
             cancellationToken: cancellationSource.Token);
 
@@ -371,8 +686,8 @@ public class HueStreamerTests
             [1] = new byte[] { 10, 10, 20, 20, 30, 30 }
         };
 
-        Assert.True(await _streamer.SendColors("area-id", colors));
-        Assert.True(await _streamer.SendColors("area-id", colors, colorChangeThreshold: 1));
+        Assert.True(await _streamer.SendColors(AreaId, colors));
+        Assert.True(await _streamer.SendColors(AreaId, colors, colorChangeThreshold: 1));
 
         Assert.Equal(1, _streamer.PacketsSent);
         Assert.Equal(1, _streamer.PacketsSkippedByThreshold);
@@ -396,11 +711,410 @@ public class HueStreamerTests
             [1] = (byte[])colors[1].Clone()
         });
 
-        var sent = await _streamer.SendColors("area-id", colors, colorChangeThreshold: 1);
+        var sent = await _streamer.SendColors(AreaId, colors, colorChangeThreshold: 1);
 
         Assert.False(sent);
         Assert.Equal(0, _streamer.PacketsSkippedByThreshold);
         Assert.Equal(1, _streamer.PacketSendFailures);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task KeepAlive_ResendsStaticOrBlackFramesBeyondTheBridgeIdleWindow(bool black)
+    {
+        var clock = new ManualTimeProvider();
+        var connection = new TestDtlsConnection();
+        var streamer = CreateStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(connection),
+            clock);
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+        var colors = black
+            ? new Dictionary<int, byte[]> { [1] = new byte[6] }
+            : CreateChannelColors(1);
+
+        Assert.True(await streamer.SendColors(AreaId, colors));
+        for (var second = 0; second < 30; second++)
+        {
+            Assert.True(await streamer.SendColors(AreaId, colors, colorChangeThreshold: 1));
+            clock.Advance(TimeSpan.FromSeconds(1));
+        }
+
+        Assert.Equal(7, streamer.PacketsSent);
+        Assert.Equal(30, streamer.PacketsSkippedByThreshold);
+        Assert.Equal(0, streamer.PacketSendFailures);
+        var originalPacket = connection.SentPackets[0];
+        for (var index = 1; index < connection.SentPackets.Count; index++)
+        {
+            var packet = connection.SentPackets[index];
+            Assert.Equal((byte)index, packet[11]);
+            Assert.Equal(originalPacket[16..], packet[16..]);
+        }
+    }
+
+    [Fact]
+    public async Task KeepAlive_WhenProducerPreservesLastColors_UsesAnOwnedSnapshotWithoutNewFrames()
+    {
+        var clock = new ManualTimeProvider();
+        var connection = new TestDtlsConnection();
+        var streamer = CreateStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(connection),
+            clock);
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+        var colors = CreateChannelColors(1);
+        Assert.True(await streamer.SendColors(AreaId, colors));
+        var sentColors = connection.SentPackets[0][16..];
+        colors[0][0] = 99;
+        colors.Clear();
+
+        // Video and audio KeepLastColors branches make no further SendColors calls.
+        clock.Advance(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(7, streamer.PacketsSent);
+        Assert.All(connection.SentPackets, packet => Assert.Equal(sentColors, packet[16..]));
+        Assert.Equal(0, streamer.PacketsSkippedByThreshold);
+    }
+
+    [Fact]
+    public async Task KeepAlive_DoesNotInventColorsBeforeTheFirstSuccessfulFrame()
+    {
+        var clock = new ManualTimeProvider();
+        var connection = new TestDtlsConnection();
+        var streamer = CreateStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(connection),
+            clock);
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+
+        clock.Advance(TimeSpan.FromSeconds(30));
+
+        Assert.Empty(connection.SentPackets);
+        Assert.Equal(0, streamer.ReconnectAttempts);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task SendColors_AfterInitialIdleWindow_ReactivatesBeforeTheFirstFrameOrFailsClosed(int retryAttempts)
+    {
+        var clock = new ManualTimeProvider();
+        var initialConnection = new TestDtlsConnection();
+        var replacementConnection = new TestDtlsConnection();
+        var connections = 0;
+        var activations = 0;
+        var streamer = CreateStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) =>
+            {
+                connections++;
+                if (connections == 1)
+                    return Task.FromResult<IHueDtlsConnection>(initialConnection);
+
+                Assert.Equal(1, activations);
+                Assert.Empty(initialConnection.SentPackets);
+                return Task.FromResult<IHueDtlsConnection>(replacementConnection);
+            },
+            clock);
+        streamer.MaxReconnectAttempts = retryAttempts;
+        streamer.OnBeforeReconnectWithCancellation = _ =>
+        {
+            activations++;
+            return Task.FromResult(true);
+        };
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+
+        clock.Advance(TimeSpan.FromSeconds(30));
+
+        Assert.True(initialConnection.IsHealthy);
+        Assert.False(streamer.IsHealthy());
+        Assert.Empty(initialConnection.SentPackets);
+        var colors = CreateChannelColors(1);
+        Assert.Equal(retryAttempts > 0, await streamer.SendColors(AreaId, colors));
+
+        Assert.Empty(initialConnection.SentPackets);
+        Assert.Equal(retryAttempts, streamer.ReconnectAttempts);
+        Assert.Equal(retryAttempts, activations);
+        Assert.Equal(retryAttempts + 1, connections);
+        if (retryAttempts > 0)
+        {
+            Assert.Equal(colors[0], Assert.Single(replacementConnection.SentPackets)[53..]);
+            Assert.True(streamer.IsHealthy());
+        }
+        else
+        {
+            Assert.Empty(replacementConnection.SentPackets);
+            Assert.Equal(1, streamer.PacketSendFailures);
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task KeepAlive_AfterSuspendedTimer_ReactivatesBeforeResendingOrFailsClosed(int retryAttempts)
+    {
+        var clock = new ManualTimeProvider();
+        var initialConnection = new TestDtlsConnection();
+        var replacementConnection = new TestDtlsConnection();
+        var connections = 0;
+        var activations = 0;
+        var streamer = CreateStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(
+                ++connections == 1 ? initialConnection : replacementConnection),
+            clock);
+        streamer.MaxReconnectAttempts = retryAttempts;
+        streamer.OnBeforeReconnectWithCancellation = _ =>
+        {
+            activations++;
+            Assert.Single(initialConnection.SentPackets);
+            return Task.FromResult(true);
+        };
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+        Assert.True(await streamer.SendColors(AreaId, CreateChannelColors(1)));
+
+        clock.ElapseWithoutCallbacks(TimeSpan.FromSeconds(30));
+        Assert.True(initialConnection.IsHealthy);
+        Assert.False(streamer.IsHealthy());
+        clock.Timers[0].InvokeQueuedCallback();
+        await GetPrivateField<Task>(streamer, "_keepAliveTask").WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Single(initialConnection.SentPackets);
+        Assert.Equal(retryAttempts, streamer.ReconnectAttempts);
+        Assert.Equal(retryAttempts, activations);
+        Assert.Equal(retryAttempts + 1, connections);
+        if (retryAttempts > 0)
+        {
+            Assert.Equal(initialConnection.SentPackets[0][16..], Assert.Single(replacementConnection.SentPackets)[16..]);
+            Assert.True(streamer.IsHealthy());
+        }
+        else
+        {
+            Assert.Empty(replacementConnection.SentPackets);
+        }
+    }
+
+    [Theory]
+    [InlineData("startup")]
+    [InlineData("frame")]
+    [InlineData("stop")]
+    public async Task SendColors_WhenFirstFrameReactivationIsCanceled_DoesNotWriteOrInstallATransport(string cancelOwner)
+    {
+        var clock = new ManualTimeProvider();
+        var connection = new TestDtlsConnection();
+        var connections = 0;
+        var activationStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var streamer = CreateStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) =>
+            {
+                connections++;
+                return Task.FromResult<IHueDtlsConnection>(connection);
+            },
+            clock);
+        using var startupCancellation = new CancellationTokenSource();
+        using var frameCancellation = new CancellationTokenSource();
+        streamer.OnBeforeReconnectWithCancellation = async token =>
+        {
+            activationStarted.TrySetResult(true);
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            return true;
+        };
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key", startupCancellation.Token);
+        clock.Advance(TimeSpan.FromSeconds(30));
+
+        var send = streamer.SendColors(AreaId, CreateChannelColors(1), cancellationToken: frameCancellation.Token);
+        await activationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        if (cancelOwner == "startup")
+            startupCancellation.Cancel();
+        else if (cancelOwner == "frame")
+            frameCancellation.Cancel();
+        else
+            streamer.StopStream();
+
+        Assert.False(await send.WaitAsync(TimeSpan.FromSeconds(2)));
+        clock.Advance(TimeSpan.FromSeconds(30));
+        Assert.Equal(1, connections);
+        Assert.Empty(connection.SentPackets);
+        Assert.False(streamer.IsHealthy());
+    }
+
+    [Fact]
+    public async Task KeepAlive_DoesNotDuplicateRegularTrafficAndUsesTheLatestSuccessfulColors()
+    {
+        var clock = new ManualTimeProvider();
+        var connection = new TestDtlsConnection();
+        var streamer = CreateStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(connection),
+            clock);
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+        for (byte second = 0; second < 20; second++)
+        {
+            Assert.True(await streamer.SendColors(
+                AreaId,
+                new Dictionary<int, byte[]> { [1] = new byte[] { second, 0, 2, 0, 3, 0 } }));
+            clock.Advance(TimeSpan.FromSeconds(1));
+        }
+
+        Assert.Equal(20, streamer.PacketsSent);
+        clock.Advance(TimeSpan.FromSeconds(3));
+        Assert.Equal(20, streamer.PacketsSent);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(21, streamer.PacketsSent);
+        Assert.Equal(connection.SentPackets[19][16..], connection.SentPackets[20][16..]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task KeepAlive_WhenStartupOrFrameTokenIsCanceled_DoesNotSendOrReconnect(bool cancelStartup)
+    {
+        var clock = new ManualTimeProvider();
+        var connection = new TestDtlsConnection();
+        var streamer = CreateStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(connection),
+            clock);
+        using var cancellation = new CancellationTokenSource();
+        await streamer.StartStreamAsync(
+            "192.168.1.100", "app-key", "client-key",
+            cancelStartup ? cancellation.Token : CancellationToken.None);
+        Assert.True(await streamer.SendColors(
+            AreaId, CreateChannelColors(1),
+            cancellationToken: cancelStartup ? CancellationToken.None : cancellation.Token));
+
+        cancellation.Cancel();
+        clock.Advance(TimeSpan.FromSeconds(15));
+        connection.IsHealthy = false;
+        clock.Advance(TimeSpan.FromSeconds(15));
+
+        Assert.Equal(1, streamer.PacketsSent);
+        Assert.Equal(0, streamer.ReconnectAttempts);
+    }
+
+    [Fact]
+    public async Task KeepAlive_WhenStoppedOrReplaced_RejectsAlreadyQueuedTimerCallbacks()
+    {
+        var clock = new ManualTimeProvider();
+        var firstConnection = new TestDtlsConnection();
+        var secondConnection = new TestDtlsConnection();
+        var connectionCount = 0;
+        var streamer = CreateStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(
+                ++connectionCount == 1 ? firstConnection : secondConnection),
+            clock);
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+        Assert.True(await streamer.SendColors(AreaId, CreateChannelColors(1)));
+        var retiredTimer = clock.Timers[0];
+
+        streamer.StopStream();
+        clock.Advance(TimeSpan.FromSeconds(30));
+        retiredTimer.InvokeQueuedCallback();
+        Assert.True(retiredTimer.IsDisposed);
+        Assert.Single(firstConnection.SentPackets);
+        Assert.Equal(0, streamer.ReconnectAttempts);
+
+        await streamer.StartStreamAsync("192.168.1.101", "new-app-key", "new-client-key");
+        clock.Advance(TimeSpan.FromSeconds(1));
+        retiredTimer.InvokeQueuedCallback();
+        Assert.Empty(secondConnection.SentPackets);
+        Assert.True(await streamer.SendColors(
+            "1a8d99cc-967b-44f2-9202-43f976c0fa6b", new Dictionary<int, byte[]> { [2] = new byte[] { 9, 9, 8, 8, 7, 7 } }));
+        clock.Advance(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, secondConnection.SentPackets.Count);
+        Assert.Equal(secondConnection.SentPackets[0][16..], secondConnection.SentPackets[1][16..]);
+        Assert.Single(firstConnection.SentPackets);
+    }
+
+    [Fact]
+    public async Task KeepAlive_WhenConnectionFails_ReconnectsAndResendsWithoutNewProducerFrames()
+    {
+        var clock = new ManualTimeProvider();
+        var firstConnection = new TestDtlsConnection();
+        var replacementConnection = new TestDtlsConnection();
+        var connectionCount = 0;
+        var streamer = CreateStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(
+                ++connectionCount == 1 ? firstConnection : replacementConnection),
+            clock);
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+        Assert.True(await streamer.SendColors(AreaId, CreateChannelColors(1)));
+        firstConnection.ThrowOnSend = true;
+
+        clock.Advance(TimeSpan.FromSeconds(5));
+        await GetPrivateField<Task>(streamer, "_keepAliveTask").WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, streamer.ReconnectAttempts);
+        Assert.Equal(1, streamer.PacketSendFailures);
+        Assert.Single(replacementConnection.SentPackets);
+        Assert.Equal(firstConnection.SentPackets[0][16..], replacementConnection.SentPackets[0][16..]);
+        clock.Advance(TimeSpan.FromSeconds(10));
+        Assert.Equal(3, replacementConnection.SentPackets.Count);
+        Assert.Equal(1, clock.Timers.Count(timer => !timer.IsDisposed));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task KeepAlive_WhenRetryIsCanceled_DoesNotOpenAnotherConnection(bool stopStream)
+    {
+        var clock = new ManualTimeProvider();
+        var connection = new TestDtlsConnection();
+        var connectionCount = 0;
+        var streamer = CreateStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) =>
+            {
+                connectionCount++;
+                return Task.FromResult<IHueDtlsConnection>(connection);
+            },
+            clock);
+        using var cancellation = new CancellationTokenSource();
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+        Assert.True(await streamer.SendColors(
+            AreaId, CreateChannelColors(1), cancellationToken: cancellation.Token));
+        connection.IsHealthy = false;
+
+        clock.Advance(TimeSpan.FromSeconds(5));
+        var keepAlive = GetPrivateField<Task>(streamer, "_keepAliveTask");
+        if (stopStream)
+            streamer.StopStream();
+        else
+            cancellation.Cancel();
+        await keepAlive.WaitAsync(TimeSpan.FromSeconds(2));
+        clock.Advance(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(1, connectionCount);
+        Assert.Single(connection.SentPackets);
+        Assert.Equal(1, streamer.ReconnectAttempts);
+    }
+
+    [Fact]
+    public async Task KeepAlive_WhenReconnectBudgetIsExhausted_DoesNotStartUnboundedRetries()
+    {
+        var clock = new ManualTimeProvider();
+        var connection = new TestDtlsConnection();
+        var streamer = CreateStreamer(
+            _loggerMock.Object,
+            (_, _, _, _) => Task.FromResult<IHueDtlsConnection>(connection),
+            clock);
+        streamer.MaxReconnectAttempts = 1;
+        streamer.OnBeforeReconnect = () => Task.FromResult(false);
+        await streamer.StartStreamAsync("192.168.1.100", "app-key", "client-key");
+        Assert.True(await streamer.SendColors(AreaId, CreateChannelColors(1)));
+        connection.IsHealthy = false;
+
+        clock.Advance(TimeSpan.FromSeconds(5));
+        await GetPrivateField<Task>(streamer, "_keepAliveTask").WaitAsync(TimeSpan.FromSeconds(5));
+        clock.Advance(TimeSpan.FromSeconds(60));
+
+        Assert.Equal(1, streamer.ReconnectAttempts);
+        Assert.Single(connection.SentPackets);
     }
 
     [Fact]
@@ -413,13 +1127,13 @@ public class HueStreamerTests
             [1] = new byte[] { 10, 10, 20, 20, 30, 30 }
         };
 
-        Assert.True(await _streamer.SendColors("area-id", validColors));
+        Assert.True(await _streamer.SendColors(AreaId, validColors));
 
         var malformedColors = new Dictionary<int, byte[]>
         {
             [1] = new byte[] { 10, 10, 20 }
         };
-        Assert.False(await _streamer.SendColors("area-id", malformedColors, colorChangeThreshold: 1));
+        Assert.False(await _streamer.SendColors(AreaId, malformedColors, colorChangeThreshold: 1));
 
         Assert.Equal(1, _streamer.PacketsSent);
         Assert.Equal(1, _streamer.PacketSendFailures);
@@ -437,13 +1151,13 @@ public class HueStreamerTests
             [1] = new byte[] { 10, 10, 20, 20, 30, 30 }
         };
 
-        Assert.True(await _streamer.SendColors("area-id", validColors));
+        Assert.True(await _streamer.SendColors(AreaId, validColors));
 
         var malformedColors = new Dictionary<int, byte[]>
         {
             [1] = null!
         };
-        Assert.False(await _streamer.SendColors("area-id", malformedColors, colorChangeThreshold: 1));
+        Assert.False(await _streamer.SendColors(AreaId, malformedColors, colorChangeThreshold: 1));
 
         Assert.Equal(1, _streamer.PacketsSent);
         Assert.Equal(1, _streamer.PacketSendFailures);
@@ -462,7 +1176,7 @@ public class HueStreamerTests
             [1] = new byte[] { 1, 2, 3 }
         };
 
-        Assert.False(await _streamer.SendColors("area-id", malformedColors, colorChangeThreshold: 1));
+        Assert.False(await _streamer.SendColors(AreaId, malformedColors, colorChangeThreshold: 1));
 
         Assert.Equal(1, _streamer.PacketSendFailures);
         Assert.Equal(0, _streamer.ReconnectAttempts);
@@ -476,7 +1190,7 @@ public class HueStreamerTests
         SetPrivateField(_streamer, "_dtlsConnection", connection);
         var oversizedColors = CreateChannelColors(HueStreamer.MaxHueStreamChannels + 1);
 
-        Assert.False(await _streamer.SendColors("area-id", oversizedColors));
+        Assert.False(await _streamer.SendColors(AreaId, oversizedColors));
 
         Assert.Equal(0, connection.SendCount);
         Assert.Equal(1, _streamer.PacketSendFailures);
@@ -506,6 +1220,7 @@ public class HueStreamerTests
         using var sender = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         sender.Connect((IPEndPoint)receiver.LocalEndPoint!);
         using var transport = new HueDatagramTransport(sender);
+        Assert.InRange(sender.SendTimeout, 1, 1000);
 
         var payload = "Hue DTLS test"u8.ToArray();
         receiver.SendTo(payload, sender.LocalEndPoint!);
@@ -532,23 +1247,18 @@ public class HueStreamerTests
 
     [Theory]
     [InlineData(0, 0, 0, 0, 0, 0)]         // Black
-    [InlineData(255, 255, 255, 127, 127, 127)] // White (halved)
-    [InlineData(255, 0, 0, 127, 0, 0)]      // Red
-    [InlineData(0, 255, 0, 0, 127, 0)]      // Green
-    [InlineData(0, 0, 255, 0, 0, 127)]      // Blue
-    [InlineData(128, 128, 128, 64, 64, 64)] // Gray
-    public void EncodeColorFor16Bit_CorrectlyHalvesValues(
+    [InlineData(255, 255, 255, 255, 255, 255)] // White
+    [InlineData(255, 0, 0, 255, 0, 0)]      // Red
+    [InlineData(0, 255, 0, 0, 255, 0)]      // Green
+    [InlineData(0, 0, 255, 0, 0, 255)]      // Blue
+    [InlineData(128, 128, 128, 128, 128, 128)] // Gray
+    [InlineData(1, 1, 1, 1, 1, 1)]
+    public void EncodeColorFor16Bit_UsesFullRangeProductionEncoder(
         byte inputR, byte inputG, byte inputB,
         byte expectedR, byte expectedG, byte expectedB)
     {
-        // The HueStream protocol halves 8-bit values for 16-bit encoding
-        var encodedR = (byte)(inputR / 2);
-        var encodedG = (byte)(inputG / 2);
-        var encodedB = (byte)(inputB / 2);
-
-        Assert.Equal(expectedR, encodedR);
-        Assert.Equal(expectedG, encodedG);
-        Assert.Equal(expectedB, encodedB);
+        var encoded = HueSyncService.EncodeRgb16(inputR, inputG, inputB);
+        Assert.Equal(new byte[] { expectedR, expectedR, expectedG, expectedG, expectedB, expectedB }, encoded);
     }
 
     [Fact]
@@ -633,9 +1343,13 @@ public class HueStreamerTests
 
         public int SendCount { get; private set; }
 
+        public List<byte[]> SentPackets { get; } = new();
+
         public bool ThrowOnSend { get; set; }
 
         public bool ThrowObjectDisposedOnSend { get; set; }
+
+        public Action? OnSend { get; set; }
 
         public void Send(byte[] buffer, int offset, int count)
         {
@@ -648,11 +1362,117 @@ public class HueStreamerTests
                 IsHealthy = false;
                 throw new IOException("synthetic DTLS failure");
             }
+
+            OnSend?.Invoke();
+            SentPackets.Add(buffer.AsSpan(offset, count).ToArray());
         }
 
         public void Close()
         {
             IsHealthy = false;
+        }
+    }
+
+    private sealed class ManualTimeProvider : TimeProvider
+    {
+        private long _timestamp;
+
+        public List<ManualTimer> Timers { get; } = new();
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() => _timestamp;
+
+        public override ITimer CreateTimer(
+            TimerCallback callback,
+            object? state,
+            TimeSpan dueTime,
+            TimeSpan period)
+        {
+            var timer = new ManualTimer(this, callback, state);
+            timer.Change(dueTime, period);
+            Timers.Add(timer);
+            return timer;
+        }
+
+        public void Advance(TimeSpan elapsed)
+        {
+            var target = _timestamp + elapsed.Ticks;
+            while (true)
+            {
+                var nextTimer = Timers
+                    .Where(timer => !timer.IsDisposed && timer.NextTick <= target)
+                    .MinBy(timer => timer.NextTick);
+                if (nextTimer == null)
+                    break;
+
+                _timestamp = nextTimer.NextTick;
+                nextTimer.Fire();
+            }
+
+            _timestamp = target;
+        }
+
+        public void ElapseWithoutCallbacks(TimeSpan elapsed)
+        {
+            _timestamp += elapsed.Ticks;
+            foreach (var timer in Timers)
+                timer.SkipElapsedTicks();
+        }
+
+        public sealed class ManualTimer : ITimer
+        {
+            private readonly ManualTimeProvider _clock;
+            private readonly TimerCallback _callback;
+            private readonly object? _state;
+            private TimeSpan _period;
+
+            public ManualTimer(ManualTimeProvider clock, TimerCallback callback, object? state)
+            {
+                _clock = clock;
+                _callback = callback;
+                _state = state;
+            }
+
+            public long NextTick { get; private set; }
+
+            public bool IsDisposed { get; private set; }
+
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                if (IsDisposed)
+                    return false;
+
+                NextTick = dueTime == Timeout.InfiniteTimeSpan
+                    ? long.MaxValue
+                    : _clock.GetTimestamp() + dueTime.Ticks;
+                _period = period;
+                return true;
+            }
+
+            public void Fire()
+            {
+                NextTick = _period > TimeSpan.Zero
+                    ? NextTick + _period.Ticks
+                    : long.MaxValue;
+                _callback(_state);
+            }
+
+            public void InvokeQueuedCallback() => _callback(_state);
+
+            public void SkipElapsedTicks()
+            {
+                while (_period > TimeSpan.Zero && NextTick < _clock.GetTimestamp())
+                    NextTick += _period.Ticks;
+            }
+
+            public void Dispose() => IsDisposed = true;
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
         }
     }
 
@@ -791,7 +1611,7 @@ public class HueStreamerTests
             { 0, new byte[] { 127, 127, 64, 64, 32, 32 } }
         };
 
-        var packet = _streamer.BuildHueStreamPacket(channelColors);
+        var packet = _streamer.BuildHueStreamPacket(AreaId, channelColors);
 
         Assert.Equal((byte)'H', packet[0]);
         Assert.Equal((byte)'u', packet[1]);
@@ -813,7 +1633,7 @@ public class HueStreamerTests
             { 0, new byte[] { 127, 127, 64, 64, 32, 32 } }
         };
 
-        var packet = _streamer.BuildHueStreamPacket(channelColors);
+        var packet = _streamer.BuildHueStreamPacket(AreaId, channelColors);
 
         Assert.Equal(0x02, packet[9]);  // major version
         Assert.Equal(0x00, packet[10]); // minor version
@@ -828,7 +1648,7 @@ public class HueStreamerTests
             { 0, new byte[] { 127, 127, 64, 64, 32, 32 } }
         };
 
-        var packet = _streamer.BuildHueStreamPacket(channelColors);
+        var packet = _streamer.BuildHueStreamPacket(AreaId, channelColors);
 
         Assert.Equal(0x00, packet[14]); // RGB color space
     }
@@ -836,23 +1656,21 @@ public class HueStreamerTests
     [Fact]
     public void BuildHueStreamPacket_SingleChannel_CorrectSize()
     {
-        // Fixed header: 16 bytes, per channel: 9 bytes
-        // Total = 16 + 1 * 9 = 25
+        // Fixed prefix and UUID: 52 bytes, per channel: 7 bytes.
         var channelColors = new Dictionary<int, byte[]>
         {
             { 0, new byte[] { 127, 127, 64, 64, 32, 32 } }
         };
 
-        var packet = _streamer.BuildHueStreamPacket(channelColors);
+        var packet = _streamer.BuildHueStreamPacket(AreaId, channelColors);
 
-        Assert.Equal(16 + 9, packet.Length);
+        Assert.Equal(52 + 7, packet.Length);
     }
 
     [Fact]
     public void BuildHueStreamPacket_MultipleChannels_IncludesAllChannels()
     {
-        // Fixed header: 16 bytes, per channel: 9 bytes
-        // 3 channels → 16 + 3*9 = 43 bytes
+        // Three channels follow the 16-byte prefix and 36-byte UUID.
         var channelColors = new Dictionary<int, byte[]>
         {
             { 0, new byte[] { 127, 127, 0, 0, 0, 0 } },
@@ -860,74 +1678,68 @@ public class HueStreamerTests
             { 2, new byte[] { 0, 0, 0, 0, 127, 127 } }
         };
 
-        var packet = _streamer.BuildHueStreamPacket(channelColors);
+        var packet = _streamer.BuildHueStreamPacket(AreaId, channelColors);
 
-        Assert.Equal(16 + 3 * 9, packet.Length);
+        Assert.Equal(52 + 3 * 7, packet.Length);
     }
 
     [Fact]
-    public void BuildHueStreamPacket_ChannelData_DeviceTypeIsLight()
+    public void BuildHueStreamPacket_ChannelData_StartsWithChannelIdNotDeviceType()
     {
-        // First byte of each channel block (offset 16) = 0x00 (light device type)
         var channelColors = new Dictionary<int, byte[]>
         {
             { 5, new byte[] { 100, 100, 50, 50, 25, 25 } }
         };
 
-        var packet = _streamer.BuildHueStreamPacket(channelColors);
+        var packet = _streamer.BuildHueStreamPacket(AreaId, channelColors);
 
-        // Channel block starts at offset 16
-        Assert.Equal(0x00, packet[16]); // device type = light
+        Assert.Equal(5, packet[52]);
     }
 
     [Fact]
-    public void BuildHueStreamPacket_ChannelData_IdEncodedBigEndian()
+    public void BuildHueStreamPacket_ChannelData_IdOccupiesOneByte()
     {
-        // Channel ID 0x0005 → high byte = 0x00, low byte = 0x05
         var channelColors = new Dictionary<int, byte[]>
         {
             { 5, new byte[] { 100, 100, 50, 50, 25, 25 } }
         };
 
-        var packet = _streamer.BuildHueStreamPacket(channelColors);
+        var packet = _streamer.BuildHueStreamPacket(AreaId, channelColors);
 
-        Assert.Equal(0x00, packet[17]); // channel ID high byte
-        Assert.Equal(0x05, packet[18]); // channel ID low byte
+        Assert.Equal(0x05, packet[52]);
+        Assert.Equal(100, packet[53]);
     }
 
     [Fact]
     public void BuildHueStreamPacket_ChannelData_RgbBytesCorrect()
     {
-        // Channel colors [R_hi, R_lo, G_hi, G_lo, B_hi, B_lo] should appear at offsets 19-24
+        // Color bytes follow the UUID and one-byte channel ID.
         var channelColors = new Dictionary<int, byte[]>
         {
             { 0, new byte[] { 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF } }
         };
 
-        var packet = _streamer.BuildHueStreamPacket(channelColors);
+        var packet = _streamer.BuildHueStreamPacket(AreaId, channelColors);
 
-        Assert.Equal(0xAA, packet[19]); // R hi
-        Assert.Equal(0xBB, packet[20]); // R lo
-        Assert.Equal(0xCC, packet[21]); // G hi
-        Assert.Equal(0xDD, packet[22]); // G lo
-        Assert.Equal(0xEE, packet[23]); // B hi
-        Assert.Equal(0xFF, packet[24]); // B lo
+        Assert.Equal(0xAA, packet[53]); // R hi
+        Assert.Equal(0xBB, packet[54]); // R lo
+        Assert.Equal(0xCC, packet[55]); // G hi
+        Assert.Equal(0xDD, packet[56]); // G lo
+        Assert.Equal(0xEE, packet[57]); // B hi
+        Assert.Equal(0xFF, packet[58]); // B lo
     }
 
     [Fact]
-    public void BuildHueStreamPacket_DoesNotContainAreaId()
+    public void BuildHueStreamPacket_ContainsCanonicalAreaIdWithoutTerminator()
     {
-        // The area UUID must NOT appear in the packet body — it's established via the DTLS session
         var channelColors = new Dictionary<int, byte[]>
         {
             { 0, new byte[] { 100, 100, 100, 100, 100, 100 } }
         };
 
-        var packet = _streamer.BuildHueStreamPacket(channelColors);
-        var packetStr = Encoding.ASCII.GetString(packet);
-
-        // Verify no UUID-like text appears in the packet
-        Assert.True(packetStr.Length < 30); // header(9) + fixed(7) + channel(9) = 25 bytes
+        var packet = _streamer.BuildHueStreamPacket(AreaId, channelColors);
+        Assert.Equal(AreaId, Encoding.ASCII.GetString(packet, 16, 36));
+        Assert.Equal(59, packet.Length);
     }
 
     [Fact]
@@ -938,7 +1750,7 @@ public class HueStreamerTests
             { 0, new byte[] { 1, 2, 3 } }
         };
 
-        Assert.Throws<ArgumentException>(() => _streamer.BuildHueStreamPacket(channelColors));
+        Assert.Throws<ArgumentException>(() => _streamer.BuildHueStreamPacket(AreaId, channelColors));
     }
 
     [Fact]
@@ -949,7 +1761,7 @@ public class HueStreamerTests
             { 65536, new byte[] { 1, 1, 2, 2, 3, 3 } }
         };
 
-        Assert.Throws<ArgumentOutOfRangeException>(() => _streamer.BuildHueStreamPacket(channelColors));
+        Assert.Throws<ArgumentOutOfRangeException>(() => _streamer.BuildHueStreamPacket(AreaId, channelColors));
     }
 
     [Fact]
@@ -957,7 +1769,7 @@ public class HueStreamerTests
     {
         var channelColors = CreateChannelColors(HueStreamer.MaxHueStreamChannels);
 
-        var packet = _streamer.BuildHueStreamPacket(channelColors);
+        var packet = _streamer.BuildHueStreamPacket(AreaId, channelColors);
 
         Assert.Equal(
             HueStreamer.HueStreamPacketHeaderBytes +
@@ -972,7 +1784,7 @@ public class HueStreamerTests
         var channelColors = CreateChannelColors(HueStreamer.MaxHueStreamChannels + 1);
 
         var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
-            _streamer.BuildHueStreamPacket(channelColors));
+            _streamer.BuildHueStreamPacket(AreaId, channelColors));
 
         Assert.Equal("channelColors", exception.ParamName);
         Assert.Equal(HueStreamer.MaxHueStreamChannels + 1, exception.ActualValue);

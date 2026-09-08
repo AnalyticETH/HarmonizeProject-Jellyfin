@@ -1,5 +1,7 @@
 import fs from "node:fs";
 
+const apiDocs = fs.readFileSync("docs/API.md", "utf8");
+const configurationDocs = fs.readFileSync("docs/CONFIGURATION.md", "utf8");
 const readme = fs.readFileSync("README.md", "utf8");
 const controller = fs.readFileSync("Jellyfin.Plugin.Hue/Api/HueApiController.cs", "utf8");
 const pluginConfiguration = fs.readFileSync("Jellyfin.Plugin.Hue/Configuration/PluginConfiguration.cs", "utf8");
@@ -12,12 +14,12 @@ for (const marker of [
     "supported video and audio playback events",
     "Audio and AllMedia scopes process supported audio playback"
 ]) {
-    if (!readme.includes(marker)) {
-        throw new Error(`README.md media-sync documentation is missing marker: ${marker}`);
+    if (!configurationDocs.includes(marker)) {
+        throw new Error(`docs/CONFIGURATION.md media-sync documentation is missing marker: ${marker}`);
     }
 }
-if (readme.includes("Audio-only and other non-video playback is ignored safely.")) {
-    throw new Error("README.md still contains stale audio-only playback guidance");
+if ([configurationDocs, apiDocs, readme].some(text => text.includes("Audio-only and other non-video playback is ignored safely."))) {
+    throw new Error("Media-sync documentation still contains stale audio-only playback guidance");
 }
 
 const previewEndpoints = [
@@ -34,22 +36,22 @@ for (const marker of [
     "stable `mappingId` values are used only by exact-row mapping administration",
     "stable `mappingId` values are reserved for exact-row mapping operations"
 ]) {
-    if (!readme.includes(marker)) {
-        throw new Error(`README.md target identity contract is missing marker: ${marker}`);
+    if (!apiDocs.includes(marker)) {
+        throw new Error(`docs/API.md target identity contract is missing marker: ${marker}`);
     }
 }
-if (/"targetUserIds"\s*:\s*\[\s*"mapping-id/i.test(readme) ||
-    /targetRoutes[^\n]*"userId"\s*:\s*"mapping-id/i.test(readme)) {
-    throw new Error("README.md must not describe stable mapping-row IDs as target user IDs");
+if (/"targetUserIds"\s*:\s*\[\s*"mapping-id/i.test(apiDocs) ||
+    /targetRoutes[^\n]*"userId"\s*:\s*"mapping-id/i.test(apiDocs)) {
+    throw new Error("docs/API.md must not describe stable mapping-row IDs as target user IDs");
 }
 
-const registerRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Register` |"));
+const registerRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Register` |"));
 if (!registerRow) {
-    throw new Error("README.md is missing the bridge registration endpoint contract");
+    throw new Error("docs/API.md is missing the bridge registration endpoint contract");
 }
 for (const marker of ["Link Button", "private", "App Key", "Client Key", "secrets", "unpinned", "certificate"]) {
     if (!registerRow.includes(marker)) {
-        throw new Error(`README.md bridge registration contract is missing safety marker: ${marker}`);
+        throw new Error(`docs/API.md bridge registration contract is missing safety marker: ${marker}`);
     }
 }
 
@@ -58,35 +60,35 @@ for (const endpoint of [
     "POST /HueSync/BridgeCertificate/Trust",
     "DELETE /HueSync/BridgeCertificate/Trust?ipAddress=..."
 ]) {
-    const row = readme.split("\n").find(line => line.startsWith("|") && line.includes(`| \`${endpoint}\` |`));
+    const row = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes(`| \`${endpoint}\` |`));
     if (!row || !row.includes("fingerprint") || !row.includes("credential")) {
-        throw new Error(`README.md is missing certificate pinning safety guidance: ${endpoint}`);
+        throw new Error(`docs/API.md is missing certificate pinning safety guidance: ${endpoint}`);
     }
 }
 
-const historyCsvRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/SceneSchedules/History/ExportCsv?"));
+const historyCsvRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/SceneSchedules/History/ExportCsv?"));
 if (!historyCsvRow) {
-    throw new Error("README.md is missing the scheduled-history CSV endpoint contract");
+    throw new Error("docs/API.md is missing the scheduled-history CSV endpoint contract");
 }
 
-const occurrenceCsvRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/SceneSchedules/Occurrences/ExportCsv?"));
+const occurrenceCsvRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/SceneSchedules/Occurrences/ExportCsv?"));
 if (!occurrenceCsvRow) {
-    throw new Error("README.md is missing the scheduled-occurrence CSV endpoint contract");
+    throw new Error("docs/API.md is missing the scheduled-occurrence CSV endpoint contract");
 }
 for (const marker of ["targetAllEnabledMappings", "targetUserIds", "targetRoutes", "userId", "deviceId", "includeDefaultTarget"]) {
     if (!occurrenceCsvRow.includes(marker)) {
-        throw new Error(`README.md scheduled-occurrence CSV contract is missing route field: ${marker}`);
+        throw new Error(`docs/API.md scheduled-occurrence CSV contract is missing route field: ${marker}`);
     }
 }
 for (const marker of ["targetAllEnabledMappings", "targetUserIds", "targetRoutes", "userId", "deviceId", "includeDefaultTarget"]) {
     if (!historyCsvRow.includes(marker)) {
-        throw new Error(`README.md scheduled-history CSV contract is missing route field: ${marker}`);
+        throw new Error(`docs/API.md scheduled-history CSV contract is missing route field: ${marker}`);
     }
 }
 
-const calendarRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/SceneSchedules/Calendar?"));
+const calendarRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/SceneSchedules/Calendar?"));
 if (!calendarRow) {
-    throw new Error("README.md is missing the scheduled-calendar endpoint contract");
+    throw new Error("docs/API.md is missing the scheduled-calendar endpoint contract");
 }
 for (const marker of [
     "X-HUE-TARGET-ALL-ENABLED-MAPPINGS",
@@ -97,39 +99,39 @@ for (const marker of [
     "X-HUE-INCLUDE-DEFAULT-TARGET"
 ]) {
     if (!calendarRow.includes(marker)) {
-        throw new Error(`README.md scheduled-calendar contract is missing target metadata: ${marker}`);
+        throw new Error(`docs/API.md scheduled-calendar contract is missing target metadata: ${marker}`);
     }
 }
 
 for (const endpoint of previewEndpoints) {
-    const row = readme.split("\n").find(line => line.startsWith("|") && line.includes(`| \`${endpoint}\` |`));
+    const row = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes(`| \`${endpoint}\` |`));
     if (!row) {
-        throw new Error(`README.md is missing the preview endpoint contract: ${endpoint}`);
+        throw new Error(`docs/API.md is missing the preview endpoint contract: ${endpoint}`);
     }
     if (!row.includes("targetRoutes") || !row.includes("userId") || !row.includes("deviceId")) {
-        throw new Error(`README.md preview contract is missing exact device-route fields: ${endpoint}`);
+        throw new Error(`docs/API.md preview contract is missing exact device-route fields: ${endpoint}`);
     }
 }
 
 for (const endpoint of ["GET /HueSync/ScenePlaylists", "POST /HueSync/ScenePlaylists"]) {
-    const row = readme.split("\n").find(line => line.startsWith("|") && line.includes(`| \`${endpoint}\` |`));
+    const row = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes(`| \`${endpoint}\` |`));
     if (!row || !row.includes("targetRoutes") || !row.includes("userId") || !row.includes("deviceId") ||
         !row.includes("credential")) {
-        throw new Error(`README.md saved-playlist contract is missing credential-free device-route fields: ${endpoint}`);
+        throw new Error(`docs/API.md saved-playlist contract is missing credential-free device-route fields: ${endpoint}`);
     }
 }
 
-const captureCurrentColorRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Preview/CaptureCurrentColor` |"));
+const captureCurrentColorRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Preview/CaptureCurrentColor` |"));
 if (!captureCurrentColorRow ||
     !captureCurrentColorRow.includes("credential-free") ||
     !captureCurrentColorRow.includes("ambiguous duplicate user mappings") ||
     !captureCurrentColorRow.includes("before bridge contact") ||
     !captureCurrentColorRow.includes('targetDeviceId') ||
     !captureCurrentColorRow.includes('"targetDeviceId": "living-room-tv"')) {
-    throw new Error("README.md single current-light capture contract is missing credential-free duplicate or device-route guidance");
+    throw new Error("docs/API.md single current-light capture contract is missing credential-free duplicate or device-route guidance");
 }
 
-const captureCurrentColorsRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Preview/CaptureCurrentColors` |"));
+const captureCurrentColorsRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Preview/CaptureCurrentColors` |"));
 if (!captureCurrentColorsRow ||
     !captureCurrentColorsRow.includes("credential-free") ||
     !captureCurrentColorsRow.includes("all-target capture") ||
@@ -137,10 +139,10 @@ if (!captureCurrentColorsRow ||
     !captureCurrentColorsRow.includes('targetRoutes') ||
     !captureCurrentColorsRow.includes('"userId": "jellyfin-user-id-1"') ||
     !captureCurrentColorsRow.includes('"deviceId": "living-room-tv"')) {
-    throw new Error("README.md batch current-light capture contract is missing duplicate or device-route guidance");
+    throw new Error("docs/API.md batch current-light capture contract is missing duplicate or device-route guidance");
 }
 
-const targetDiagnosticsRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/TargetDiagnostics` |"));
+const targetDiagnosticsRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/TargetDiagnostics` |"));
 if (!targetDiagnosticsRow ||
     !targetDiagnosticsRow.includes("duplicateMappingGroups") ||
     !targetDiagnosticsRow.includes("stable row IDs") ||
@@ -148,40 +150,40 @@ if (!targetDiagnosticsRow ||
     !targetDiagnosticsRow.includes("before bridge contact") ||
     !targetDiagnosticsRow.includes("shared diagnostic lifecycle lease") ||
     !targetDiagnosticsRow.includes("409 Conflict")) {
-    throw new Error("README.md target-diagnostics contract is missing duplicate-group readiness and bridge-safety guidance");
+    throw new Error("docs/API.md target-diagnostics contract is missing duplicate-group readiness and bridge-safety guidance");
 }
 
-const supportBundleRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/Diagnostics/SupportBundle` |"));
+const supportBundleRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/Diagnostics/SupportBundle` |"));
 if (!supportBundleRow ||
     !supportBundleRow.includes("one shared diagnostic lease") ||
     !supportBundleRow.includes("409 Conflict")) {
-    throw new Error("README.md support-bundle contract is missing lifecycle serialization and conflict guidance");
+    throw new Error("docs/API.md support-bundle contract is missing lifecycle serialization and conflict guidance");
 }
 
-const statusRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/Status` |"));
+const statusRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `GET /HueSync/Status` |"));
 if (!statusRow || !statusRow.includes("playbackObservedAtUtc")) {
-    throw new Error("README.md status contract is missing the playback observation timestamp");
+    throw new Error("docs/API.md status contract is missing the playback observation timestamp");
 }
 
-const userMappingsRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET/POST /HueSync/UserMappings` |"));
+const userMappingsRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `GET/POST /HueSync/UserMappings` |"));
 if (!userMappingsRow ||
     !userMappingsRow.includes("valid Jellyfin user GUID") ||
     !userMappingsRow.includes("before configuration mutation") ||
     !userMappingsRow.includes("100 mapping rows") ||
     !userMappingsRow.includes("oversized mapping imports")) {
-    throw new Error("README.md user-mapping contract is missing GUID, capacity, or fail-before-mutation markers");
+    throw new Error("docs/API.md user-mapping contract is missing GUID, capacity, or fail-before-mutation markers");
 }
 
-const userMappingReconcileRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `GET/POST /HueSync/UserMappings/Reconcile` |"));
+const userMappingReconcileRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `GET/POST /HueSync/UserMappings/Reconcile` |"));
 if (!userMappingReconcileRow ||
     !userMappingReconcileRow.includes("missing") ||
     !userMappingReconcileRow.includes("duplicate") ||
     !userMappingReconcileRow.includes("credential-free") ||
     !userMappingReconcileRow.includes("atomic")) {
-    throw new Error("README.md user-mapping reconciliation contract is missing lifecycle and atomicity markers");
+    throw new Error("docs/API.md user-mapping reconciliation contract is missing lifecycle and atomicity markers");
 }
 
-const userMappingCleanupRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/UserMappings/Cleanup` |"));
+const userMappingCleanupRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/UserMappings/Cleanup` |"));
 if (!userMappingCleanupRow ||
     !userMappingCleanupRow.includes("mapping IDs") ||
     !userMappingCleanupRow.includes("report version") ||
@@ -189,13 +191,13 @@ if (!userMappingCleanupRow ||
     !userMappingCleanupRow.includes("duplicate") ||
     !userMappingCleanupRow.includes("credential-free") ||
     !userMappingCleanupRow.includes("atomic")) {
-    throw new Error("README.md user-mapping cleanup contract is missing exact-row, concurrency, safety, or atomicity markers");
+    throw new Error("docs/API.md user-mapping cleanup contract is missing exact-row, concurrency, safety, or atomicity markers");
 }
 if (!userMappingCleanupRow.includes("Stable row IDs")) {
-    throw new Error("README.md user-mapping cleanup contract is missing stable row identity guidance");
+    throw new Error("docs/API.md user-mapping cleanup contract is missing stable row identity guidance");
 }
 
-const userMappingDuplicateResolutionRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/UserMappings/ResolveDuplicates` |"));
+const userMappingDuplicateResolutionRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/UserMappings/ResolveDuplicates` |"));
 if (!userMappingDuplicateResolutionRow ||
     !userMappingDuplicateResolutionRow.includes("retainMappingId") ||
     !userMappingDuplicateResolutionRow.includes("removeMappingIds") ||
@@ -203,27 +205,27 @@ if (!userMappingDuplicateResolutionRow ||
     !userMappingDuplicateResolutionRow.includes("enabled") ||
     !userMappingDuplicateResolutionRow.includes("atomic") ||
     !userMappingDuplicateResolutionRow.includes("credential-free")) {
-    throw new Error("README.md duplicate user-mapping resolution contract is missing exact-row, readiness, concurrency, or atomicity markers");
+    throw new Error("docs/API.md duplicate user-mapping resolution contract is missing exact-row, readiness, concurrency, or atomicity markers");
 }
 
-const userMappingDeleteRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `DELETE /HueSync/UserMappings/{userId}` |"));
+const userMappingDeleteRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `DELETE /HueSync/UserMappings/{userId}` |"));
 if (!userMappingDeleteRow ||
     !userMappingDeleteRow.includes("mappingId") ||
     !userMappingDeleteRow.includes("multiple") ||
     !userMappingDeleteRow.includes("credential-free")) {
-    throw new Error("README.md user-mapping delete contract is missing exact-row and duplicate safety guidance");
+    throw new Error("docs/API.md user-mapping delete contract is missing exact-row and duplicate safety guidance");
 }
 
-const userMappingBulkDeleteRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/UserMappings/BulkDelete` |"));
+const userMappingBulkDeleteRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/UserMappings/BulkDelete` |"));
 if (!userMappingBulkDeleteRow ||
     !userMappingBulkDeleteRow.includes("mappingIds") ||
     !userMappingBulkDeleteRow.includes("userIds") ||
     !userMappingBulkDeleteRow.includes("ambiguous") ||
     !userMappingBulkDeleteRow.includes("exact")) {
-    throw new Error("README.md bulk user-mapping delete contract is missing exact-row and legacy duplicate safety guidance");
+    throw new Error("docs/API.md bulk user-mapping delete contract is missing exact-row and legacy duplicate safety guidance");
 }
 
-const configurationImportRow = readme.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Configuration/Import` |"));
+const configurationImportRow = apiDocs.split("\n").find(line => line.startsWith("|") && line.includes("| `POST /HueSync/Configuration/Import` |"));
 if (!configurationImportRow ||
     !configurationImportRow.includes("valid Jellyfin user GUIDs") ||
     !configurationImportRow.includes("canonical D-format") ||
@@ -232,7 +234,7 @@ if (!configurationImportRow ||
     !configurationImportRow.includes("targetRoutes.userId") ||
     !configurationImportRow.includes("legacy brace/N-format routes resolve") ||
     !configurationImportRow.includes("invalid documents leave the current configuration unchanged")) {
-    throw new Error("README.md configuration-import contract is missing capacity, GUID target normalization, and atomic rejection markers");
+    throw new Error("docs/API.md configuration-import contract is missing capacity, GUID target normalization, and atomic rejection markers");
 }
 
 for (const marker of [
@@ -371,7 +373,7 @@ for (const marker of [
     "if (value.Length > MaxChannelIdsInputLength)",
     "maximum 4,096 characters"
 ]) {
-    if (!pluginConfiguration.includes(marker) && !readme.includes(marker)) {
+    if (!pluginConfiguration.includes(marker) && !apiDocs.includes(marker) && !configurationDocs.includes(marker)) {
         throw new Error(`Channel-profile input bound is missing source or API documentation marker: ${marker}`);
     }
 }

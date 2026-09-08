@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import "./validate-documentation.mjs";
 
 const requiredFiles = [
   "LICENSE",
@@ -7,6 +8,8 @@ const requiredFiles = [
   "CODE_OF_CONDUCT.md",
   "SUPPORT.md",
   "RELEASE_READINESS.md",
+  "docs/CONFIGURATION.md",
+  "docs/API.md",
   ".github/ISSUE_TEMPLATE/bug_report.yml",
   ".github/ISSUE_TEMPLATE/feature_request.yml",
   ".github/ISSUE_TEMPLATE/config.yml",
@@ -68,7 +71,7 @@ if (!String(meta.changelog || "").includes("Open-source licensing: publish the c
 
 const readme = read("README.md");
 for (const marker of [
-  "license-GPL--3.0--only",
+  "GPL-3.0-only",
   "](LICENSE)",
   "[NOTICE](NOTICE)",
   "[Contributing guide](CONTRIBUTING.md)",
@@ -76,6 +79,9 @@ for (const marker of [
   "[Release readiness](RELEASE_READINESS.md)",
   "[Code of Conduct](CODE_OF_CONDUCT.md)",
   "[Issue templates](.github/ISSUE_TEMPLATE/)",
+  "[Configuration reference](docs/CONFIGURATION.md)",
+  "[Administrator API](docs/API.md)",
+  "[Changelog](CHANGELOG.md)",
 ]) {
   if (!readme.includes(marker)) {
     throw new Error(`README.md is missing open-source release guidance: ${marker}`);
@@ -126,6 +132,7 @@ for (const marker of [
   "/CODE_OF_CONDUCT.md @AnalyticETH",
   "/SUPPORT.md @AnalyticETH",
   "/RELEASE_READINESS.md @AnalyticETH",
+  "/docs/ @AnalyticETH",
   "/scripts/validate-open-source-release.mjs @AnalyticETH",
 ]) {
   if (!codeOwners.includes(marker)) {

@@ -14,10 +14,44 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 
+if ! command -v git >/dev/null 2>&1; then
+    echo "Git is required to verify release provenance." >&2
+    exit 1
+fi
+
 # Provenance is bound to the commit, so refuse to package a dirty checkout
 # whose uncommitted source files would not be represented by that SHA.
-if [ -n "$(git -c safe.directory="$PWD" status --porcelain=v1 --untracked-files=all)" ]; then
+if ! REPOSITORY_ROOT=$(git -c safe.directory="$PWD" rev-parse --show-toplevel); then
+    echo "Unable to determine the Git checkout root." >&2
+    exit 1
+fi
+SCRIPT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+if [ -z "$REPOSITORY_ROOT" ] || [ ! -d "$REPOSITORY_ROOT" ] ||
+    [ "$(cd -- "$REPOSITORY_ROOT" && pwd -P)" != "$SCRIPT_ROOT" ] ||
+    [ "$(pwd -P)" != "$SCRIPT_ROOT" ] ||
+    [ ! -f ./Jellyfin.Plugin.Hue.sln ] || [ ! -f ./Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj ] ||
+    [ ! -f ./meta.json ]; then
+    echo "Release helper must run from its plugin repository root." >&2
+    exit 1
+fi
+if ! GIT_STATUS=$(git -c safe.directory="$PWD" status --porcelain=v1 --untracked-files=all); then
+    echo "Unable to establish a clean Git checkout." >&2
+    exit 1
+fi
+if [ -n "$GIT_STATUS" ]; then
     echo "❌ Release helper requires a clean Git checkout; commit or remove local changes first." >&2
+    exit 1
+fi
+if ! SOURCE_COMMIT=$(git -c safe.directory="$PWD" rev-parse --verify HEAD); then
+    echo "Unable to resolve the checked-out source commit." >&2
+    exit 1
+fi
+if [[ ! "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "The checked-out source commit must be a 40-character Git SHA." >&2
+    exit 1
+fi
+if ! SOURCE_TYPE=$(git -c safe.directory="$PWD" cat-file -t "$SOURCE_COMMIT") || [ "$SOURCE_TYPE" != "commit" ]; then
+    echo "The checked-out source SHA must identify a commit object." >&2
     exit 1
 fi
 
@@ -60,8 +94,6 @@ dotnet publish Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj \
 
 # Extract and validate the release version from both sources of truth.
 VERSION=$(python3 -c 'import json, re, sys; value=json.load(open(sys.argv[1], encoding="utf-8")).get("version"); print(value) if isinstance(value, str) and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+", value) else sys.exit("meta.json version must be a four-part numeric version")' meta.json)
-SOURCE_COMMIT=$(git -c safe.directory="$PWD" rev-parse --verify HEAD)
-printf '%s\n' "$SOURCE_COMMIT" | grep -Eq '^[0-9a-f]{40}$'
 PROJECT_VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj | head -n 1)
 PUBLISHED_VERSION=$(python3 -c 'import json, re, sys; value=json.load(open(sys.argv[1], encoding="utf-8")).get("version"); print(value) if isinstance(value, str) and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+", value) else sys.exit("published meta.json version must be a four-part numeric version")' publish/meta.json)
 printf '%s\n' "$PROJECT_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'

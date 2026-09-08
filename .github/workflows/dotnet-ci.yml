@@ -515,11 +515,22 @@ jobs:
         path: ./
 
     - name: Verify release package checksum
+      env:
+        RELEASE_VERSION: ${{ steps.version.outputs.version }}
       run: |
         set -euo pipefail
         sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256
         sha256sum --check --strict jellyfin-plugin-hue-release.manifest.json.sha256
-        jq -e --arg source_commit "$GITHUB_SHA" '(.schemaVersion == 2) and (.pluginVersion | type == "string") and (.sourceCommit == $source_commit) and ((.packageFiles | length) == 3) and ((.nuget.packages | length) > 0)' jellyfin-plugin-hue-release.manifest.json >/dev/null
+        jq -e -s --arg source_commit "$GITHUB_SHA" --arg version "$RELEASE_VERSION" '
+          length == 1 and (.[0] |
+            (.schemaVersion == 2) and
+            (.pluginVersion == $version) and
+            (.sourceCommit == $source_commit) and
+            (.packageFiles | type == "array") and
+            (([.packageFiles[].name] | sort) == ["BouncyCastle.Cryptography.dll", "Jellyfin.Plugin.Hue.dll", "LICENSE", "NOTICE", "meta.json"]) and
+            (.nuget.packages | type == "array" and length > 0)
+          )
+        ' jellyfin-plugin-hue-release.manifest.json >/dev/null
 
     - name: Install GitHub CLI
       env:

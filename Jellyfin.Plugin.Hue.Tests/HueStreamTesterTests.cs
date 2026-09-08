@@ -19,14 +19,14 @@ public sealed class HueStreamTesterTests
     public void TryBuildProbeColors_UsesEveryValidChannel()
     {
         using var document = JsonDocument.Parse(
-            "{\"channels\":[{\"channel_id\":1},{\"channel_id\":65535}]}");
+            "{\"channels\":[{\"channel_id\":0},{\"channel_id\":255}]}");
 
         var valid = HueStreamTester.TryBuildProbeColors(document.RootElement, out var colors);
 
         Assert.True(valid);
         Assert.Equal(2, colors.Count);
-        Assert.Equal(new byte[] { 1, 1, 1, 1, 1, 1 }, colors[1]);
-        Assert.Equal(new byte[] { 1, 1, 1, 1, 1, 1 }, colors[65535]);
+        Assert.Equal(new byte[] { 1, 1, 1, 1, 1, 1 }, colors[0]);
+        Assert.Equal(new byte[] { 1, 1, 1, 1, 1, 1 }, colors[255]);
     }
 
     [Fact]
@@ -149,7 +149,40 @@ public sealed class HueStreamTesterTests
 
         Assert.True(valid);
         Assert.Single(colors);
-        Assert.Equal(new byte[] { 63, 63, 32, 32, 0, 0 }, colors[2]);
+        Assert.Equal(new byte[] { 127, 127, 64, 64, 0, 0 }, colors[2]);
+    }
+
+    [Theory]
+    [InlineData(0, 100, 0)]
+    [InlineData(1, 100, 1)]
+    [InlineData(128, 100, 128)]
+    [InlineData(255, 100, 255)]
+    [InlineData(255, 50, 127)]
+    [InlineData(255, 0, 0)]
+    public void TryBuildSolidColors_PreservesTheFullRgbRangeAndBrightness(int component, int brightness, byte expected)
+    {
+        using var document = JsonDocument.Parse("{\"channels\":[{\"channel_id\":255}]}");
+
+        Assert.True(HueStreamTester.TryBuildSolidColors(
+            document.RootElement, null, component, component, component, brightness, out var colors));
+
+        Assert.Equal(new[] { expected, expected, expected, expected, expected, expected }, colors[255]);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(256)]
+    [InlineData(65535)]
+    public void TryBuildColors_RejectsNonByteChannelIdsEvenOutsideTheProfile(int channelId)
+    {
+        using var document = JsonDocument.Parse(
+            $"{{\"channels\":[{{\"channel_id\":0}},{{\"channel_id\":{channelId}}}]}}");
+        var selected = new HashSet<int> { 0 };
+
+        Assert.False(HueStreamTester.TryBuildProbeColors(document.RootElement, selected, out var probe));
+        Assert.False(HueStreamTester.TryBuildSolidColors(document.RootElement, selected, 255, 255, 255, 100, out var solid));
+        Assert.Empty(probe);
+        Assert.Empty(solid);
     }
 
     [Fact]
@@ -213,6 +246,75 @@ public sealed class HueStreamTesterTests
         Assert.Equal(target[1], completed[1]);
         Assert.Equal(new byte[6], initial[1]);
         Assert.NotSame(target[1], completed[1]);
+    }
+
+    [Theory]
+    [InlineData(0d, 0, 0, 0)]
+    [InlineData(0.5d, 128, 64, 1)]
+    [InlineData(1d, 255, 128, 1)]
+    public void BuildTransitionColors_PreservesFullRangeReplicatedComponents(
+        double progress, byte red, byte green, byte blue)
+    {
+        var target = new Dictionary<int, byte[]> { [255] = new byte[] { 255, 255, 128, 128, 1, 1 } };
+
+        var frame = HueStreamTester.BuildTransitionColors(target, progress);
+
+        Assert.Equal(new[] { red, red, green, green, blue, blue }, frame[255]);
+        Assert.Equal(new byte[] { 255, 255, 128, 128, 1, 1 }, target[255]);
+        Assert.NotSame(target[255], frame[255]);
+    }
+
+    [Theory]
+    [InlineData(PluginConfiguration.ColorPresetEffectSolid)]
+    [InlineData(PluginConfiguration.ColorPresetEffectPulse)]
+    [InlineData(PluginConfiguration.ColorPresetEffectRainbow)]
+    [InlineData(PluginConfiguration.ColorPresetEffectCandle)]
+    [InlineData(PluginConfiguration.ColorPresetEffectTemperature)]
+    [InlineData(PluginConfiguration.ColorPresetEffectAurora)]
+    [InlineData(PluginConfiguration.ColorPresetEffectFire)]
+    [InlineData(PluginConfiguration.ColorPresetEffectOcean)]
+    [InlineData(PluginConfiguration.ColorPresetEffectLightning)]
+    [InlineData(PluginConfiguration.ColorPresetEffectStarlight)]
+    [InlineData(PluginConfiguration.ColorPresetEffectMatrix)]
+    public void BuildEffectColors_UsesTheSameFullRangeBrightnessScaleForEveryEffect(string effect)
+    {
+        using var document = JsonDocument.Parse("{\"channels\":[{\"channel_id\":1}]}");
+        foreach (var elapsed in new[] { 0d, 1.2d, 2.4d })
+        {
+            var frames = new Dictionary<int, byte[]>();
+            foreach (var brightness in new[] { 0, 50, 100 })
+            {
+                Assert.True(HueStreamTester.TryBuildSolidColors(
+                    document.RootElement, null, 255, 255, 255, brightness, out var target));
+                var original = (byte[])target[1].Clone();
+
+                var frame = HueStreamTester.BuildEffectColors(target, effect, elapsed, durationSeconds: 5)[1];
+
+                Assert.Equal(original, target[1]);
+                Assert.NotSame(target[1], frame);
+                Assert.All(frame, component => Assert.InRange(component, 0, original[0]));
+                Assert.Equal(frame[0], frame[1]);
+                Assert.Equal(frame[2], frame[3]);
+                Assert.Equal(frame[4], frame[5]);
+                frames[brightness] = frame;
+            }
+
+            Assert.Equal(new byte[6], frames[0]);
+            for (var component = 0; component < 6; component++)
+                Assert.InRange(Math.Abs(frames[100][component] - 2 * frames[50][component]), 0, 2);
+        }
+    }
+
+    [Fact]
+    public void BuildEffectColors_RainbowUsesFullRangePrimaryColors()
+    {
+        var target = new Dictionary<int, byte[]> { [1] = new byte[] { 255, 255, 0, 0, 0, 0 } };
+
+        var red = HueStreamTester.BuildEffectColors(target, PluginConfiguration.ColorPresetEffectRainbow, 0, 6);
+        var green = HueStreamTester.BuildEffectColors(target, PluginConfiguration.ColorPresetEffectRainbow, 2, 6);
+
+        Assert.Equal(new byte[] { 255, 255, 0, 0, 0, 0 }, red[1]);
+        Assert.Equal(new byte[] { 0, 0, 255, 255, 0, 0 }, green[1]);
     }
 
     [Fact]
@@ -745,7 +847,7 @@ public sealed class HueStreamTesterTests
                     request.RequestUri!.AbsolutePath.Contains("/light/", StringComparison.Ordinal)),
                 ItExpr.IsAny<CancellationToken>())
             .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
-        using var httpClient = new HttpClient(handler.Object);
+        using var httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(handler.Object));
         var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
         {
             RetryAttempts = 0
@@ -757,7 +859,7 @@ public sealed class HueStreamTesterTests
             loggerFactory.Object,
             Mock.Of<ILogger<HueStreamTester>>());
         using var document = JsonDocument.Parse(
-            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-1\"}}]}]}");
 
         var result = await tester.TestAsync(
             "192.168.1.100",
@@ -801,7 +903,7 @@ public sealed class HueStreamTesterTests
                 requestStarted.TrySetResult(true);
                 return releaseRequest.Task.WaitAsync(cancellationToken);
             });
-        using var httpClient = new HttpClient(handler.Object);
+        using var httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(handler.Object));
         var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
         {
             RetryAttempts = 0
@@ -813,7 +915,7 @@ public sealed class HueStreamTesterTests
             loggerFactory.Object,
             Mock.Of<ILogger<HueStreamTester>>());
         using var document = JsonDocument.Parse(
-            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-1\"}}]}]}");
         var probeTask = tester.TestAsync(
             "192.168.1.100",
             "app-key",
@@ -866,7 +968,7 @@ public sealed class HueStreamTesterTests
                     TaskCreationOptions.RunContinuationsAsynchronously).Task.WaitAsync(cancellationToken);
             });
 
-        using var httpClient = new HttpClient(handler.Object);
+        using var httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(handler.Object));
         var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
         {
             RetryAttempts = 0
@@ -880,7 +982,7 @@ public sealed class HueStreamTesterTests
             Mock.Of<ILogger<HueStreamTester>>(),
             lifecycleGate);
         using var document = JsonDocument.Parse(
-            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-1\"}}]}]}");
         using var requestCancellation = new CancellationTokenSource();
 
         var firstPreview = tester.PreviewAsyncForTarget(
@@ -1037,13 +1139,10 @@ public sealed class HueStreamTesterTests
                     }
                 }
 
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent("{}")
-                };
+                return HueMutationResponseFixture.Success(request);
             });
 
-        using var httpClient = new HttpClient(handler.Object);
+        using var httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(handler.Object));
         var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
         {
             RetryAttempts = 0
@@ -1055,7 +1154,7 @@ public sealed class HueStreamTesterTests
             loggerFactory.Object,
             Mock.Of<ILogger<HueStreamTester>>());
         using var document = JsonDocument.Parse(
-            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-1\"}}]}]}");
         using var cancellationSource = new CancellationTokenSource();
 
         var probeTask = tester.TestAsync(
@@ -1123,12 +1222,9 @@ public sealed class HueStreamTesterTests
                 if (request.RequestUri?.AbsolutePath.Contains("/light/", StringComparison.Ordinal) == true)
                     restoreCount++;
 
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent("{}")
-                };
+                return HueMutationResponseFixture.Success(request);
             });
-        using var httpClient = new HttpClient(handler.Object);
+        using var httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(handler.Object));
         var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
         {
             RetryAttempts = 0
@@ -1140,7 +1236,7 @@ public sealed class HueStreamTesterTests
             loggerFactory.Object,
             Mock.Of<ILogger<HueStreamTester>>());
         using var document = JsonDocument.Parse(
-            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-1\"}}]}]}");
         using var cancellationSource = new CancellationTokenSource();
 
         var probeTask = tester.TestAsync(
@@ -1210,13 +1306,10 @@ public sealed class HueStreamTesterTests
                     }
                 }
 
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent("{}")
-                };
+                return HueMutationResponseFixture.Success(request);
             });
 
-        using var httpClient = new HttpClient(handler.Object);
+        using var httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(handler.Object));
         var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
         {
             RetryAttempts = 0
@@ -1228,7 +1321,7 @@ public sealed class HueStreamTesterTests
             loggerFactory.Object,
             Mock.Of<ILogger<HueStreamTester>>());
         using var document = JsonDocument.Parse(
-            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-1\"}}]}]}");
 
         var result = await tester.TestAsync(
             "192.168.1.100",
@@ -1291,13 +1384,10 @@ public sealed class HueStreamTesterTests
                     }
                 }
 
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent("{}")
-                };
+                return HueMutationResponseFixture.Success(request);
             });
 
-        using var httpClient = new HttpClient(handler.Object);
+        using var httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(handler.Object));
         var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
         {
             RetryAttempts = 0
@@ -1309,7 +1399,7 @@ public sealed class HueStreamTesterTests
             loggerFactory.Object,
             Mock.Of<ILogger<HueStreamTester>>());
         using var document = JsonDocument.Parse(
-            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-1\"}}]}]}");
 
         var result = await tester.PreviewAsync(
             "192.168.1.100",
@@ -1349,7 +1439,7 @@ public sealed class HueStreamTesterTests
                 lightRequestStarted.TrySetResult(true);
                 return await releaseLightRequest.Task;
             });
-        using var httpClient = new HttpClient(handler.Object);
+        using var httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(handler.Object));
         var hueClient = new HueClient(httpClient, Mock.Of<ILogger<HueClient>>())
         {
             RetryAttempts = 0
@@ -1361,7 +1451,7 @@ public sealed class HueStreamTesterTests
             loggerFactory.Object,
             Mock.Of<ILogger<HueStreamTester>>());
         using var document = JsonDocument.Parse(
-            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-1\"}}]}]}");
 
         var firstProbe = tester.TestAsync(
             "192.168.1.100",
@@ -1445,7 +1535,7 @@ public sealed class HueStreamTesterTests
     public async Task PreviewPlaylistAsyncForTarget_UsesOneLifecycleForEverySuccessfulStep()
     {
         var lifecycleHandler = new PlaylistLifecycleHandler();
-        using var httpClient = new HttpClient(lifecycleHandler);
+        using var httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(lifecycleHandler));
         var streamFactory = new RecordingPreviewStreamFactory();
         var tester = CreatePlaylistTester(httpClient, streamFactory);
         using var document = CreatePlaylistAreaConfiguration();
@@ -1477,11 +1567,44 @@ public sealed class HueStreamTesterTests
         Assert.True(streamFactory.Stream.SendCount >= 2);
     }
 
+    [Theory]
+    [InlineData(0, 100, 0)]
+    [InlineData(1, 100, 1)]
+    [InlineData(128, 100, 128)]
+    [InlineData(255, 100, 255)]
+    [InlineData(255, 50, 127)]
+    [InlineData(255, 0, 0)]
+    public async Task PreviewPlaylistAsync_SendsFullRangeRgbWithTheSelectedBrightness(
+        int component, int brightness, byte expected)
+    {
+        var lifecycleHandler = new PlaylistLifecycleHandler();
+        using var httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(lifecycleHandler));
+        var frames = new List<byte[]>();
+        var streamFactory = new RecordingPreviewStreamFactory(colors =>
+        {
+            frames.Add((byte[])Assert.Single(colors).Value.Clone());
+            return false;
+        });
+        var tester = CreatePlaylistTester(httpClient, streamFactory);
+        using var document = CreatePlaylistAreaConfiguration();
+
+        var result = await tester.PreviewPlaylistAsync(
+            "192.168.1.100", "app-key", "client-key", "area-id", document.RootElement, null,
+            new[] { CreatePlaylistStep(1, component, component, component, brightnessPercent: brightness) });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(new[] { expected, expected, expected, expected, expected, expected }, Assert.Single(frames));
+        Assert.Equal(1, streamFactory.Stream.SendCount);
+        Assert.Equal(1, lifecycleHandler.ActivationCount);
+        Assert.Equal(1, lifecycleHandler.DeactivationCount);
+        Assert.Equal(1, lifecycleHandler.RestoreCount);
+    }
+
     [Fact]
     public async Task PreviewPlaylistAsync_MidSequenceSendFailureStillCleansUpOnce()
     {
         var lifecycleHandler = new PlaylistLifecycleHandler();
-        using var httpClient = new HttpClient(lifecycleHandler);
+        using var httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(lifecycleHandler));
         var streamFactory = new RecordingPreviewStreamFactory(colors =>
             colors.Values.All(frame => frame[2] == 0));
         var tester = CreatePlaylistTester(httpClient, streamFactory);
@@ -1518,7 +1641,7 @@ public sealed class HueStreamTesterTests
     public async Task PreviewPlaylistAsync_CancelActiveDiagnosticStopsSequenceAndCleansUpOnce()
     {
         var lifecycleHandler = new PlaylistLifecycleHandler();
-        using var httpClient = new HttpClient(lifecycleHandler);
+        using var httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(lifecycleHandler));
         var streamFactory = new RecordingPreviewStreamFactory();
         var tester = CreatePlaylistTester(httpClient, streamFactory);
         using var document = CreatePlaylistAreaConfiguration();
@@ -1558,7 +1681,7 @@ public sealed class HueStreamTesterTests
     public async Task PreviewPlaylistAsync_CancelDuringCleanupConvertsSuccessToCanceledResult()
     {
         var lifecycleHandler = new PlaylistLifecycleHandler { BlockDeactivation = true };
-        using var httpClient = new HttpClient(lifecycleHandler);
+        using var httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(lifecycleHandler));
         var streamFactory = new RecordingPreviewStreamFactory();
         var tester = CreatePlaylistTester(httpClient, streamFactory);
         using var document = CreatePlaylistAreaConfiguration();
@@ -1593,7 +1716,7 @@ public sealed class HueStreamTesterTests
     public async Task PreviewPlaylistAsync_ActivationFailureRestoresCapturedStateWithoutCreatingStream()
     {
         var lifecycleHandler = new PlaylistLifecycleHandler { ActivationSucceeds = false };
-        using var httpClient = new HttpClient(lifecycleHandler);
+        using var httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(lifecycleHandler));
         var streamFactory = new RecordingPreviewStreamFactory();
         var tester = CreatePlaylistTester(httpClient, streamFactory);
         using var document = CreatePlaylistAreaConfiguration();
@@ -1637,7 +1760,7 @@ public sealed class HueStreamTesterTests
 
     private static JsonDocument CreatePlaylistAreaConfiguration()
         => JsonDocument.Parse(
-            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}");
+            "{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-1\"}}]}]}");
 
     private static JsonDocument CreateAreaConfiguration(int channelCount)
     {
@@ -1657,7 +1780,7 @@ public sealed class HueStreamTesterTests
     private static JsonDocument CreateAreaConfigurationWithLightMembers(int memberCount)
     {
         var members = Enumerable.Range(0, memberCount)
-            .Select(index => new { service = new { rid = $"light-{index}" } })
+            .Select(index => new { service = new { rtype = "entertainment", rid = $"ent-light-{index}" } })
             .ToArray();
         return JsonDocument.Parse(JsonSerializer.Serialize(new
         {
@@ -1673,14 +1796,15 @@ public sealed class HueStreamTesterTests
         int red,
         int green = 0,
         int blue = 0,
-        int durationSeconds = 1)
+        int durationSeconds = 1,
+        int brightnessPercent = 50)
         => new()
         {
             Index = index,
             Red = red,
             Green = green,
             Blue = blue,
-            BrightnessPercent = 50,
+            BrightnessPercent = brightnessPercent,
             DurationSeconds = durationSeconds,
             Effect = PluginConfiguration.ColorPresetEffectSolid,
             EffectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
@@ -1732,11 +1856,9 @@ public sealed class HueStreamTesterTests
                 if (body.Contains("\"start\"", StringComparison.Ordinal))
                 {
                     ActivationCount++;
-                    return new HttpResponseMessage(
-                        ActivationSucceeds ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable)
-                    {
-                        Content = new StringContent("{}")
-                    };
+                    return ActivationSucceeds
+                        ? HueMutationResponseFixture.Success(request)
+                        : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
                 }
 
                 if (body.Contains("\"stop\"", StringComparison.Ordinal))
@@ -1750,10 +1872,7 @@ public sealed class HueStreamTesterTests
                     RestoreCount++;
             }
 
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{}")
-            };
+            return HueMutationResponseFixture.Success(request);
         }
     }
 

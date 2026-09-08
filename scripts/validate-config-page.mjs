@@ -14,6 +14,7 @@ new vm.Script(scriptMatch[1], { filename: file });
 const requiredMarkup = [
     'id="channelIds" name="channelIds" type="text" is="emby-input" maxlength="4096"',
     'id="mappingChannelIdsOverride" type="text" maxlength="4096" is="emby-input"',
+    'Hue entertainment channel IDs (0-255; maximum 4,096 characters)',
     'id="configurationSectionNav" aria-label="Configuration sections"',
     'href="#runtimeStatusSection"',
     'href="#sessionHistorySection"',
@@ -1550,10 +1551,10 @@ for (const [functionName, markers] of [
     const end = scriptMatch[1].indexOf("\n                },", start);
     const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
     const staleGuards = functionBody.match(/if \(!isCurrent\(\)\) return;/g) || [];
-    if (staleGuards.length < 3 ||
+    if (staleGuards.length < 2 ||
         functionBody.indexOf("selectEl.innerHTML = ''") < functionBody.indexOf("if (!isCurrent()) return;") ||
         functionBody.indexOf("statusEl.textContent = \"Unable to load areas:") < functionBody.indexOf("if (!isCurrent()) return;")) {
-        throw new Error(`${file} loadEntertainmentAreas must guard area-list writes and terminal callbacks against stale targets`);
+        throw new Error(`${file} loadEntertainmentAreas must guard area-list writes and error callbacks against stale targets`);
     }
 }
 
@@ -1564,8 +1565,20 @@ for (const [functionName, markers] of [
     const staleGuards = functionBody.match(/if \(!isCurrent\(\)\) return;/g) || [];
     const writeIndex = functionBody.indexOf("channelInput.value = channelIds.join(', ')");
     const firstGuardIndex = functionBody.indexOf("if (!isCurrent()) return;");
-    if (staleGuards.length < 3 || firstGuardIndex < 0 || writeIndex < 0 || firstGuardIndex > writeIndex) {
-        throw new Error(`${file} loadChannelIds must guard channel writes and terminal callbacks against stale targets`);
+    if (!functionBody.includes("Number.isInteger(channelId) && channelId >= 0 && channelId <= 255")) {
+        throw new Error(`${file} loadChannelIds must bound v2 channel IDs to unsigned bytes`);
+    }
+    if (staleGuards.length < 2 || firstGuardIndex < 0 || writeIndex < 0 || firstGuardIndex > writeIndex) {
+        throw new Error(`${file} loadChannelIds must guard channel writes and error callbacks against stale targets`);
+    }
+}
+
+for (const functionName of ["loadEntertainmentAreas", "loadMappingAreas", "loadMappingDeviceRouteAreas", "loadChannelIds"]) {
+    const start = scriptMatch[1].indexOf(`${functionName}: function`);
+    const end = scriptMatch[1].indexOf("\n                },", start);
+    const functionBody = start >= 0 && end > start ? scriptMatch[1].slice(start, end) : "";
+    if (!/\.finally\(function \(\) \{\s*if \(!HueConfigurationPage\.isPageLifecycleRequestCurrent\(page, pageGeneration, request\)\) return;/.test(functionBody)) {
+        throw new Error(`${file} ${functionName} must release controls by request ownership, independently of result target identity`);
     }
 }
 

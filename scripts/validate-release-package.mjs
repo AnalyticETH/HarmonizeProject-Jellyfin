@@ -4,6 +4,7 @@ import fs from "node:fs";
 const helper = "scripts/create-deterministic-release-zip.py";
 const manifestHelper = "scripts/create-release-manifest.py";
 const runtimeSmokeHelper = "scripts/verify-jellyfin-runtime-smoke.py";
+const runtimeSmokeContracts = "scripts/test-runtime-smoke.py";
 if (!fs.existsSync(helper)) {
   throw new Error(`Deterministic release packager is missing: ${helper}`);
 }
@@ -12,6 +13,9 @@ if (!fs.existsSync(manifestHelper)) {
 }
 if (!fs.existsSync(runtimeSmokeHelper)) {
   throw new Error(`Jellyfin runtime smoke verifier is missing: ${runtimeSmokeHelper}`);
+}
+if (!fs.existsSync(runtimeSmokeContracts)) {
+  throw new Error(`Jellyfin runtime smoke contract tests are missing: ${runtimeSmokeContracts}`);
 }
 
 const candidates = process.platform === "win32" ? ["python", "python3"] : ["python3", "python"];
@@ -95,3 +99,17 @@ if (runtimeResult.status !== 0) {
 
 process.stdout.write(runtimeResult.stdout);
 console.log("Jellyfin runtime smoke contract passed");
+
+const runtimeContractsResult = spawnSync(runtimeSelected, ["-B", runtimeSmokeContracts], {
+  encoding: "utf8",
+  stdio: ["ignore", "pipe", "pipe"],
+});
+if (runtimeContractsResult.error) {
+  throw new Error(`${runtimeSelected} could not run ${runtimeSmokeContracts}: ${runtimeContractsResult.error.message}`);
+}
+if (runtimeContractsResult.status !== 0) {
+  const output = `${runtimeContractsResult.stdout || ""}${runtimeContractsResult.stderr || ""}`.trim();
+  throw new Error(`${runtimeSmokeContracts} failed (${runtimeContractsResult.status}): ${output}`);
+}
+process.stdout.write(runtimeContractsResult.stdout);
+console.log("Jellyfin runtime smoke portability, deadline, and cleanup contracts passed");

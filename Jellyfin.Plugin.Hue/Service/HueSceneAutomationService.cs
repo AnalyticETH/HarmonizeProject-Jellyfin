@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Net;
@@ -1697,12 +1698,31 @@ public sealed class HueSceneAutomationService : BackgroundService
         int? greenOverride = null,
         int? blueOverride = null,
         int? horizonLimitDays = null)
+        => EnumerateUpcomingOccurrences(
+                schedule, serverLocalNow, horizonDays, includeFutureStartBeyondHorizon,
+                transitionSeconds, transitionOutSeconds, effectSpeedPercent, durationSeconds,
+                transitionCurve, brightnessOverride, redOverride, greenOverride, blueOverride,
+                horizonLimitDays)
+            .Take(Math.Clamp(maxOccurrences, 1, MaxUpcomingOccurrencesPerSchedule))
+            .ToArray();
+
+    private static IEnumerable<HueSceneScheduleOccurrence> EnumerateUpcomingOccurrences(
+        HueSceneSchedule schedule,
+        DateTime serverLocalNow,
+        int horizonDays,
+        bool includeFutureStartBeyondHorizon = true,
+        int transitionSeconds = PluginConfiguration.MinColorPresetTransitionSeconds,
+        int transitionOutSeconds = PluginConfiguration.MinColorPresetTransitionOutSeconds,
+        int effectSpeedPercent = PluginConfiguration.DefaultColorPresetEffectSpeedPercent,
+        int durationSeconds = -1,
+        string transitionCurve = PluginConfiguration.ColorPresetTransitionCurveLinear,
+        int? brightnessOverride = null,
+        int? redOverride = null,
+        int? greenOverride = null,
+        int? blueOverride = null,
+        int? horizonLimitDays = null)
     {
-        var occurrences = new List<HueSceneScheduleOccurrence>();
-        var boundedOccurrences = Math.Clamp(
-            maxOccurrences,
-            1,
-            MaxUpcomingOccurrencesPerSchedule);
+        var occurrenceCount = 0;
         var boundedHorizon = Math.Clamp(
             horizonDays,
             1,
@@ -1721,19 +1741,19 @@ public sealed class HueSceneAutomationService : BackgroundService
             !TryGetScheduleRunDate(schedule, out var runDate) ||
             !PluginConfiguration.TryNormalizeSceneScheduleRecurrence(schedule.Recurrence, out var normalizedRecurrence))
         {
-            return occurrences;
+            yield break;
         }
 
         if (string.Equals(normalizedTimeMode, PluginConfiguration.SceneScheduleTimeModeFixed, StringComparison.Ordinal) &&
             !PluginConfiguration.TryNormalizeSceneScheduleTime(schedule.TimeOfDay, out _))
         {
-            return occurrences;
+            yield break;
         }
 
         if (!string.Equals(normalizedTimeMode, PluginConfiguration.SceneScheduleTimeModeFixed, StringComparison.Ordinal) &&
             !PluginConfiguration.AreValidSceneScheduleSolarCoordinates(schedule.SolarLatitude, schedule.SolarLongitude))
         {
-            return occurrences;
+            yield break;
         }
 
         if (!runDate.HasValue &&
@@ -1746,25 +1766,26 @@ public sealed class HueSceneAutomationService : BackgroundService
              (string.Equals(normalizedRecurrence, PluginConfiguration.SceneScheduleRecurrenceWeekly, StringComparison.Ordinal) &&
               (schedule.DaysOfWeekMask & PluginConfiguration.AllSceneScheduleDaysMask) == 0) ||
              !IsRecurrenceIntervalConfigurationValid(schedule, runDate)))
-            return occurrences;
+            yield break;
 
-        // Solar offsets can move an event into the following local date. Include the
-        // preceding base date so a preview requested after midnight still finds the
-        // shifted event before evaluating the next base solar date.
+        // Solar offsets can cross either local midnight. Bounded queries inspect
+        // adjacent base dates, then admit only actual instants inside the horizon.
         var solarBaseLookbackDays = PluginConfiguration.IsSceneScheduleSolarTimeMode(normalizedTimeMode)
             ? 1
             : 0;
+        var solarBaseLookaheadDays = includeFutureStartBeyondHorizon ? 0 : solarBaseLookbackDays;
         if (!TryAddDays(scheduleNow.Date, -solarBaseLookbackDays, out var firstCandidateDate))
-            return occurrences;
+            yield break;
+        var horizonBaseDate = scheduleNow.Date;
         if (runDate.HasValue)
         {
             if (runDate.Value < firstCandidateDate)
-                return occurrences;
+                yield break;
 
             if (!includeFutureStartBeyondHorizon &&
-                (runDate.Value - firstCandidateDate).TotalDays >= boundedHorizon)
+                (runDate.Value - horizonBaseDate).TotalDays >= boundedHorizon + solarBaseLookaheadDays)
             {
-                return occurrences;
+                yield break;
             }
 
             firstCandidateDate = runDate.Value;
@@ -1772,9 +1793,9 @@ public sealed class HueSceneAutomationService : BackgroundService
         else if (startDate.HasValue && firstCandidateDate < startDate.Value)
         {
             if (!includeFutureStartBeyondHorizon &&
-                (startDate.Value - firstCandidateDate).TotalDays >= boundedHorizon)
+                (startDate.Value - horizonBaseDate).TotalDays >= boundedHorizon + solarBaseLookaheadDays)
             {
-                return occurrences;
+                yield break;
             }
 
             firstCandidateDate = startDate.Value;
@@ -1782,7 +1803,7 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         var excludedDateSet = new HashSet<string>(normalizedExcludedDates, StringComparer.Ordinal);
         var skipNextOccurrence = schedule.SkipNextOccurrence;
-        for (var dayOffset = 0; dayOffset < boundedHorizon + solarBaseLookbackDays; dayOffset++)
+        for (var dayOffset = 0; dayOffset < boundedHorizon + solarBaseLookbackDays + solarBaseLookaheadDays; dayOffset++)
         {
             if (runDate.HasValue && dayOffset > 0)
                 break;
@@ -1792,6 +1813,11 @@ public sealed class HueSceneAutomationService : BackgroundService
             // pending skip marker asks for the following occurrence.
             if (!TryAddDays(firstCandidateDate, dayOffset, out var candidateDate))
                 break;
+            if (!includeFutureStartBeyondHorizon &&
+                (candidateDate - horizonBaseDate).TotalDays >= boundedHorizon + solarBaseLookaheadDays)
+            {
+                break;
+            }
             if (endDate.HasValue && candidateDate > endDate.Value)
                 break;
             if (!IsScheduleDateAllowed(
@@ -1820,6 +1846,11 @@ public sealed class HueSceneAutomationService : BackgroundService
 
             if (candidateUtc <= serverUtcNow)
                 continue;
+            if (!includeFutureStartBeyondHorizon &&
+                (candidateLocal.Date - horizonBaseDate).TotalDays >= boundedHorizon)
+            {
+                continue;
+            }
 
             if (skipNextOccurrence)
             {
@@ -1827,7 +1858,7 @@ public sealed class HueSceneAutomationService : BackgroundService
                 continue;
             }
 
-            occurrences.Add(new HueSceneScheduleOccurrence
+            yield return new HueSceneScheduleOccurrence
             {
                 ScheduleId = schedule.Id?.Trim() ?? string.Empty,
                 ScheduleName = schedule.Name?.Trim() ?? string.Empty,
@@ -1897,14 +1928,12 @@ public sealed class HueSceneAutomationService : BackgroundService
                     : timeZone.DisplayName,
                 LocalTime = candidateLocal,
                 UtcTime = DateTime.SpecifyKind(candidateUtc, DateTimeKind.Utc)
-            });
+            };
 
-            if (occurrences.Count >= boundedOccurrences ||
-                (schedule.MaxRuns > 0 && occurrences.Count >= Math.Max(0, schedule.MaxRuns - schedule.RunCount)))
+            occurrenceCount++;
+            if (schedule.MaxRuns > 0 && occurrenceCount >= Math.Max(0, schedule.MaxRuns - schedule.RunCount))
                 break;
         }
-
-        return occurrences;
     }
 
     /// <summary>
@@ -1929,7 +1958,6 @@ public sealed class HueSceneAutomationService : BackgroundService
         var boundedLimit = Math.Clamp(maxConflicts, 1, MaxConflictLimit);
         var boundedHorizon = Math.Clamp(horizonDays, 1, MaxConflictHorizonDays);
         var normalizedScheduleId = string.IsNullOrWhiteSpace(scheduleId) ? null : scheduleId.Trim();
-        var windows = new List<HueSceneScheduleConflictWindow>();
         var schedules = (config.SceneSchedules ?? new List<HueSceneSchedule>())
             .Where(schedule => schedule != null && schedule.Enabled)
             .ToArray();
@@ -1943,137 +1971,180 @@ public sealed class HueSceneAutomationService : BackgroundService
             return Array.Empty<HueSceneScheduleConflict>();
         }
 
-        foreach (var schedule in schedules)
+        using var windows = EnumerateConflictWindows(config, schedules, serverLocalNow, boundedHorizon).GetEnumerator();
+        var hasNext = windows.MoveNext();
+        var pending = new List<HueSceneScheduleConflictWindow>();
+        var conflicts = new List<HueSceneScheduleConflict>(boundedLimit);
+        var comparer = Comparer<(HueSceneScheduleConflictWindow First, HueSceneScheduleConflictWindow Second)>
+            .Create(CompareConflictPairs);
+        while (hasNext || pending.Count > 0)
         {
-            var preset = config.ColorPresets?.FirstOrDefault(candidate =>
-                candidate != null &&
-                string.Equals(candidate.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase));
-            var playlist = config.ScenePlaylists?.FirstOrDefault(candidate =>
-                candidate != null &&
-                string.Equals(candidate.Name?.Trim(), schedule.PlaylistName?.Trim(), StringComparison.OrdinalIgnoreCase));
-            var isPlaylist = !string.IsNullOrWhiteSpace(schedule.PlaylistName);
-            var durationSeconds = isPlaylist
-                ? GetPlaylistTotalDurationSeconds(config, playlist)
-                : GetEffectiveDurationSeconds(schedule, preset);
-            var transitionSeconds = isPlaylist ? 0 : GetEffectiveTransitionSeconds(schedule, preset);
-            var transitionOutSeconds = isPlaylist ? 0 : GetEffectiveTransitionOutSeconds(schedule, preset);
-            var effectSpeedPercent = preset == null
-                ? PluginConfiguration.DefaultColorPresetEffectSpeedPercent
-                : PluginConfiguration.ClampColorPresetEffectSpeedPercent(preset.EffectSpeedPercent);
-
-            foreach (var occurrence in GetUpcomingOccurrences(
-                         schedule,
-                         serverLocalNow,
-                         MaxUpcomingOccurrencesPerSchedule,
-                         boundedHorizon,
-                         includeFutureStartBeyondHorizon: false,
-                         transitionSeconds,
-                         transitionOutSeconds,
-                         effectSpeedPercent,
-                         durationSeconds,
-                         isPlaylist ? PluginConfiguration.ColorPresetTransitionCurveLinear : GetEffectiveTransitionCurve(preset)))
+            if (pending.Count == 0)
             {
-                var startUtc = DateTime.SpecifyKind(occurrence.UtcTime, DateTimeKind.Utc);
-                // A valid occurrence can still land on the final representable
-                // instant (for example a one-time cue on 9999-12-31).  Its
-                // restorative window cannot be represented past DateTime.MaxValue;
-                // saturate the end instead of allowing a preview/API request to
-                // throw and take down the scheduler surface.
-                var endUtc = AddSecondsSaturating(
-                    startUtc,
-                    Math.Max(
-                        PluginConfiguration.MinPreviewDurationSeconds,
-                        occurrence.DurationSeconds));
-                windows.Add(new HueSceneScheduleConflictWindow(
-                    occurrence,
-                    endUtc,
-                    ResolveTargetLabel(config, schedule)));
+                pending.Add(windows.Current);
+                hasNext = windows.MoveNext();
             }
+            var firstStart = pending[0].Occurrence.UtcTime;
+            while (hasNext && windows.Current.Occurrence.UtcTime == firstStart)
+            {
+                pending.Add(windows.Current);
+                hasNext = windows.MoveNext();
+            }
+            var groupCount = pending.TakeWhile(window => window.Occurrence.UtcTime == firstStart).Count();
+            var lastEnd = pending.Take(groupCount).Max(window => window.EndUtc);
+            // Only retain windows that can overlap the earliest start group. Once
+            // that group's ranked results fill the request, later dates cannot win.
+            while (hasNext && windows.Current.Occurrence.UtcTime < lastEnd)
+            {
+                pending.Add(windows.Current);
+                hasNext = windows.MoveNext();
+            }
+            var remaining = boundedLimit - conflicts.Count;
+            var ranked = new List<(HueSceneScheduleConflictWindow First, HueSceneScheduleConflictWindow Second)>(remaining);
+            for (var leftIndex = 0; leftIndex < groupCount; leftIndex++)
+            {
+                var left = pending[leftIndex];
+                for (var rightIndex = leftIndex + 1; rightIndex < pending.Count; rightIndex++)
+                {
+                    var right = pending[rightIndex];
+                    if (right.Occurrence.UtcTime >= left.EndUtc)
+                        break;
+                    if (left.Occurrence.UtcTime >= right.EndUtc ||
+                        (!string.IsNullOrWhiteSpace(left.Occurrence.ScheduleId) &&
+                         string.Equals(left.Occurrence.ScheduleId, right.Occurrence.ScheduleId, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        continue;
+                    }
+                    if (normalizedScheduleId != null &&
+                        !string.Equals(left.Occurrence.ScheduleId, normalizedScheduleId, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(right.Occurrence.ScheduleId, normalizedScheduleId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var pair = (left, right);
+                    var position = ranked.BinarySearch(pair, comparer);
+                    if (position < 0)
+                        position = ~position;
+                    if (position >= remaining)
+                        continue;
+                    ranked.Insert(position, pair);
+                    if (ranked.Count > remaining)
+                        ranked.RemoveAt(remaining);
+                }
+            }
+            conflicts.AddRange(ranked.Select(pair => CreateConflict(pair.First, pair.Second)));
+            if (conflicts.Count == boundedLimit)
+                break;
+            pending.RemoveRange(0, groupCount);
         }
 
-        if (windows.Count < 2)
-            return Array.Empty<HueSceneScheduleConflict>();
+        return conflicts.ToArray();
+    }
 
-        var conflicts = new List<HueSceneScheduleConflict>();
-        for (var leftIndex = 0; leftIndex < windows.Count; leftIndex++)
+    private static IEnumerable<HueSceneScheduleConflictWindow> EnumerateConflictWindows(
+        PluginConfiguration config,
+        IReadOnlyList<HueSceneSchedule> schedules,
+        DateTime serverLocalNow,
+        int horizonDays)
+    {
+        var sources = new List<IEnumerator<HueSceneScheduleOccurrence>>();
+        var queue = new PriorityQueue<
+            (IEnumerator<HueSceneScheduleOccurrence> Source, int Index, string Label, int TargetCount),
+            (DateTime Start, int Index)>();
+        try
         {
-            var left = windows[leftIndex];
-            for (var rightIndex = leftIndex + 1; rightIndex < windows.Count; rightIndex++)
+            for (var index = 0; index < schedules.Count; index++)
             {
-                var right = windows[rightIndex];
-                if (string.Equals(
-                        left.Occurrence.ScheduleId,
-                        right.Occurrence.ScheduleId,
-                        StringComparison.OrdinalIgnoreCase) &&
-                    !string.IsNullOrWhiteSpace(left.Occurrence.ScheduleId))
-                {
-                    continue;
-                }
-
-                if (!string.IsNullOrWhiteSpace(normalizedScheduleId) &&
-                    !string.Equals(
-                        left.Occurrence.ScheduleId,
-                        normalizedScheduleId,
-                        StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(
-                        right.Occurrence.ScheduleId,
-                        normalizedScheduleId,
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (left.Occurrence.UtcTime >= right.EndUtc || right.Occurrence.UtcTime >= left.EndUtc)
+                var schedule = schedules[index];
+                var preset = config.ColorPresets?.FirstOrDefault(candidate => candidate != null &&
+                    string.Equals(candidate.Name?.Trim(), schedule.PresetName?.Trim(), StringComparison.OrdinalIgnoreCase));
+                var playlist = config.ScenePlaylists?.FirstOrDefault(candidate => candidate != null &&
+                    string.Equals(candidate.Name?.Trim(), schedule.PlaylistName?.Trim(), StringComparison.OrdinalIgnoreCase));
+                var isPlaylist = !string.IsNullOrWhiteSpace(schedule.PlaylistName);
+                var durationSeconds = isPlaylist
+                    ? GetPlaylistTotalDurationSeconds(config, playlist)
+                    : GetEffectiveDurationSeconds(schedule, preset);
+                var source = EnumerateUpcomingOccurrences(
+                    schedule, serverLocalNow, horizonDays, includeFutureStartBeyondHorizon: false,
+                    durationSeconds: durationSeconds).GetEnumerator();
+                sources.Add(source);
+                if (!source.MoveNext())
                     continue;
 
-                var first = left.Occurrence.UtcTime <= right.Occurrence.UtcTime ? left : right;
-                var second = ReferenceEquals(first, left) ? right : left;
-                var overlapStart = first.Occurrence.UtcTime >= second.Occurrence.UtcTime
-                    ? first.Occurrence.UtcTime
-                    : second.Occurrence.UtcTime;
-                var overlapEnd = first.EndUtc <= second.EndUtc ? first.EndUtc : second.EndUtc;
-                var overlapSeconds = Math.Max(
-                    1,
-                    (int)Math.Ceiling((overlapEnd - overlapStart).TotalSeconds));
-                var priorityMessage = first.Occurrence.Priority == second.Occurrence.Priority
-                    ? "Equal priority; saved configuration order decides which cue starts first."
-                    : first.Occurrence.Priority > second.Occurrence.Priority
-                        ? $"{first.Occurrence.ScheduleName} has higher priority and starts first when both cues are due together."
-                        : $"{second.Occurrence.ScheduleName} has higher priority and starts first when both cues are due together.";
+                // Unresolved cues retain the historical single-target estimate; their
+                // separate readiness diagnostics explain why execution is unavailable.
+                var targetCount = TryResolveTargets(config, schedule, out var targets, out _)
+                    ? targets.Count
+                    : 1;
+                queue.Enqueue((source, index, ResolveTargetLabel(config, schedule), targetCount),
+                    (source.Current.UtcTime, index));
+            }
 
-                conflicts.Add(new HueSceneScheduleConflict
-                {
-                    FirstScheduleId = first.Occurrence.ScheduleId,
-                    FirstScheduleName = first.Occurrence.ScheduleName,
-                    FirstTargetLabel = first.TargetLabel,
-                    FirstOccurrenceUtc = DateTime.SpecifyKind(first.Occurrence.UtcTime, DateTimeKind.Utc),
-                    FirstOccurrenceLocal = first.Occurrence.LocalTime,
-                    FirstDurationSeconds = Math.Max(
-                        PluginConfiguration.MinPreviewDurationSeconds,
-                        first.Occurrence.DurationSeconds),
-                    FirstPriority = first.Occurrence.Priority,
-                    SecondScheduleId = second.Occurrence.ScheduleId,
-                    SecondScheduleName = second.Occurrence.ScheduleName,
-                    SecondTargetLabel = second.TargetLabel,
-                    SecondOccurrenceUtc = DateTime.SpecifyKind(second.Occurrence.UtcTime, DateTimeKind.Utc),
-                    SecondOccurrenceLocal = second.Occurrence.LocalTime,
-                    SecondDurationSeconds = Math.Max(
-                        PluginConfiguration.MinPreviewDurationSeconds,
-                        second.Occurrence.DurationSeconds),
-                    SecondPriority = second.Occurrence.Priority,
-                    OverlapSeconds = overlapSeconds,
-                    ResolutionHint = priorityMessage + " The scheduler serializes restorative cue lifecycles, so the later cue may be delayed."
-                });
+            while (queue.TryDequeue(out var cursor, out _))
+            {
+                var occurrence = cursor.Source.Current;
+                var occupiedSeconds = (int)Math.Min(int.MaxValue,
+                    (long)Math.Max(PluginConfiguration.MinPreviewDurationSeconds, occurrence.DurationSeconds) * cursor.TargetCount);
+                yield return new HueSceneScheduleConflictWindow(
+                    occurrence, AddSecondsSaturating(occurrence.UtcTime, occupiedSeconds), cursor.Label,
+                    cursor.Index, occupiedSeconds);
+                if (cursor.Source.MoveNext())
+                    queue.Enqueue(cursor, (cursor.Source.Current.UtcTime, cursor.Index));
             }
         }
+        finally
+        {
+            foreach (var source in sources)
+                source.Dispose();
+        }
+    }
 
-        return conflicts
-            .OrderBy(conflict => conflict.FirstOccurrenceUtc)
-            .ThenByDescending(conflict => Math.Max(conflict.FirstPriority, conflict.SecondPriority))
-            .ThenBy(conflict => conflict.FirstScheduleName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(conflict => conflict.SecondScheduleName, StringComparer.OrdinalIgnoreCase)
-            .Take(boundedLimit)
-            .ToArray();
+    private static int CompareConflictPairs(
+        (HueSceneScheduleConflictWindow First, HueSceneScheduleConflictWindow Second) left,
+        (HueSceneScheduleConflictWindow First, HueSceneScheduleConflictWindow Second) right)
+    {
+        var priority = Math.Max(right.First.Occurrence.Priority, right.Second.Occurrence.Priority)
+            .CompareTo(Math.Max(left.First.Occurrence.Priority, left.Second.Occurrence.Priority));
+        if (priority != 0)
+            return priority;
+        var firstName = StringComparer.OrdinalIgnoreCase.Compare(left.First.Occurrence.ScheduleName, right.First.Occurrence.ScheduleName);
+        if (firstName != 0)
+            return firstName;
+        var secondName = StringComparer.OrdinalIgnoreCase.Compare(left.Second.Occurrence.ScheduleName, right.Second.Occurrence.ScheduleName);
+        if (secondName != 0)
+            return secondName;
+        var firstIndex = left.First.ScheduleIndex.CompareTo(right.First.ScheduleIndex);
+        return firstIndex != 0 ? firstIndex : left.Second.ScheduleIndex.CompareTo(right.Second.ScheduleIndex);
+    }
+
+    private static HueSceneScheduleConflict CreateConflict(HueSceneScheduleConflictWindow first, HueSceneScheduleConflictWindow second)
+    {
+        var overlapEnd = first.EndUtc <= second.EndUtc ? first.EndUtc : second.EndUtc;
+        var priorityMessage = first.Occurrence.Priority == second.Occurrence.Priority
+            ? "Equal priority; saved configuration order decides which cue starts first."
+            : first.Occurrence.Priority > second.Occurrence.Priority
+                ? $"{first.Occurrence.ScheduleName} has higher priority and starts first when both cues are due together."
+                : $"{second.Occurrence.ScheduleName} has higher priority and starts first when both cues are due together.";
+        return new HueSceneScheduleConflict
+        {
+            FirstScheduleId = first.Occurrence.ScheduleId,
+            FirstScheduleName = first.Occurrence.ScheduleName,
+            FirstTargetLabel = first.TargetLabel,
+            FirstOccurrenceUtc = first.Occurrence.UtcTime,
+            FirstOccurrenceLocal = first.Occurrence.LocalTime,
+            FirstDurationSeconds = first.OccupiedSeconds,
+            FirstPriority = first.Occurrence.Priority,
+            SecondScheduleId = second.Occurrence.ScheduleId,
+            SecondScheduleName = second.Occurrence.ScheduleName,
+            SecondTargetLabel = second.TargetLabel,
+            SecondOccurrenceUtc = second.Occurrence.UtcTime,
+            SecondOccurrenceLocal = second.Occurrence.LocalTime,
+            SecondDurationSeconds = second.OccupiedSeconds,
+            SecondPriority = second.Occurrence.Priority,
+            OverlapSeconds = Math.Max(1, (int)Math.Ceiling((overlapEnd - second.Occurrence.UtcTime).TotalSeconds)),
+            ResolutionHint = priorityMessage + " The scheduler serializes restorative cue lifecycles, so the later cue may be delayed."
+        };
     }
 
     /// <summary>
@@ -3928,11 +3999,25 @@ public sealed class HueSceneAutomationService : BackgroundService
             -Math.Min(
                 catchUpMinutes,
                 PluginConfiguration.MaxSceneAutomationCatchUpMinutes));
+        return FindMostRecentOccurrenceBetween(schedule, lookbackUtc, serverUtcNow);
+    }
+
+    private static HueSceneScheduleOccurrence? FindMostRecentOccurrenceBetween(
+        HueSceneSchedule schedule,
+        DateTime lookbackUtc,
+        DateTime serverUtcNow)
+    {
+        if (IsRunLimitReached(schedule))
+            return null;
+
         var lookbackServerLocal = TimeZoneInfo.ConvertTimeFromUtc(lookbackUtc, TimeZoneInfo.Local);
         var candidateSchedule = CloneSchedule(schedule);
         candidateSchedule.SkipNextOccurrence = false;
+        // A recovery search selects the latest eligible instant, not a forecast of
+        // how many earlier dates would have consumed the remaining execution budget.
+        candidateSchedule.MaxRuns = 0;
         var horizonDays = Math.Clamp(
-            (int)Math.Ceiling(catchUpMinutes / 1440d) + 2,
+            (int)Math.Ceiling((serverUtcNow - lookbackUtc).TotalDays) + 2,
             1,
             MaxUpcomingHorizonDays);
 
@@ -3941,25 +4026,12 @@ public sealed class HueSceneAutomationService : BackgroundService
         var occurrenceSearchLocal = TryAddDays(lookbackServerLocal, -1, out var precedingLocalDate)
             ? precedingLocalDate
             : DateTime.MinValue;
-        return GetUpcomingOccurrences(
+        return EnumerateUpcomingOccurrences(
                 candidateSchedule,
                 occurrenceSearchLocal,
-                MaxUpcomingOccurrencesPerSchedule,
                 horizonDays)
             .Where(occurrence => occurrence.UtcTime > lookbackUtc && occurrence.UtcTime <= serverUtcNow)
-            .OrderByDescending(occurrence => occurrence.UtcTime)
-            .FirstOrDefault();
-    }
-
-    private static int GetInProcessCatchUpMinutes(TimeSpan elapsed)
-    {
-        if (elapsed <= TimeSpan.Zero)
-            return PluginConfiguration.MinSceneAutomationCatchUpMinutes;
-
-        return Math.Clamp(
-            (int)Math.Ceiling(elapsed.TotalMinutes),
-            PluginConfiguration.MinSceneAutomationCatchUpMinutes,
-            PluginConfiguration.MaxSceneAutomationCatchUpMinutes);
+            .LastOrDefault();
     }
 
     private static DateTime ConvertServerLocalNowToUtc(DateTime serverLocalNow)
@@ -5171,6 +5243,12 @@ public sealed class HueSceneAutomationService : BackgroundService
 
     internal async Task RunDueSchedulesAsync(DateTime localNow, CancellationToken cancellationToken)
     {
+        var schedulerStartedAt = Stopwatch.GetTimestamp();
+        var logicalStartUtc = ConvertServerLocalNowToUtc(localNow);
+        var firstObservedMinuteUtc = new DateTime(
+            logicalStartUtc.Ticks - logicalStartUtc.Ticks % TimeSpan.TicksPerMinute,
+            DateTimeKind.Utc);
+        var observedSinceUtc = firstObservedMinuteUtc.Ticks == 0 ? firstObservedMinuteUtc : firstObservedMinuteUtc.AddTicks(-1);
         using var schedulerEvaluation = BeginSchedulerEvaluation();
         if (schedulerEvaluation == null)
             return;
@@ -5197,9 +5275,6 @@ public sealed class HueSceneAutomationService : BackgroundService
         // allowing a long restorative cue to advance that clock for schedules that have
         // not been evaluated yet. This recovers in-process overlaps without changing the
         // configured restart catch-up window or depending on the host wall clock's date.
-        var schedulerStartedAtUtc = DateTime.UtcNow;
-        var logicalStartUtc = ConvertServerLocalNowToUtc(localNow);
-
         var configuredSchedules = config.SceneSchedules ?? new List<HueSceneSchedule>();
         var schedules = configuredSchedules
             .Where(schedule => schedule != null)
@@ -5242,16 +5317,15 @@ public sealed class HueSceneAutomationService : BackgroundService
 
         PruneDeferredRuns(schedules, config, persist: true);
 
-        foreach (var schedule in schedules)
+        for (var scheduleIndex = 0; scheduleIndex < schedules.Length && !cancellationToken.IsCancellationRequested; scheduleIndex++)
         {
-            var elapsed = DateTime.UtcNow - schedulerStartedAtUtc;
-            if (elapsed < TimeSpan.Zero)
-                elapsed = TimeSpan.Zero;
+            var schedule = schedules[scheduleIndex];
+            var elapsed = Stopwatch.GetElapsedTime(schedulerStartedAt);
             // Advance an absolute UTC instant, then convert it back to server local
             // time for schedule matching. Adding elapsed time to a Local DateTime can
             // manufacture invalid/ambiguous wall-clock values across DST transitions.
-            var evaluationNow = ConvertUtcToServerLocal(logicalStartUtc + elapsed);
-            var inProcessCatchUpMinutes = GetInProcessCatchUpMinutes(elapsed);
+            var evaluationUtc = AddSecondsSaturating(logicalStartUtc, elapsed.TotalSeconds);
+            var evaluationNow = ConvertUtcToServerLocal(evaluationUtc);
             var deferDuringPlayback = string.Equals(
                 GetEffectivePlaybackPolicy(config, schedule),
                 PluginConfiguration.SceneAutomationPlaybackPolicyDefer,
@@ -5295,19 +5369,16 @@ public sealed class HueSceneAutomationService : BackgroundService
             }
 
             var isDue = hasDeferredRun || IsDue(schedule, evaluationNow);
-            var effectiveCatchUpMinutes = Math.Max(catchUpMinutes, inProcessCatchUpMinutes);
-            var recoveredOccurrence = hasDeferredRun || isDue
+            var recoveryLookbackUtc = AddMinutesSaturating(evaluationUtc, -catchUpMinutes);
+            // Restart recovery remains bounded by configuration. Cues observed due
+            // during this pass, including its initial minute, remain eligible even
+            // when a multi-target playlist runs longer than that restart window.
+            if (observedSinceUtc < recoveryLookbackUtc)
+                recoveryLookbackUtc = observedSinceUtc;
+            var recoveredOccurrence = hasDeferredRun || isDue ||
+                (catchUpMinutes == 0 && evaluationUtc.Ticks / TimeSpan.TicksPerMinute == firstObservedMinuteUtc.Ticks / TimeSpan.TicksPerMinute)
                 ? null
-                : GetMostRecentMissedOccurrence(schedule, evaluationNow, effectiveCatchUpMinutes);
-            if (catchUpMinutes == PluginConfiguration.MinSceneAutomationCatchUpMinutes &&
-                recoveredOccurrence != null &&
-                recoveredOccurrence.UtcTime <= logicalStartUtc)
-            {
-                // With restart catch-up disabled, only recover an occurrence that elapsed
-                // after this scheduler pass began. Older occurrences remain intentionally
-                // skipped, preserving the existing zero-window behavior.
-                recoveredOccurrence = null;
-            }
+                : FindMostRecentOccurrenceBetween(schedule, recoveryLookbackUtc, evaluationUtc);
             if (!isDue && recoveredOccurrence == null)
                 continue;
 
@@ -5465,6 +5536,14 @@ public sealed class HueSceneAutomationService : BackgroundService
                     StringComparison.OrdinalIgnoreCase),
                 runAtUtcOverride: slot,
                 schedulerBarrierHeld: true).ConfigureAwait(false);
+            var completedUtc = AddSecondsSaturating(logicalStartUtc, Stopwatch.GetElapsedTime(schedulerStartedAt).TotalSeconds);
+            if (completedUtc.Ticks / TimeSpan.TicksPerMinute > evaluationUtc.Ticks / TimeSpan.TicksPerMinute)
+            {
+                // A higher-priority cue may have been future-dated when visited.
+                // Re-evaluate priority before another lower-priority lifecycle starts;
+                // durable occurrence claims and run slots prevent replay.
+                scheduleIndex = -1;
+            }
             var canceledDuringAutomaticRun = cancellationToken.IsCancellationRequested &&
                 !result.Succeeded;
             var deferredPlaybackBlocked = deferDuringPlayback &&
@@ -8690,16 +8769,22 @@ public sealed class HueSceneAutomationService : BackgroundService
         public HueSceneScheduleConflictWindow(
             HueSceneScheduleOccurrence occurrence,
             DateTime endUtc,
-            string targetLabel)
+            string targetLabel,
+            int scheduleIndex,
+            int occupiedSeconds)
         {
             Occurrence = occurrence;
             EndUtc = endUtc;
             TargetLabel = targetLabel;
+            ScheduleIndex = scheduleIndex;
+            OccupiedSeconds = occupiedSeconds;
         }
 
         public HueSceneScheduleOccurrence Occurrence { get; }
         public DateTime EndUtc { get; }
         public string TargetLabel { get; }
+        public int ScheduleIndex { get; }
+        public int OccupiedSeconds { get; }
     }
 
     private static HueSceneSchedule CloneSchedule(HueSceneSchedule source)

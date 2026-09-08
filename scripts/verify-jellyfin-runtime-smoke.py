@@ -48,6 +48,8 @@ DEFAULT_IMAGE = "jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070e
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 150
 DEFAULT_HTTP_TIMEOUT_SECONDS = 3
 DEFAULT_POLL_INTERVAL_SECONDS = 2
+DEFAULT_COMMAND_TIMEOUT_SECONDS = 30
+CLEANUP_TIMEOUT_SECONDS = 10
 
 
 class VerificationError(RuntimeError):
@@ -74,13 +76,29 @@ def require(condition: bool, message: str) -> None:
         raise VerificationError(message)
 
 
-def run_command(command: list[str], *, capture_output: bool = True, check: bool = True) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        command,
-        check=False,
-        capture_output=capture_output,
-        text=True,
-    )
+def run_command(
+    command: list[str],
+    *,
+    capture_output: bool = True,
+    check: bool = True,
+    timeout_seconds: float = DEFAULT_COMMAND_TIMEOUT_SECONDS,
+    deadline: float | None = None,
+) -> subprocess.CompletedProcess[str]:
+    if deadline is not None:
+        timeout_seconds = min(timeout_seconds, deadline - time.monotonic())
+    require(timeout_seconds > 0, f"Runtime startup deadline expired before command: {' '.join(command)}")
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=capture_output,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise VerificationError(f"Command timed out after {timeout_seconds:g}s: {' '.join(command)}") from error
+    except OSError as error:
+        raise VerificationError(f"Unable to execute command: {' '.join(command)}: {error}") from error
     if check and result.returncode != 0:
         detail = (result.stdout or "") + (result.stderr or "")
         raise VerificationError(
@@ -110,7 +128,12 @@ def resolve_runtime_temp_dir() -> Path:
     return Path(tempfile.gettempdir())
 
 
+def supports_runtime_permissions() -> bool:
+    return os.name == "posix" and hasattr(os, "getuid") and hasattr(os, "getgid")
+
+
 def current_runtime_user() -> str:
+    require(supports_runtime_permissions(), "Runtime smoke requires a POSIX host with UID/GID and owner-mode support; use Linux or WSL. Portable --self-test remains available on this host.")
     uid = os.getuid()
     gid = os.getgid()
     require(uid >= 0 and gid >= 0, "Current process UID/GID must be non-negative.")
@@ -127,10 +150,10 @@ def parse_security_options(raw_value: str) -> list[str]:
     return normalized
 
 
-def resolve_container_user() -> str:
+def resolve_container_user(*, deadline: float | None = None) -> str:
     security_options_result = run_command([
         "docker", "info", "--format", "{{json .SecurityOptions}}"
-    ])
+    ], deadline=deadline)
     security_options = parse_security_options((security_options_result.stdout or "").strip())
     if any(option == "name=rootless" or option == "rootless" for option in security_options):
         return "0:0"
@@ -210,18 +233,25 @@ def prepare_plugin_directory(root: Path, plugin_directory_name: str, archive_ent
     return plugin_dir
 
 
-def get_logs(container_name: str) -> str:
-    result = run_command(["docker", "logs", container_name], capture_output=True, check=False)
+def get_logs(container_name: str, *, deadline: float | None = None) -> str:
+    result = run_command(["docker", "logs", container_name], capture_output=True, check=False, deadline=deadline)
     return ((result.stdout or "") + (result.stderr or "")).strip()
 
 
-def ensure_image_present(image: str) -> None:
-    run_command(["docker", "pull", image])
+def ensure_image_present(image: str, *, deadline: float | None = None) -> None:
+    timeout_seconds = DEFAULT_STARTUP_TIMEOUT_SECONDS if deadline is None else deadline - time.monotonic()
+    run_command(["docker", "pull", image], timeout_seconds=timeout_seconds, deadline=deadline)
 
 
-def start_container(container_name: str, image: str, config_dir: Path, cache_dir: Path) -> str:
-    runtime_user = resolve_container_user()
-    run_command(["docker", "rm", "-f", container_name], check=False)
+def start_container(
+    container_name: str,
+    image: str,
+    config_dir: Path,
+    cache_dir: Path,
+    runtime_user: str,
+    *,
+    deadline: float | None = None,
+) -> str:
     result = run_command([
         "docker", "run", "-d",
         "--name", container_name,
@@ -237,17 +267,17 @@ def start_container(container_name: str, image: str, config_dir: Path, cache_dir
         "-v", f"{config_dir}:/config",
         "-v", f"{cache_dir}:/cache",
         image,
-    ])
+    ], deadline=deadline)
     container_id = (result.stdout or "").strip()
     require(container_id, "docker run did not return a container ID")
     return container_id
 
 
-def inspect_container_state(container_name: str) -> tuple[str, int]:
+def inspect_container_state(container_name: str, *, deadline: float | None = None) -> tuple[str, int]:
     result = run_command([
         "docker", "inspect", container_name,
         "--format", "{{.State.Status}} {{.State.ExitCode}}"
-    ])
+    ], deadline=deadline)
     parts = (result.stdout or "").strip().split()
     require(len(parts) == 2, f"Unexpected docker inspect state output: {(result.stdout or '').strip()}")
     return parts[0], int(parts[1])
@@ -271,30 +301,38 @@ def health_probe_command(container_name: str, timeout_seconds: int) -> list[str]
     ]
 
 
-def fetch_container_health(container_name: str, timeout_seconds: int) -> bool:
+def fetch_container_health(container_name: str, timeout_seconds: int, *, deadline: float | None = None) -> bool:
     """Probe the runtime from its own network namespace for remote Docker daemons."""
     bounded_timeout = max(1, timeout_seconds)
     command = health_probe_command(container_name, timeout_seconds)
     try:
-        result = subprocess.run(
+        result = run_command(
             command,
             check=False,
             capture_output=True,
-            text=True,
-            timeout=max(3, bounded_timeout + 2),
+            timeout_seconds=max(3, bounded_timeout + 2),
+            deadline=deadline,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except VerificationError:
         return False
     return result.returncode == 0
 
 
-def wait_for_runtime(container_name: str, timeout_seconds: int, http_timeout_seconds: int, poll_interval_seconds: int) -> str:
-    deadline = time.monotonic() + timeout_seconds
+def wait_for_runtime(
+    container_name: str,
+    timeout_seconds: int,
+    http_timeout_seconds: int,
+    poll_interval_seconds: int,
+    *,
+    deadline: float | None = None,
+) -> str:
+    if deadline is None:
+        deadline = time.monotonic() + timeout_seconds
     last_logs = ""
     health_passed = False
     while time.monotonic() < deadline:
-        status, exit_code = inspect_container_state(container_name)
-        last_logs = get_logs(container_name)
+        status, exit_code = inspect_container_state(container_name, deadline=deadline)
+        last_logs = get_logs(container_name, deadline=deadline)
         forbidden = [marker for marker in FORBIDDEN_LOG_MARKERS if marker in last_logs]
         if forbidden:
             raise VerificationError(
@@ -311,19 +349,26 @@ def wait_for_runtime(container_name: str, timeout_seconds: int, http_timeout_sec
             # Probe through the runtime container itself. This avoids relying on
             # host port forwarding, which is not stable across Docker namespaces
             # and may be rejected by Windows port-reservation policy.
-            health_passed = fetch_container_health(container_name, http_timeout_seconds)
+            health_passed = fetch_container_health(container_name, http_timeout_seconds, deadline=deadline)
         has_required_logs = all(marker in last_logs for marker in REQUIRED_LOG_MARKERS)
-        if health_passed and has_required_logs:
+        if health_passed and has_required_logs and time.monotonic() < deadline:
             return last_logs
-        time.sleep(poll_interval_seconds)
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(poll_interval_seconds, remaining))
     raise VerificationError(
         "Timed out waiting for Jellyfin health and plugin-load markers.\n"
         + last_logs
     )
 
 
-def cleanup_container(container_name: str) -> None:
-    run_command(["docker", "rm", "-f", container_name], check=False)
+def cleanup_container(container_name: str) -> bool:
+    try:
+        run_command(["docker", "rm", "-f", container_name], timeout_seconds=CLEANUP_TIMEOUT_SECONDS)
+    except VerificationError as error:
+        print(f"Unable to confirm disposable container cleanup: {error}", file=sys.stderr)
+        return False
+    return True
 
 
 def verify_runtime_smoke(
@@ -333,45 +378,69 @@ def verify_runtime_smoke(
     startup_timeout_seconds: int,
     http_timeout_seconds: int,
     poll_interval_seconds: int,
-    plugin_directory_name: str,
+    plugin_directory_name: str | None,
 ) -> None:
     archive_entries = validate_archive_entries(archive_path)
     require(startup_timeout_seconds > 0, "startup-timeout-seconds must be positive")
     require(http_timeout_seconds > 0, "http-timeout-seconds must be positive")
     require(poll_interval_seconds > 0, "poll-interval-seconds must be positive")
+    require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", container_name_prefix) is not None,
+            "container-name-prefix must be a valid Docker name prefix")
+    require(supports_runtime_permissions(), "Runtime smoke requires a POSIX host with UID/GID and owner-mode support; use Linux or WSL. Portable --self-test remains available on this host.")
     plugin_directory_name = resolve_plugin_directory_name(archive_entries, plugin_directory_name)
 
     image = validate_image_reference(image)
-    ensure_image_present(image)
+    deadline = time.monotonic() + startup_timeout_seconds
+    ensure_image_present(image, deadline=deadline)
     # The runtime runner service has PrivateTmp enabled, while its rootless
     # Docker daemon is a separate user service. Use RUNNER_TEMP (under the
     # shared runner work tree) when present so bind mounts are visible to both
     # namespaces; local invocations fall back to the normal system temp path.
     temp_root = Path(tempfile.mkdtemp(prefix="jellyfin-runtime-smoke-", dir=resolve_runtime_temp_dir()))
-    container_name = f"{container_name_prefix}-{int(time.time())}"
+    container_name = f"{container_name_prefix}-{temp_root.name}"
+    container_may_exist = False
+    cleanup_succeeded = True
     try:
         prepare_plugin_directory(temp_root, plugin_directory_name, archive_entries)
-        start_container(container_name, image, temp_root / "config", temp_root / "cache")
+        runtime_user = resolve_container_user(deadline=deadline)
+        container_may_exist = True
+        start_container(container_name, image, temp_root / "config", temp_root / "cache", runtime_user, deadline=deadline)
         logs = wait_for_runtime(
             container_name,
             startup_timeout_seconds,
             http_timeout_seconds,
             poll_interval_seconds,
+            deadline=deadline,
         )
-        print(
-            f"Jellyfin runtime smoke passed for {archive_path.name} using {image} "
-            f"with marker '{REQUIRED_LOG_MARKERS[0]}'."
-        )
-        if logs:
-            print("Verified runtime log markers and HTTP /health readiness.")
     finally:
-        cleanup_container(container_name)
-        shutil.rmtree(temp_root, ignore_errors=True)
+        if container_may_exist:
+            cleanup_succeeded = cleanup_container(container_name)
+        if cleanup_succeeded:
+            shutil.rmtree(temp_root, ignore_errors=True)
+        else:
+            print(f"Retained runtime directory {temp_root}; verify and remove disposable container {container_name} before removing its files.", file=sys.stderr)
+    require(cleanup_succeeded, f"Runtime cleanup failed for disposable container {container_name}.")
+    print(
+        f"Jellyfin runtime smoke passed for {archive_path.name} using {image} "
+        f"with marker '{REQUIRED_LOG_MARKERS[0]}'."
+    )
+    if logs:
+        print("Verified runtime log markers and HTTP /health readiness.")
+
+
+def run_runtime_permission_self_test(root: Path, plugin_directory_name: str, entries: dict[str, bytes]) -> None:
+    require(current_runtime_user() == f"{os.getuid()}:{os.getgid()}", "self-test runtime user resolution failed")
+    plugin_dir = prepare_plugin_directory(root, plugin_directory_name, entries)
+    require(plugin_dir.stat().st_mode & 0o777 == RUNTIME_DIRECTORY_MODE,
+            "self-test plugin directory mode failed")
+    require((plugin_dir / "meta.json").stat().st_mode & 0o777 == RUNTIME_MANIFEST_MODE,
+            "self-test runtime manifest mode failed")
+    require((plugin_dir / "Jellyfin.Plugin.Hue.dll").stat().st_mode & 0o777 == 0o644,
+            "self-test assembly mode failed")
 
 
 def run_self_test() -> None:
     require(validate_image_reference(DEFAULT_IMAGE) == DEFAULT_IMAGE, "self-test image pin validation failed")
-    require(current_runtime_user() == f"{os.getuid()}:{os.getgid()}", "self-test runtime user resolution failed")
     require(parse_security_options('["name=seccomp,profile=builtin","name=rootless","name=cgroupns"]') == [
         "name=seccomp,profile=builtin",
         "name=rootless",
@@ -414,14 +483,11 @@ def run_self_test() -> None:
             pass
         else:
             raise VerificationError("self-test accepted an undiscoverable plugin directory name")
-        plugin_dir = Path(temp_dir) / "config" / "plugins" / plugin_directory_name
-        prepare_plugin_directory(Path(temp_dir), plugin_directory_name, entries)
-        require((plugin_dir).stat().st_mode & 0o777 == RUNTIME_DIRECTORY_MODE,
-                "self-test plugin directory mode failed")
-        require((plugin_dir / "meta.json").stat().st_mode & 0o777 == RUNTIME_MANIFEST_MODE,
-                "self-test runtime manifest mode failed")
-        require((plugin_dir / "Jellyfin.Plugin.Hue.dll").stat().st_mode & 0o777 == 0o644,
-                "self-test assembly mode failed")
+        if supports_runtime_permissions():
+            run_runtime_permission_self_test(Path(temp_dir), plugin_directory_name, entries)
+            print("POSIX runtime UID/GID and owner-mode self-test passed")
+        else:
+            print("POSIX runtime UID/GID and owner-mode checks require a POSIX host; portable archive and command checks remain enabled")
         good_logs = "...\nLoaded plugin: Philips Hue Sync 1.5.458.0\n..."
         require(all(marker in good_logs for marker in REQUIRED_LOG_MARKERS), "self-test required marker detection failed")
         require(not any(marker in good_logs for marker in FORBIDDEN_LOG_MARKERS), "self-test forbidden marker detection failed")
