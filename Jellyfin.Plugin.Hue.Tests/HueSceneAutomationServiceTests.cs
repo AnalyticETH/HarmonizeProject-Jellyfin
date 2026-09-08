@@ -780,6 +780,390 @@ public sealed class HueSceneAutomationServiceTests
             scheduleId: "missing-cue"));
     }
 
+    [Theory]
+    [InlineData(90, 60)]
+    [InlineData(90, 89)]
+    [InlineData(366, 365)]
+    public void GetUpcomingConflicts_CoversTheEntireRequestedHorizon(int horizonDays, int dayOffset)
+    {
+        var now = new DateTime(2028, 1, 1, 6, 0, 0, DateTimeKind.Utc);
+        var configuration = CreateConflictConfiguration();
+        configuration.SceneSchedules[0].RunDate = string.Empty;
+        configuration.SceneSchedules[1].RunDate = now.AddDays(dayOffset).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        configuration.SceneSchedules[1].TimeOfDay = "07:05";
+
+        var conflict = Assert.Single(HueSceneAutomationService.GetUpcomingConflicts(
+            configuration, now, maxConflicts: 1, horizonDays: horizonDays));
+
+        Assert.Equal(now.Date.AddDays(dayOffset).AddHours(7).AddMinutes(5), conflict.FirstOccurrenceUtc);
+        Assert.Equal(conflict.FirstOccurrenceUtc, conflict.SecondOccurrenceUtc);
+        Assert.Empty(HueSceneAutomationService.GetUpcomingConflicts(
+            configuration, now, maxConflicts: 1, horizonDays: dayOffset));
+    }
+
+    [Theory]
+    [InlineData("one-time")]
+    [InlineData("start-date")]
+    [InlineData("recurring")]
+    public void GetUpcomingConflicts_NegativeSolarOffsetIncludesTheNextBaseDateInsideTheHorizon(string variant)
+    {
+        var now = new DateTime(2028, 1, 1, 6, 0, 0, DateTimeKind.Utc);
+        var baseDate = now.Date.AddDays(1);
+        Assert.True(HueSolarCalculator.TryGetEventLocal(
+            baseDate, TimeZoneInfo.Utc, 0, 0, sunrise: true, offsetMinutes: -720,
+            out var shiftedLocal, out var shiftedUtc));
+        Assert.Equal(now.Date, shiftedLocal.Date);
+        Assert.True(shiftedUtc > now);
+        var configuration = CreateConflictConfiguration();
+        ConfigureSolarConflictSchedules(configuration, baseDate, -720, variant);
+
+        var conflict = Assert.Single(HueSceneAutomationService.GetUpcomingConflicts(configuration, now, horizonDays: 1));
+
+        Assert.Equal(shiftedUtc, conflict.FirstOccurrenceUtc);
+        Assert.Equal(shiftedUtc, conflict.SecondOccurrenceUtc);
+        foreach (var schedule in configuration.SceneSchedules)
+        {
+            var occurrence = Assert.Single(HueSceneAutomationService.GetUpcomingOccurrences(
+                schedule, now, maxOccurrences: 10, horizonDays: 1, includeFutureStartBeyondHorizon: false));
+            Assert.Equal(shiftedUtc, occurrence.UtcTime);
+            Assert.True(HueSceneAutomationService.IsDue(schedule, shiftedUtc));
+            schedule.TimeMode = PluginConfiguration.SceneScheduleTimeModeFixed;
+        }
+
+        Assert.Empty(HueSceneAutomationService.GetUpcomingConflicts(configuration, now, horizonDays: 1));
+    }
+
+    [Theory]
+    [InlineData("one-time")]
+    [InlineData("start-date")]
+    [InlineData("recurring")]
+    public void GetUpcomingConflicts_PositiveSolarOffsetExcludesActualEventsOutsideTheHorizon(string variant)
+    {
+        var now = new DateTime(2028, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        Assert.True(HueSolarCalculator.TryGetEventLocal(
+            now.Date, TimeZoneInfo.Utc, 0, 0, sunrise: false, offsetMinutes: 720,
+            out var shiftedLocal, out var shiftedUtc));
+        Assert.Equal(now.Date.AddDays(1), shiftedLocal.Date);
+        var configuration = CreateConflictConfiguration();
+        ConfigureSolarConflictSchedules(configuration, now.Date, 720, variant);
+
+        Assert.Empty(HueSceneAutomationService.GetUpcomingConflicts(configuration, now, horizonDays: 1));
+        Assert.All(configuration.SceneSchedules, schedule => Assert.Empty(HueSceneAutomationService.GetUpcomingOccurrences(
+            schedule, now, maxOccurrences: 10, horizonDays: 1, includeFutureStartBeyondHorizon: false)));
+        var conflict = Assert.Single(HueSceneAutomationService.GetUpcomingConflicts(configuration, now, horizonDays: 2));
+        Assert.Equal(shiftedUtc, conflict.FirstOccurrenceUtc);
+        Assert.Equal(shiftedUtc, conflict.SecondOccurrenceUtc);
+    }
+
+    private static void ConfigureSolarConflictSchedules(
+        PluginConfiguration configuration,
+        DateTime baseDate,
+        int offsetMinutes,
+        string variant)
+    {
+        foreach (var schedule in configuration.SceneSchedules)
+        {
+            schedule.TimeMode = offsetMinutes < 0
+                ? PluginConfiguration.SceneScheduleTimeModeSunrise
+                : PluginConfiguration.SceneScheduleTimeModeSunset;
+            schedule.SolarOffsetMinutes = offsetMinutes;
+            schedule.SolarLatitude = 0;
+            schedule.SolarLongitude = 0;
+            schedule.TimeOfDay = "07:05";
+            schedule.RunDate = variant == "one-time" ? baseDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : string.Empty;
+            schedule.StartDate = variant == "start-date" ? baseDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : string.Empty;
+            schedule.Recurrence = variant == "recurring"
+                ? PluginConfiguration.SceneScheduleRecurrenceWeekly
+                : PluginConfiguration.SceneScheduleRecurrenceDaily;
+            schedule.DaysOfWeekMask = variant == "recurring" ? 1 << (int)baseDate.DayOfWeek : 0;
+        }
+    }
+
+    [Fact]
+    public void GetUpcomingConflicts_LateStartDoesNotExtendTheRequestedHorizon()
+    {
+        var now = new DateTime(2028, 1, 1, 6, 0, 0, DateTimeKind.Utc);
+        var configuration = CreateConflictConfiguration();
+        configuration.SceneSchedules[0].RunDate = string.Empty;
+        configuration.SceneSchedules[0].StartDate = "2028-02-20";
+        configuration.SceneSchedules[0].ExcludedDates = Enumerable.Range(50, 45)
+            .Select(day => now.AddDays(day).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)).ToList();
+        configuration.SceneSchedules[1].RunDate = string.Empty;
+        configuration.SceneSchedules[1].StartDate = "2028-02-20";
+        configuration.SceneSchedules[1].Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily;
+        configuration.SceneSchedules[1].TimeOfDay = "07:05";
+
+        Assert.Empty(HueSceneAutomationService.GetUpcomingConflicts(configuration, now, horizonDays: 90));
+        Assert.Single(HueSceneAutomationService.GetUpcomingConflicts(configuration, now, maxConflicts: 1, horizonDays: 100));
+    }
+
+    [Theory]
+    [InlineData("skip")]
+    [InlineData("excluded")]
+    [InlineData("run-limit")]
+    public void GetUpcomingConflicts_WholeHorizonRetainsOccurrenceEligibilityRules(string rule)
+    {
+        var now = new DateTime(2028, 1, 1, 6, 0, 0, DateTimeKind.Utc);
+        var configuration = CreateConflictConfiguration();
+        var recurring = configuration.SceneSchedules[0];
+        recurring.RunDate = string.Empty;
+        var targetDate = now.AddDays(60);
+        configuration.SceneSchedules[1].RunDate = targetDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        configuration.SceneSchedules[1].TimeOfDay = "07:05";
+        if (rule == "skip")
+        {
+            recurring.StartDate = targetDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            recurring.SkipNextOccurrence = true;
+        }
+        else if (rule == "excluded")
+        {
+            recurring.ExcludedDates = new List<string> { targetDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) };
+        }
+        else
+        {
+            recurring.MaxRuns = 60;
+        }
+
+        Assert.Empty(HueSceneAutomationService.GetUpcomingConflicts(configuration, now, horizonDays: 90));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GetUpcomingConflicts_AccountsForSequentialDistinctTargetsWithoutChangingPerTargetDuration(bool playlist)
+    {
+        var now = new DateTime(2028, 1, 1, 6, 0, 0, DateTimeKind.Utc);
+        var configuration = CreateConflictConfiguration();
+        var cue = configuration.SceneSchedules[0];
+        cue.TargetAllEnabledMappings = true;
+        configuration.UserMappings = new List<UserBridgeMapping>
+        {
+            new() { UserId = "inherited", UserName = "Inherited", SyncEnabled = true },
+            ConflictMapping("room-a", "area-a"),
+            ConflictMapping("room-b", "area-b"),
+            ConflictMapping("duplicate-a", "area-a")
+        };
+        var perTargetDuration = 30;
+        if (playlist)
+        {
+            cue.PlaylistName = "Repeated playlist";
+            cue.PresetName = string.Empty;
+            configuration.ScenePlaylists = new List<HueScenePlaylist>
+            {
+                new()
+                {
+                    Name = cue.PlaylistName,
+                    PresetNames = new List<string> { "Long scene" },
+                    RepeatCount = 2,
+                    TargetAllEnabledMappings = false,
+                    TargetUserId = "room-a"
+                }
+            };
+            configuration.SceneSchedules[1].TimeOfDay = "07:07";
+            perTargetDuration = 60;
+        }
+
+        Assert.True(HueSceneAutomationService.TryResolveTargets(configuration, cue, out var targets, out _));
+        Assert.Equal(3, targets.Count);
+        var conflict = Assert.Single(HueSceneAutomationService.GetUpcomingConflicts(configuration, now, horizonDays: 1));
+        Assert.Equal(perTargetDuration * 3, conflict.FirstDurationSeconds);
+        Assert.Equal(20, conflict.SecondDurationSeconds);
+        Assert.Equal(20, conflict.OverlapSeconds);
+        var occurrence = Assert.Single(HueSceneAutomationService.GetUpcomingOccurrences(
+            cue, now, maxOccurrences: 1, durationSeconds: perTargetDuration));
+        Assert.Equal(perTargetDuration, occurrence.DurationSeconds);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GetUpcomingConflicts_DeviceRoutesDeduplicateInheritedAndAliasTargets(bool addDistinctTarget)
+    {
+        var now = new DateTime(2028, 1, 1, 6, 0, 0, DateTimeKind.Utc);
+        var configuration = CreateConflictConfiguration();
+        var mapping = new UserBridgeMapping
+        {
+            UserId = "routed-user",
+            SyncEnabled = true,
+            DeviceTargets = new List<UserDeviceBridgeTarget>
+            {
+                new()
+                {
+                    DeviceId = "screen-a", HueBridgeIp = configuration.HueBridgeIp,
+                    HueAppKey = configuration.HueAppKey, HueClientKey = configuration.HueClientKey,
+                    EntertainmentAreaId = "area-a"
+                },
+                new()
+                {
+                    DeviceId = "screen-alias", HueBridgeIp = configuration.HueBridgeIp,
+                    HueAppKey = configuration.HueAppKey, HueClientKey = configuration.HueClientKey,
+                    EntertainmentAreaId = addDistinctTarget ? "area-b" : "area-a"
+                }
+            }
+        };
+        configuration.UserMappings = new List<UserBridgeMapping> { mapping };
+        var cue = configuration.SceneSchedules[0];
+        cue.IncludeDefaultTarget = true;
+        cue.TargetUserIds = new List<string> { mapping.UserId };
+        cue.TargetRoutes = mapping.DeviceTargets.Select(target => new HueSceneScheduleTargetRoute
+        {
+            UserId = mapping.UserId,
+            DeviceId = target.DeviceId
+        }).ToList();
+
+        var conflicts = HueSceneAutomationService.GetUpcomingConflicts(configuration, now, horizonDays: 1);
+
+        if (addDistinctTarget)
+        {
+            Assert.Equal(90, Assert.Single(conflicts).FirstDurationSeconds);
+        }
+        else
+        {
+            Assert.Empty(conflicts);
+        }
+    }
+
+    [Fact]
+    public void GetUpcomingConflicts_DenseSchedulesBoundAllocationsAndPreserveRankedLimit()
+    {
+        var now = new DateTime(2028, 1, 1, 6, 0, 0, DateTimeKind.Utc);
+        var configuration = CreateConflictConfiguration();
+        configuration.SceneSchedules = Enumerable.Range(0, PluginConfiguration.MaxSceneSchedules)
+            .Select(index => new HueSceneSchedule
+            {
+                Id = $"cue-{index:D2}",
+                Name = $"Cue {index:D2}",
+                PresetName = "Long scene",
+                TimeOfDay = "07:05",
+                TimeZoneId = TimeZoneInfo.Utc.Id,
+                Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily,
+                Priority = index % 3,
+                Enabled = true
+            }).ToList();
+        HueSceneAutomationService.GetUpcomingConflicts(configuration, now, maxConflicts: 1, horizonDays: 366);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var limited = HueSceneAutomationService.GetUpcomingConflicts(configuration, now, maxConflicts: 1, horizonDays: 366);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(allocated < 2_000_000, $"Limited conflict query allocated {allocated:N0} bytes.");
+        var expected = (from first in configuration.SceneSchedules.Select((cue, index) => (cue, index))
+                        from second in configuration.SceneSchedules.Select((cue, index) => (cue, index))
+                        where first.index < second.index
+                        orderby Math.Max(first.cue.Priority, second.cue.Priority) descending,
+                            first.cue.Name, second.cue.Name
+                        select (first.cue.Id, second.cue.Id)).Take(200).ToArray();
+        var full = HueSceneAutomationService.GetUpcomingConflicts(configuration, now, maxConflicts: 200, horizonDays: 366);
+        Assert.Equal(expected, full.Select(conflict => (conflict.FirstScheduleId, conflict.SecondScheduleId)).ToArray());
+        Assert.Equal(expected[0], (Assert.Single(limited).FirstScheduleId, limited[0].SecondScheduleId));
+        Assert.All(full, conflict => Assert.Equal(now.Date.AddHours(7).AddMinutes(5), conflict.FirstOccurrenceUtc));
+    }
+
+    [Fact]
+    public void GetUpcomingConflicts_MixedStartGroupsAndScheduleFilterKeepGlobalOrdering()
+    {
+        var now = new DateTime(2028, 1, 1, 6, 0, 0, DateTimeKind.Utc);
+        var configuration = CreateConflictConfiguration();
+        configuration.UserMappings = new List<UserBridgeMapping>
+        {
+            ConflictMapping("room-a", "area-a"), ConflictMapping("room-b", "area-b")
+        };
+        configuration.SceneSchedules[0].TargetAllEnabledMappings = true;
+        configuration.SceneSchedules[0].Priority = 10;
+        configuration.SceneSchedules[1].Priority = 20;
+        configuration.SceneSchedules.Add(new HueSceneSchedule
+        {
+            Id = "third-cue",
+            Name = "Third cue",
+            PresetName = "Short scene",
+            RunDate = "2028-01-01",
+            TimeOfDay = "07:06",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            Priority = 90,
+            Enabled = true
+        });
+
+        var conflicts = HueSceneAutomationService.GetUpcomingConflicts(configuration, now, maxConflicts: 3, horizonDays: 1);
+        Assert.Equal(new[] { ("long-cue", "third-cue"), ("long-cue", "short-cue"), ("short-cue", "third-cue") },
+            conflicts.Select(conflict => (conflict.FirstScheduleId, conflict.SecondScheduleId)).ToArray());
+        var filtered = HueSceneAutomationService.GetUpcomingConflicts(
+            configuration, now, maxConflicts: 3, horizonDays: 1, scheduleId: "short-cue");
+        Assert.Equal(new[] { ("long-cue", "short-cue"), ("short-cue", "third-cue") },
+            filtered.Select(conflict => (conflict.FirstScheduleId, conflict.SecondScheduleId)).ToArray());
+        var limited = Assert.Single(HueSceneAutomationService.GetUpcomingConflicts(configuration, now, maxConflicts: 1, horizonDays: 1));
+        Assert.Equal("third-cue", limited.SecondScheduleId);
+    }
+
+    [Fact]
+    public void GetUpcomingOccurrences_StillClampsPublicPreviewToFifty()
+    {
+        var configuration = CreateConflictConfiguration();
+        configuration.SceneSchedules[0].RunDate = string.Empty;
+
+        var occurrences = HueSceneAutomationService.GetUpcomingOccurrences(
+            configuration.SceneSchedules[0], new DateTime(2028, 1, 1, 6, 0, 0, DateTimeKind.Utc),
+            maxOccurrences: int.MaxValue, horizonDays: 366);
+
+        Assert.Equal(50, occurrences.Count);
+    }
+
+    [Fact]
+    public void GetMostRecentMissedOccurrence_FiniteBudgetDoesNotSelectAnOlderOutOfWindowDate()
+    {
+        var configuration = CreateConflictConfiguration();
+        var schedule = configuration.SceneSchedules[0];
+        schedule.RunDate = string.Empty;
+        schedule.MaxRuns = 1;
+        var now = new DateTime(2028, 1, 1, 7, 6, 0, DateTimeKind.Utc);
+
+        var recovered = HueSceneAutomationService.GetMostRecentMissedOccurrence(schedule, now, 10);
+
+        Assert.NotNull(recovered);
+        Assert.Equal(now.AddMinutes(-1), recovered.UtcTime);
+        schedule.RunCount = 1;
+        Assert.Null(HueSceneAutomationService.GetMostRecentMissedOccurrence(schedule, now, 10));
+    }
+
+    private static PluginConfiguration CreateConflictConfiguration()
+        => new()
+        {
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-key",
+            HueClientKey = "client-key",
+            EntertainmentAreaId = "area-global",
+            ColorPresets = new List<HueColorPreset>
+            {
+                new() { Name = "Long scene", DurationSeconds = 30 },
+                new() { Name = "Short scene", DurationSeconds = 20 }
+            },
+            SceneSchedules = new List<HueSceneSchedule>
+            {
+                new()
+                {
+                    Id = "long-cue", Name = "Long cue", PresetName = "Long scene", RunDate = "2028-01-01",
+                    TimeOfDay = "07:05", TimeZoneId = TimeZoneInfo.Utc.Id, Enabled = true,
+                    Recurrence = PluginConfiguration.SceneScheduleRecurrenceDaily
+                },
+                new()
+                {
+                    Id = "short-cue", Name = "Short cue", PresetName = "Short scene", RunDate = "2028-01-01",
+                    TimeOfDay = "07:06", TimeZoneId = TimeZoneInfo.Utc.Id, Enabled = true
+                }
+            }
+        };
+
+    private static UserBridgeMapping ConflictMapping(string userId, string areaId)
+        => new()
+        {
+            UserId = userId,
+            UserName = userId,
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "app-key",
+            HueClientKey = "client-key",
+            EntertainmentAreaId = areaId
+        };
+
     [Fact]
     public void MonthlyWeekdayRecurrence_MatchesFirstAndLastWeekday()
     {
@@ -1900,6 +2284,83 @@ public sealed class HueSceneAutomationServiceTests
             new DateTime(2026, 8, 18, 7, 6, 2, DateTimeKind.Utc),
             CancellationToken.None);
         Assert.Equal(new[] { 10, 200 }, streamTester.Reds);
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_RevisitsFutureHigherPriorityCueBeforeOtherDueCuesAndDoesNotReplay()
+    {
+        var configuration = CreateConflictConfiguration();
+        configuration.SceneAutomationEnabled = true;
+        configuration.SceneAutomationCatchUpMinutes = 0;
+        configuration.ColorPresets[0].Red = 10;
+        configuration.ColorPresets[1].Red = 200;
+        configuration.SceneSchedules[0].Priority = 20;
+        configuration.SceneSchedules[1].Priority = 100;
+        configuration.ColorPresets.Add(new HueColorPreset { Name = "Last scene", Red = 50, DurationSeconds = 1 });
+        configuration.SceneSchedules.Add(new HueSceneSchedule
+        {
+            Id = "last-cue",
+            Name = "Last cue",
+            PresetName = "Last scene",
+            Priority = 10,
+            TimeOfDay = "07:05",
+            TimeZoneId = TimeZoneInfo.Utc.Id,
+            RunDate = "2028-01-01",
+            Enabled = true
+        });
+        InstallConfiguration(configuration);
+        using var httpClient = new HttpClient(new AreaConfigurationHandler());
+        var streamTester = new OverlapRecoveryStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>());
+
+        var run = service.RunDueSchedulesAsync(new DateTime(2028, 1, 1, 7, 5, 59, DateTimeKind.Utc), CancellationToken.None);
+        await streamTester.FirstPreviewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Delay(1100);
+        streamTester.ReleaseFirstPreview.TrySetResult(true);
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+        await service.RunDueSchedulesAsync(new DateTime(2028, 1, 1, 7, 7, 1, DateTimeKind.Utc), CancellationToken.None);
+
+        Assert.Equal(new[] { 10, 200, 50 }, streamTester.Reds);
+        Assert.All(configuration.SceneSchedules, schedule => Assert.Equal(1, schedule.RunCount));
+    }
+
+    [Fact]
+    public async Task RunDueSchedules_IncludesPendingCleanupTimeWhenACueBecomesDue()
+    {
+        var configuration = CreateConflictConfiguration();
+        configuration.SceneAutomationEnabled = true;
+        configuration.SceneAutomationCatchUpMinutes = 0;
+        configuration.SceneSchedules.RemoveAt(0);
+        InstallConfiguration(configuration);
+        var lifecycleGate = new HueBridgeLifecycleGate();
+        var journal = new HueScheduledCleanupJournal(lifecycleGate);
+        using (journal.BeginScope(new HueScheduledCleanupScope
+        {
+            CleanupId = "elapsed-cleanup",
+            ScheduleId = "old-cue",
+            BridgeIp = configuration.HueBridgeIp,
+            EntertainmentAreaId = configuration.EntertainmentAreaId
+        }))
+        {
+            Assert.True(journal.Capture(new[] { new HueClient.LightState("light-1", true, 45, 0.2, 0.3) }));
+        }
+        configuration.PersistedSceneAutomationPendingCleanups[0].NextAttemptAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        using var httpClient = new HttpClient(new DelayedCleanupRecoveryHandler());
+        var streamTester = new RecordingStreamTester();
+        var service = new HueSceneAutomationService(
+            streamTester,
+            new HueClient(httpClient, Mock.Of<ILogger<HueClient>>()),
+            Mock.Of<ILogger<HueSceneAutomationService>>(), lifecycleGate, journal);
+
+        await service.RunDueSchedulesAsync(new DateTime(2028, 1, 1, 7, 5, 59, DateTimeKind.Utc), CancellationToken.None);
+        await service.RunDueSchedulesAsync(new DateTime(2028, 1, 1, 7, 7, 1, DateTimeKind.Utc), CancellationToken.None);
+
+        Assert.Empty(configuration.PersistedSceneAutomationPendingCleanups);
+        Assert.Single(streamTester.Invocations);
+        Assert.Equal(1, Assert.Single(configuration.SceneSchedules).RunCount);
     }
 
     [Fact]
@@ -8974,6 +9435,28 @@ public sealed class HueSceneAutomationServiceTests
         }
     }
 
+    private sealed class DelayedCleanupRecoveryHandler : DelegatingHandler
+    {
+        private bool _delayed;
+
+        public DelayedCleanupRecoveryHandler() : base(new AreaConfigurationHandler())
+        {
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Method != HttpMethod.Put)
+                return await base.SendAsync(request, cancellationToken);
+
+            if (!_delayed)
+            {
+                _delayed = true;
+                await Task.Delay(1100, cancellationToken);
+            }
+            return HueMutationResponseFixture.Success(request);
+        }
+    }
+
     private sealed class CleanupRecoveryHandler : HttpMessageHandler
     {
         public List<string> RequestUris { get; } = new();
@@ -8984,7 +9467,10 @@ public sealed class HueSceneAutomationServiceTests
         {
             RequestUris.Add(request.RequestUri?.ToString() ?? string.Empty);
             if (request.Method == HttpMethod.Put)
+            {
                 SuccessfulPutCount++;
+                return Task.FromResult(HueMutationResponseFixture.Success(request));
+            }
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {

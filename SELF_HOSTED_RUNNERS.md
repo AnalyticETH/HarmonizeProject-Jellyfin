@@ -30,7 +30,15 @@ cancel or be canceled by the `workflow_call` security gate invoked by a trusted 
 Cancellation remains intentional for an older scan in the same event/ref lane; preserve this
 event component whenever the workflow or its triggers are changed.
 
+Before public contribution workflows are enabled, resolve the shared-runner risk
+in [RELEASE_READINESS.md](RELEASE_READINESS.md). Pull-request code and release jobs
+currently select the same persistent runner. Read-only GitHub tokens and checkout
+cleanup do not isolate host processes, writable caches, Docker state, or later
+release credentials. Public PR execution needs an owner-approved isolated worker
+boundary and a real fork-run verification; do not restore the retired runners.
+
 ## Stale queued-run recovery
+
 
 Persistent-runner outages can leave a GitHub Actions run displayed as `queued` even though it
 has no assigned job. Treat a queued run older than one hour as an operator incident rather than

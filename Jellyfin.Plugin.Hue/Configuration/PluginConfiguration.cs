@@ -2931,8 +2931,8 @@ namespace Jellyfin.Plugin.Hue.Configuration
             foreach (var token in tokens)
             {
                 if (!int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var channelId) ||
-                    channelId < ushort.MinValue ||
-                    channelId > ushort.MaxValue)
+                    channelId < byte.MinValue ||
+                    channelId > byte.MaxValue)
                 {
                     channelIds.Clear();
                     return false;
@@ -2951,7 +2951,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         {
             var errors = new List<string>();
             if (!TryParseChannelIds(mapping.ChannelIdsOverride, out _))
-                errors.Add($"{label} channel IDs override must be a comma-separated list of IDs from 0 to 65535 (maximum {MaxChannelIdsInputLength} characters)");
+                errors.Add($"{label} channel IDs override must be a comma-separated list of IDs from 0 to 255 (maximum {MaxChannelIdsInputLength} characters)");
 
             return errors;
         }
@@ -2963,7 +2963,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
         {
             var errors = new List<string>();
             if (!TryParseChannelIds(channelIds, out _))
-                errors.Add($"{label} channel IDs must be a comma-separated list of IDs from 0 to 65535 (maximum {MaxChannelIdsInputLength} characters)");
+                errors.Add($"{label} channel IDs must be a comma-separated list of IDs from 0 to 255 (maximum {MaxChannelIdsInputLength} characters)");
 
             return errors;
         }
@@ -3017,7 +3017,7 @@ namespace Jellyfin.Plugin.Hue.Configuration
                     errors.Add($"{targetLabel} requires an Entertainment Area ID");
 
                 if (!TryParseChannelIds(target.ChannelIdsOverride, out _))
-                    errors.Add($"{targetLabel} channel IDs override must be a comma-separated list of IDs from 0 to 65535 (maximum {MaxChannelIdsInputLength} characters)");
+                    errors.Add($"{targetLabel} channel IDs override must be a comma-separated list of IDs from 0 to 255 (maximum {MaxChannelIdsInputLength} characters)");
             }
 
             return errors;

@@ -279,7 +279,7 @@
                                     <span>Load Channel IDs</span>
                                 </button>
                             </div>
-                            <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-65535; maximum 4,096 characters). Load Channel IDs after selecting an area; the stored global App Key is used when the secret field is blank. Edit the list to choose a subset. Test Connection validates this global selection.</div>
+                            <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-255; maximum 4,096 characters). Load Channel IDs after selecting an area; the stored global App Key is used when the secret field is blank. Edit the list to choose a subset. Test Connection validates this global selection.</div>
                             <div id="channelIdsStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;"></div>
                         </div>
                     </fieldset>
@@ -1555,7 +1555,7 @@
                                             <span>Load Channel IDs</span>
                                         </button>
                                     </div>
-                                    <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-65535; maximum 4,096 characters). Only these channels are captured, dimmed, streamed, and restored for this user. Load Channel IDs after selecting an area; blank mapping credentials inherit the stored global target. Edit the list to choose a subset. Leave blank to inherit the global channel profile. Test Connection validates this selection and probes only the chosen channels.</div>
+                                    <div class="fieldDescription">Optional comma-separated Hue entertainment channel IDs (0-255; maximum 4,096 characters). Only these channels are captured, dimmed, streamed, and restored for this user. Load Channel IDs after selecting an area; blank mapping credentials inherit the stored global target. Edit the list to choose a subset. Leave blank to inherit the global channel profile. Test Connection validates this selection and probes only the chosen channels.</div>
                                     <div id="mappingChannelIdsStatus" class="fieldDescription" role="status" aria-live="polite" aria-atomic="true" style="margin-top: 0.5em;"></div>
                                 </div>
                             </fieldset>
@@ -2912,11 +2912,7 @@
                             HueConfigurationPage.setMappingDeviceRouteEditorStatus('Unable to load route areas. Enter the area ID manually and verify the route credentials.', 'error', page);
                         })
                         .finally(function () {
-                            if (!HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
-                                page,
-                                pageGeneration,
-                                request,
-                                HueConfigurationPage.getMappingDeviceRouteTarget(page))) return;
+                            if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                             if (button) button.disabled = false;
                         });
                 },
@@ -3294,6 +3290,20 @@
                         record.loadingOwner = null;
                         HueConfigurationPage.releasePageLoading(canceledLoadingOwner);
                     }
+                    var discoveryControls = {
+                        entertainmentAreas: ['#entertainmentAreaSelect', '#refreshAreasBtn'],
+                        mappingAreas: ['#mappingAreaSelect'],
+                        mappingDeviceRouteAreas: ['#mappingLoadDeviceRouteAreasBtn'],
+                        defaultChannels: ['#loadChannelsBtn'],
+                        mappingChannels: ['#mappingLoadChannelsBtn'],
+                        mappingDeviceRouteChannels: ['#mappingLoadDeviceRouteChannelsBtn']
+                    }[key];
+                    if (discoveryControls) {
+                        discoveryControls.forEach(function (selector) {
+                            var control = page.querySelector && page.querySelector(selector);
+                            if (control) control.disabled = false;
+                        });
+                    }
                     if (key === 'bridgeDiscovery' || key === 'mappingBridgeDiscovery') {
                         var bridgeDiscoveryLoadingProperty = key === 'bridgeDiscovery'
                             ? '_hueBridgeDiscoveryLoading'
@@ -3575,6 +3585,14 @@
                         mappingRegistrationPreflight.canceled = true;
                         HueConfigurationPage._hueMappingRegistrationPreflight = null;
                     }
+                    var pendingCredentialClearConfirmation = page._hueConfigurationClearConfirmation;
+                    if (pendingCredentialClearConfirmation) {
+                        pendingCredentialClearConfirmation.canceled = true;
+                        if (pendingCredentialClearConfirmation.button) pendingCredentialClearConfirmation.button.disabled = false;
+                        if (pendingCredentialClearConfirmation.resolve) pendingCredentialClearConfirmation.resolve();
+                        pendingCredentialClearConfirmation.resolve = null;
+                    }
+                    page._hueConfigurationClearConfirmation = null;
                     var pendingDeleteConfirmation = page._hueUserMappingDeleteConfirmation;
                     if (pendingDeleteConfirmation) {
                         pendingDeleteConfirmation.canceled = true;
@@ -4376,27 +4394,61 @@
                     if (!page) return Promise.resolve();
                     var pageGeneration = HueConfigurationPage.ensurePageLifecycle(page);
                     if (!HueConfigurationPage.isPageLifecycleCurrent(page, pageGeneration) ||
-                        page._hueConfigurationSaving) return Promise.resolve();
+                        page._hueConfigurationSaving || page._hueConfigurationClearConfirmation) return Promise.resolve();
                     var clearCredentialsCheckbox = page.querySelector('#clearStoredCredentials');
+                    var saveButton = page.querySelector('#saveConfigurationBtn');
                     if (clearCredentialsCheckbox && clearCredentialsCheckbox.checked && !clearConfirmationComplete) {
-                        Dashboard.confirm(
-                            "Clear the stored global Hue App Key and Client Key? This cannot be undone from the configuration page.",
-                            "Clear Stored Credentials",
-                            function (confirmed) {
-                                if (confirmed) {
-                                    HueConfigurationPage.saveConfiguration(page, true);
-                                } else {
-                                    clearCredentialsCheckbox.checked = false;
-                                }
+                        var getCredentialTarget = function () {
+                            return HueConfigurationPage.getMappingTargetFingerprint({
+                                bridgeIp: page.querySelector('#hueBridgeIp').value,
+                                appKey: page.querySelector('#hueAppKey').value,
+                                clientKey: page.querySelector('#hueClientKey').value
                             });
-                        return Promise.resolve();
+                        };
+                        var confirmation = {
+                            generation: pageGeneration,
+                            targetFingerprint: getCredentialTarget(),
+                            configurationRequest: page._huePageRequests.configuration,
+                            button: saveButton,
+                            canceled: false
+                        };
+                        page._hueConfigurationClearConfirmation = confirmation;
+                        if (saveButton) saveButton.disabled = true;
+                        return new Promise(function (resolve) {
+                            confirmation.resolve = resolve;
+                            Dashboard.confirm(
+                                "Clear the stored global Hue App Key and Client Key? This cannot be undone from the configuration page.",
+                                "Clear Stored Credentials",
+                                function (confirmed) {
+                                    if (page._hueConfigurationClearConfirmation !== confirmation) {
+                                        resolve();
+                                        return;
+                                    }
+                                    var current = !confirmation.canceled &&
+                                        HueConfigurationPage.isPageLifecycleCurrent(page, confirmation.generation) &&
+                                        confirmation.configurationRequest === page._huePageRequests.configuration &&
+                                        confirmation.targetFingerprint === getCredentialTarget() && clearCredentialsCheckbox.checked;
+                                    page._hueConfigurationClearConfirmation = null;
+                                    confirmation.resolve = null;
+                                    if (saveButton) saveButton.disabled = false;
+                                    if (!current) {
+                                        resolve();
+                                        return;
+                                    }
+                                    if (!confirmed) {
+                                        clearCredentialsCheckbox.checked = false;
+                                        resolve();
+                                        return;
+                                    }
+                                    resolve(HueConfigurationPage.saveConfiguration(page, true));
+                                });
+                        });
                     }
                     // A configuration load started during pageshow may still be in
                     // flight. Cancel it before saving so its late response cannot erase
                     // edits made while the administrator was working.
                     HueConfigurationPage.cancelPageLifecycleRequest(page, 'configuration');
                     page._hueConfigurationSaving = true;
-                    var saveButton = page.querySelector('#saveConfigurationBtn');
                     if (saveButton) saveButton.disabled = true;
                     Dashboard.showLoadingMsg();
                     var parseNumberOrDefault = function (selector, fallback) {
@@ -12844,7 +12896,7 @@
                         HueConfigurationPage.refreshStatus(page, "Could not reach bridge. Verify IP, app key, and network access.", "error");
                         HueConfigurationPage.syncSelectedArea(page, selectedId);
                     }).finally(function () {
-                        if (!isCurrent()) return;
+                        if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                         selectEl.disabled = false;
                         refreshBtn.disabled = false;
                     });
@@ -16194,14 +16246,7 @@
                         console.error("Failed to load areas for mapping:", err);
                         selectEl.innerHTML = '<option value="">Failed to load areas</option><option value="manual">Enter ID manually</option>';
                     }).finally(function () {
-                        var currentTarget = HueConfigurationPage.getEffectiveMappingTarget(page);
-                        currentTarget.mappingId = mappingState.mappingId || '';
-                        currentTarget.areaId = '';
-                        if (!HueConfigurationPage.isPageLifecycleTargetRequestCurrent(
-                            page,
-                            pageGeneration,
-                            request,
-                            currentTarget)) return;
+                        if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                         selectEl.disabled = false;
                     });
                 },
@@ -16335,7 +16380,7 @@
                         }).map(function (channelId) {
                             return Number(channelId);
                         }).filter(function (channelId) {
-                            return Number.isInteger(channelId) && channelId >= 0 && channelId <= 65535;
+                            return Number.isInteger(channelId) && channelId >= 0 && channelId <= 255;
                         });
 
                         if (!channelIds.length) {
@@ -16360,7 +16405,7 @@
                             statusEl.style.color = "#d9534f";
                         }
                     }).finally(function () {
-                        if (!isCurrent()) return;
+                        if (!HueConfigurationPage.isPageLifecycleRequestCurrent(page, pageGeneration, request)) return;
                         if (button) button.disabled = false;
                     });
                 },
@@ -16368,6 +16413,7 @@
                 loadDefaultChannels: function (page) {
                     var bridgeIp = page.querySelector('#hueBridgeIp').value.trim();
                     var appKey = page.querySelector('#hueAppKey').value.trim();
+                    var clientKey = page.querySelector('#hueClientKey').value.trim();
                     var areaId = HueConfigurationPage.getSelectedAreaId(page);
                     return HueConfigurationPage.loadChannelIds(
                         bridgeIp,
@@ -16378,7 +16424,7 @@
                         page.querySelector('#channelIdsStatus'),
                         "",
                         "",
-                        "",
+                        clientKey,
                         page,
                         'defaultChannels');
                 },
@@ -16997,6 +17043,7 @@
                 },
 
                 cancelMappingEdit: function (page) {
+                    HueConfigurationPage.cancelPageLifecycleRequest(page, 'editUserMapping');
                     HueConfigurationPage.cancelPageLifecycleRequest(page, 'userMappingSave');
                     HueConfigurationPage.resetMappingForm(page);
                 },

@@ -50,6 +50,8 @@ publish/
 release-package/
 *.zip
 *.zip.sha256
+/jellyfin-plugin-hue-*.manifest.json
+/jellyfin-plugin-hue-*.manifest.json.sha256
 
 # OS files
 .DS_Store

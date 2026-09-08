@@ -1,5 +1,7 @@
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using Jellyfin.Plugin.Hue.Configuration;
 using Jellyfin.Plugin.Hue.Service;
 using Xunit;
@@ -1539,6 +1541,104 @@ public sealed class HueSyncServiceTests
         var smoothed = HueSyncService.ApplyTemporalSmoothing(current, previous, 100);
 
         Assert.Equal(new byte[] { 10, 10, 10 }, smoothed[1]);
+    }
+
+    [Theory]
+    [InlineData(0, 0x0000)]
+    [InlineData(1, 0x0101)]
+    [InlineData(128, 0x8080)]
+    [InlineData(255, 0xffff)]
+    public void EncodeRgb16_ExpandsVideoSampleBytesToTheFullUnsignedRange(byte component, int expectedWord)
+    {
+        var sample = HueSyncService.SampleRegionColor(
+            new byte[] { component, 128, 1 },
+            0,
+            0,
+            0,
+            PluginConfiguration.SamplingModeCenterPixel,
+            1,
+            1);
+
+        var encoded = HueSyncService.EncodeRgb16(sample[0], sample[1], sample[2]);
+
+        Assert.Equal(new byte[] { component, component, 128, 128, 1, 1 }, encoded);
+        Assert.Equal((ushort)expectedWord, BinaryPrimitives.ReadUInt16BigEndian(encoded.AsSpan(0, 2)));
+        Assert.Equal((ushort)0x8080, BinaryPrimitives.ReadUInt16BigEndian(encoded.AsSpan(2, 2)));
+        Assert.Equal((ushort)0x0101, BinaryPrimitives.ReadUInt16BigEndian(encoded.AsSpan(4, 2)));
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(50, 127)]
+    [InlineData(100, 255)]
+    public void EncodeRgb16_PreservesTheExplicitOutputBrightnessPolicy(int brightnessPercent, byte expected)
+    {
+        var channel = HueSyncService.ApplyOutputBrightness(255, brightnessPercent);
+
+        var encoded = HueSyncService.EncodeRgb16(channel, channel, channel);
+
+        Assert.Equal(new[] { expected, expected, expected, expected, expected, expected }, encoded);
+    }
+
+    [Fact]
+    public void EncodeRgb16_ClampsComponentsWithoutChangingChannelOrder()
+    {
+        Assert.Equal(new byte[] { 0, 0, 255, 255, 128, 128 }, HueSyncService.EncodeRgb16(-1, 300, 128.9));
+    }
+
+    [Fact]
+    public void EncodeRgb16_PreservesFullRangeAudioPaletteOutput()
+    {
+        var colors = HueSyncService.BuildAudioChannelColors(
+            new Dictionary<int, (double x, double z)> { [255] = (0, 0) },
+            (Rms: 1, Low: 1, Mid: 1, High: 1),
+            frameIndex: 0,
+            audioColorPalette: PluginConfiguration.AudioColorPaletteMonochrome,
+            audioSpatialMode: PluginConfiguration.AudioSpatialModeUniform);
+        var rgb = colors[255];
+        Assert.All(rgb, component => Assert.True(component > 127));
+
+        var encoded = HueSyncService.EncodeRgb16(rgb[0], rgb[1], rgb[2]);
+
+        Assert.Equal(new[] { rgb[0], rgb[0], rgb[1], rgb[1], rgb[2], rgb[2] }, encoded);
+    }
+
+    [Theory]
+    [InlineData(-1, 0, 0)]
+    [InlineData(0, 0, 0)]
+    [InlineData(30, 76, 60)]
+    [InlineData(50, 127, 101)]
+    [InlineData(100, 255, 204)]
+    [InlineData(101, 255, 204)]
+    public void BuildCinemaModeColors_PreservesDimmingAndWarmTint(int brightness, byte warm, byte blue)
+    {
+        using var channels = JsonDocument.Parse("[{\"channel_id\":0},{\"channel_id\":255}]");
+
+        var colors = HueSyncService.BuildCinemaModeColors(channels.RootElement, brightness);
+
+        Assert.Equal(2, colors.Count);
+        Assert.Equal(new[] { warm, warm, warm, warm, blue, blue }, colors[0]);
+        Assert.Equal(colors[0], colors[255]);
+        Assert.NotSame(colors[0], colors[255]);
+    }
+
+    [Fact]
+    public void BuildPlaybackPolicyColors_UsesOnlyByteSizedSelectedChannels()
+    {
+        using var channels = JsonDocument.Parse(
+            "[{\"channel_id\":-1},{\"channel_id\":0},{\"channel_id\":255},{\"channel_id\":256},{\"channel_id\":65535}]");
+
+        var cinema = HueSyncService.BuildCinemaModeColors(channels.RootElement, 100);
+        var fallback = HueSyncService.BuildFallbackWhiteColors(channels.RootElement);
+        var selected = HueSyncService.BuildFallbackWhiteColors(channels.RootElement, new HashSet<int> { 255 });
+
+        Assert.Equal(new[] { 0, 255 }, cinema.Keys.OrderBy(channel => channel));
+        Assert.Equal(new[] { 0, 255 }, fallback.Keys.OrderBy(channel => channel));
+        Assert.All(fallback.Values, color => Assert.Equal(new byte[] { 255, 255, 255, 255, 255, 255 }, color));
+        Assert.NotSame(fallback[0], fallback[255]);
+        Assert.Equal(new[] { 255 }, selected.Keys);
+        Assert.Equal(fallback[255], selected[255]);
+        Assert.Empty(HueSyncService.BuildCinemaModeColors(channels.RootElement, 100, new HashSet<int> { 256 }));
     }
 
     [Theory]

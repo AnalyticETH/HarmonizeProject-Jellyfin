@@ -11,11 +11,54 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
 $pythonCommand = @("python", "python3") |
     Where-Object { Get-Command $_ -ErrorAction SilentlyContinue } |
     Select-Object -First 1
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    throw "Git is required to verify release provenance."
+}
+
 # Provenance is bound to the commit, so refuse to package a dirty checkout
 # whose uncommitted source files would not be represented by that SHA.
-$gitStatus = (& git -c "safe.directory=$((Get-Location).Path)" status --porcelain=v1 --untracked-files=all)
+$gitRoot = @(& git -c "safe.directory=$((Get-Location).Path)" rev-parse --show-toplevel)
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to determine the Git checkout root."
+}
+if ($gitRoot.Count -ne 1 -or [string]::IsNullOrWhiteSpace($gitRoot[0]) -or
+    -not (Test-Path -LiteralPath $gitRoot[0] -PathType Container) -or
+    (Get-Location).Provider.Name -ne "FileSystem") {
+    throw "Release helper must run from its plugin repository root."
+}
+$pathComparison = if ([System.IO.Path]::DirectorySeparatorChar -eq '\') {
+    [System.StringComparison]::OrdinalIgnoreCase
+} else {
+    [System.StringComparison]::Ordinal
+}
+$scriptRoot = [System.IO.Path]::GetFullPath($PSScriptRoot)
+$repositoryRoot = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $gitRoot[0]).ProviderPath)
+$workingRoot = [System.IO.Path]::GetFullPath((Get-Location).ProviderPath)
+if (-not [string]::Equals($repositoryRoot, $scriptRoot, $pathComparison) -or
+    -not [string]::Equals($workingRoot, $scriptRoot, $pathComparison) -or
+    -not (Test-Path -LiteralPath "./Jellyfin.Plugin.Hue.sln" -PathType Leaf) -or
+    -not (Test-Path -LiteralPath "./Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj" -PathType Leaf) -or
+    -not (Test-Path -LiteralPath "./meta.json" -PathType Leaf)) {
+    throw "Release helper must run from its plugin repository root."
+}
+$gitStatus = @(& git -c "safe.directory=$((Get-Location).Path)" status --porcelain=v1 --untracked-files=all)
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to establish a clean Git checkout."
+}
 if (-not [string]::IsNullOrWhiteSpace(($gitStatus -join "`n"))) {
     throw "Release helper requires a clean Git checkout; commit or remove local changes first."
+}
+$sourceCommitOutput = @(& git -c "safe.directory=$((Get-Location).Path)" rev-parse --verify HEAD)
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to resolve the checked-out source commit."
+}
+if ($sourceCommitOutput.Count -ne 1 -or $sourceCommitOutput[0] -cnotmatch '^[0-9a-f]{40}$') {
+    throw "The checked-out source commit must be a 40-character Git SHA."
+}
+$sourceCommit = $sourceCommitOutput[0]
+$sourceType = @(& git -c "safe.directory=$((Get-Location).Path)" cat-file -t $sourceCommit)
+if ($LASTEXITCODE -ne 0 -or $sourceType.Count -ne 1 -or $sourceType[0] -cne "commit") {
+    throw "The checked-out source SHA must identify a commit object."
 }
 
 if (-not $pythonCommand) {
@@ -68,10 +111,6 @@ $versionPattern = '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
 if ($version -notmatch $versionPattern) {
     throw "meta.json version must be a four-part numeric version."
 }
-$sourceCommit = (& git -c "safe.directory=$((Get-Location).Path)" rev-parse --verify HEAD).Trim().ToLowerInvariant()
-if ($sourceCommit -notmatch '^[0-9a-f]{40}$') {
-    throw "The checked-out source commit must be a 40-character Git SHA."
-}
 $projectContent = Get-Content "Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj" -Raw
 $projectVersion = ($projectContent | Select-String '<Version>([^<]+)</Version>').Matches.Groups[1].Value
 $publishedMetaContent = Get-Content "publish/meta.json" -Raw | ConvertFrom-Json
@@ -99,6 +138,7 @@ New-Item -ItemType Directory -Force -Path "./release-package" | Out-Null
 Copy-Item "publish/Jellyfin.Plugin.Hue.dll" "release-package/"
 Copy-Item "publish/BouncyCastle.Cryptography.dll" "release-package/"
 Copy-Item "publish/meta.json" "release-package/"
+Copy-Item "LICENSE", "NOTICE" "release-package/"
 
 Write-Host ""
 Write-Host "📋 Package Information:" -ForegroundColor Cyan
@@ -122,8 +162,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $zipSize = [math]::Round((Get-Item $zipFile).Length/1KB, 2)
 
-$archiveEntries = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $zipFile)).Entries.FullName | Sort-Object
-if (($archiveEntries -join ' ') -ne 'BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json') {
+# Preserve canonical ZIP order; culture-aware sorting moves meta.json before NOTICE.
+$archiveEntries = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $zipFile)).Entries.FullName
+if (($archiveEntries -join ' ') -ne 'BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll LICENSE NOTICE meta.json') {
     throw "Unexpected release archive contents: $($archiveEntries -join ', ')"
 }
 

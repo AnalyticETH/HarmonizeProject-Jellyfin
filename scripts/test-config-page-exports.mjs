@@ -1983,6 +1983,39 @@ async function testRetainedMappingPageStateIsolation() {
     await operation;
 }
 
+async function testCancelMappingEditCancelsReplacementFetch() {
+    for (const outcome of ["success", "failure"]) {
+        const { page, api, requests, dashboard } = makeHarness();
+        const state = api.getMappingEditingState(page);
+        state.userId = "original-user";
+        state.mappingId = "original-mapping";
+        page.querySelector("#mappingFormLegend").textContent = "Edit User Mapping";
+        let loadingVisible = false;
+        dashboard.showLoadingMsg = () => { loadingVisible = true; };
+        dashboard.hideLoadingMsg = () => { loadingVisible = false; };
+
+        const pendingEdit = api.editUserMapping(page, "replacement-user", "replacement-mapping");
+        assert.equal(loadingVisible, true, "replacement edit owns the loading indicator");
+        api.cancelMappingEdit(page);
+        assert.equal(requests[0].promise.aborted, true, "Cancel Edit aborts the pending replacement fetch");
+        assert.equal(page._huePageRequests.editUserMapping, undefined, "Cancel Edit releases fetch ownership");
+        assert.equal(loadingVisible, false, "Cancel Edit releases its loading indicator immediately");
+        const resetLegend = page.querySelector("#mappingFormLegend").textContent;
+        if (outcome === "success") {
+            requests[0].resolve([{
+                UserId: "replacement-user", MappingId: "replacement-mapping", SyncEnabled: false
+            }]);
+        } else {
+            requests[0].reject(new Error("delayed mapping failure"));
+        }
+        await pendingEdit;
+        assert.equal(state.userId, "", "a canceled replacement cannot repopulate the user");
+        assert.equal(state.mappingId, "", "a canceled replacement cannot restore edit identity");
+        assert.equal(page.querySelector("#mappingFormLegend").textContent, resetLegend, "a canceled replacement leaves the reset form intact");
+        assert.equal(dashboard.alerts.length, 0, "a canceled replacement cannot show a stale failure");
+    }
+}
+
 async function testUserMappingSaveLifecycleGuards() {
     const staleHarness = makeHarness();
     const stalePage = staleHarness.page;
@@ -3380,6 +3413,144 @@ function testMappingPlaybackDeviceCacheReadOwnershipGuard() {
     );
 }
 
+function configureBridgeDiscoveryHarness(harness) {
+    const { page, api } = harness;
+    const state = api.getMappingEditingState(page);
+    state.userId = "12345678-1234-4234-8234-1234567890ab";
+    state.mappingId = "mapping-one";
+    page.querySelector("#mappingSyncEnabled").checked = true;
+    for (const [id, value] of Object.entries({
+        hueBridgeIp: "192.168.1.50", hueAppKey: "global-app", hueClientKey: "global-client",
+        entertainmentAreaSelect: "global-area", channelIds: "1",
+        mappingUserSelect: state.userId, mappingBridgeIp: "192.168.1.51",
+        mappingAppKey: "mapping-app", mappingClientKey: "mapping-client",
+        mappingAreaSelect: "mapping-area", mappingChannelIdsOverride: "3",
+        mappingDeviceRouteId: "living-room-tv", mappingDeviceRouteBridge: "192.168.1.52",
+        mappingDeviceRouteAppKey: "route-app", mappingDeviceRouteClientKey: "route-client",
+        mappingDeviceRouteAreaId: "route-area", mappingDeviceRouteChannels: "5"
+    })) {
+        page.querySelector(`#${id}`).value = value;
+    }
+}
+
+async function testGlobalChannelDiscoveryWithPopulatedClientKey() {
+    const harness = makeHarness();
+    const { page, api, requests } = harness;
+    configureBridgeDiscoveryHarness(harness);
+    const operation = api.loadDefaultChannels(page);
+    assert.equal(requests.length, 1, "global channel loading probes the bridge certificate first");
+    assert.match(requests[0].options.url, /^HueSync\/BridgeCertificate\?/, "the preflight uses the certificate endpoint");
+    requests[0].resolve({ IsPinned: true, Fingerprint: "a".repeat(64) });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests.length, 2, "a populated Client Key permits the channel request after preflight");
+    assert.equal(requests[1].options.url, "HueSync/EntertainmentChannels", "global discovery reaches the channel endpoint");
+    requests[1].resolve([{ channelId: 7 }, { channelId: 2 }]);
+    await operation;
+    assert.equal(page.querySelector("#channelIds").value, "2, 7", "global discovery writes the returned channels");
+    assert.equal(page.querySelector("#loadChannelsBtn").disabled, false, "successful discovery releases its button after changing channel IDs");
+}
+
+async function testChannelDiscoveryUnsignedByteBounds() {
+    for (const [method, output] of [
+        ["loadDefaultChannels", "channelIds"],
+        ["loadMappingChannels", "mappingChannelIdsOverride"],
+        ["loadMappingDeviceRouteChannels", "mappingDeviceRouteChannels"]
+    ]) {
+        const harness = makeHarness();
+        const { page, api, requests } = harness;
+        configureBridgeDiscoveryHarness(harness);
+        api.ensureBridgeCertificate = () => Promise.resolve(true);
+        const operation = api[method](page);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(requests.length, 1, `${method}: one owned discovery request`);
+        requests[0].resolve([
+            { channelId: 256 }, { channelId: 255 }, { channelId: 0 },
+            { channelId: -1 }, { channelId: 65535 }, { channelId: 2.5 }
+        ]);
+        await operation;
+        assert.equal(page.querySelector(`#${output}`).value, "0, 255", `${method}: only unsigned-byte channel IDs are offered`);
+    }
+}
+
+async function testBridgeDiscoveryRequestOwnership() {
+    const discoveryCases = [
+        { method: "loadEntertainmentAreas", key: "entertainmentAreas", target: "hueBridgeIp", output: "entertainmentAreaSelect", controls: ["entertainmentAreaSelect", "refreshAreasBtn"] },
+        { method: "loadMappingAreas", key: "mappingAreas", target: "mappingBridgeIp", output: "mappingAreaSelect", controls: ["mappingAreaSelect"] },
+        { method: "loadMappingDeviceRouteAreas", key: "mappingDeviceRouteAreas", target: "mappingDeviceRouteBridge", output: "mappingDeviceRouteAreaSelect", controls: ["mappingLoadDeviceRouteAreasBtn"] },
+        { method: "loadDefaultChannels", key: "defaultChannels", target: "hueBridgeIp", output: "channelIds", controls: ["loadChannelsBtn"], channels: true },
+        { method: "loadMappingChannels", key: "mappingChannels", target: "mappingBridgeIp", output: "mappingChannelIdsOverride", controls: ["mappingLoadChannelsBtn"], channels: true },
+        { method: "loadMappingDeviceRouteChannels", key: "mappingDeviceRouteChannels", target: "mappingDeviceRouteBridge", output: "mappingDeviceRouteChannels", controls: ["mappingLoadDeviceRouteChannelsBtn"], channels: true }
+    ];
+    for (const testCase of discoveryCases) {
+        for (const scenario of ["success", "target-edit", "preflight-edit", "replacement", "cancel", "pagehide"]) {
+            const harness = makeHarness();
+            const { page, api, requests } = harness;
+            configureBridgeDiscoveryHarness(harness);
+            let resolvePreflight;
+            api.ensureBridgeCertificate = () => scenario === "preflight-edit"
+                ? new Promise(resolve => { resolvePreflight = resolve; })
+                : Promise.resolve(true);
+            const start = () => testCase.method === "loadMappingAreas"
+                ? api.loadMappingAreas(undefined, page)
+                : api[testCase.method](page);
+            const assertControls = disabled => testCase.controls.forEach(id => {
+                assert.equal(page.querySelector(`#${id}`).disabled, disabled, `${testCase.method}/${scenario}: ${id} ownership`);
+            });
+            const snapshot = () => {
+                const element = page.querySelector(`#${testCase.output}`);
+                return JSON.stringify({ value: element.value, html: element.innerHTML, children: element.children });
+            };
+            const response = testCase.channels ? [{ channelId: 7 }, { channelId: 2 }] : [{ id: "loaded-area", name: "Loaded Area" }];
+            const first = start();
+            assertControls(true);
+            if (scenario === "preflight-edit") {
+                page.querySelector(`#${testCase.target}`).value = "changed-bridge";
+                const before = snapshot();
+                resolvePreflight(true);
+                await first;
+                await new Promise(resolve => setImmediate(resolve));
+                assert.equal(requests.length, 0, `${testCase.method}: stale preflight cannot send credentials`);
+                assert.equal(snapshot(), before, `${testCase.method}: stale preflight cannot change discovery output`);
+                assertControls(false);
+                continue;
+            }
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(requests.length, 1, `${testCase.method}: discovery starts one request`);
+            if (scenario === "target-edit") page.querySelector(`#${testCase.target}`).value = "changed-bridge";
+            if (scenario === "cancel") api.cancelPageLifecycleRequest(page, testCase.key);
+            if (scenario === "pagehide") api.invalidatePageLifecycle(page);
+            if (scenario === "cancel" || scenario === "pagehide") {
+                assert.equal(requests[0].promise.aborted, true, `${testCase.method}: canceled discovery aborts its request`);
+                assertControls(false);
+            }
+            let replacement;
+            if (scenario === "replacement") {
+                replacement = start();
+                await new Promise(resolve => setImmediate(resolve));
+                assert.equal(requests.length, 2, `${testCase.method}: replacement discovery starts one new request`);
+                assert.equal(requests[0].promise.aborted, true, `${testCase.method}: replacement cancels the older request`);
+            }
+            const before = snapshot();
+            requests[0].resolve(response);
+            await first;
+            await new Promise(resolve => setImmediate(resolve));
+            if (scenario !== "success") assert.equal(snapshot(), before, `${testCase.method}/${scenario}: stale output is ignored`);
+            assertControls(scenario === "replacement");
+            if (scenario === "replacement") {
+                requests[1].resolve(response);
+                await replacement;
+                await new Promise(resolve => setImmediate(resolve));
+                assertControls(false);
+            }
+            if (scenario === "success" || scenario === "replacement") {
+                const output = page.querySelector(`#${testCase.output}`);
+                if (testCase.channels) assert.equal(output.value, "2, 7", `${testCase.method}: current discovery applies channels`);
+                else assert.ok(output.children.some(option => option.value === "loaded-area"), `${testCase.method}: current discovery applies areas`);
+            }
+        }
+    }
+}
+
 async function testMappingDeviceRouteChannelIsolation() {
     const harness = makeHarness();
     const { page, api, requests } = harness;
@@ -3923,6 +4094,97 @@ async function testConfigurationSaveDuplicateSubmitIsBounded() {
     assert.deepEqual(statusMessages, ["Configuration saved."], "duplicate configuration submit reports one result");
     assert.equal(page._hueConfigurationSaving, false, "configuration save clears its busy state");
     assert.equal(page.querySelector('#saveConfigurationBtn').disabled, false, "duplicate configuration submit re-enables the button");
+}
+
+async function testCredentialClearConfirmationOwnership() {
+    const { page, api, requests, dashboard } = makeHarness();
+    const confirmations = [];
+    dashboard.confirm = (_message, _title, callback) => { confirmations.push(callback); };
+    const checkbox = page.querySelector("#clearStoredCredentials");
+    const button = page.querySelector("#saveConfigurationBtn");
+    checkbox.checked = true;
+    const canceled = api.saveConfiguration(page);
+    await api.saveConfiguration(page);
+    assert.equal(confirmations.length, 1, "duplicate saves cannot open overlapping credential-clear prompts");
+    assert.equal(button.disabled, true, "the pending credential-clear prompt owns the save button");
+    assert.equal(requests.length, 0, "credential clearing waits for explicit approval");
+    confirmations[0](false);
+    await canceled;
+    assert.equal(checkbox.checked, false, "current cancellation unchecks credential clearing");
+    assert.equal(button.disabled, false, "current cancellation releases the save button");
+
+    checkbox.checked = true;
+    const approved = api.saveConfiguration(page);
+    confirmations[1](true);
+    assert.equal(requests.length, 1, "current approval submits one configuration save");
+    assert.equal(JSON.parse(requests[0].options.data).ClearStoredCredentials, true, "current approval explicitly clears stored credentials");
+    assert.equal(button.disabled, true, "approved save keeps its button disabled while the request is pending");
+    confirmations[1](false);
+    assert.equal(checkbox.checked, true, "an already-consumed callback cannot change the active save form");
+    assert.equal(button.disabled, true, "an already-consumed callback cannot release the active save button");
+    requests[0].resolve({ HueBridgeIp: "", HasAppKey: false, HasClientKey: false });
+    await approved;
+    assert.equal(button.disabled, false, "the approved save releases its button after completion");
+    assert.equal(checkbox.checked, false, "the approved save clears the confirmation checkbox after completion");
+
+    for (const changedField of ["hueBridgeIp", "hueAppKey", "hueClientKey", "clearStoredCredentials"]) {
+        checkbox.checked = true;
+        const stale = api.saveConfiguration(page);
+        const callback = confirmations.at(-1);
+        if (changedField === "clearStoredCredentials") checkbox.checked = false;
+        else page.querySelector(`#${changedField}`).value = `changed-${changedField}`;
+        callback(true);
+        await stale;
+        assert.equal(requests.length, 1, `changing ${changedField} invalidates the pending clear approval`);
+        assert.equal(button.disabled, false, "a stale credential-clear target releases its own prompt button");
+    }
+
+    checkbox.checked = true;
+    const staleBeforeReload = api.saveConfiguration(page);
+    const reload = api.loadConfiguration(page);
+    confirmations.at(-1)(true);
+    await staleBeforeReload;
+    assert.equal(requests.length, 2, "a new configuration load invalidates an older clear confirmation within the same visit");
+    assert.equal(requests[1].options.type, "GET", "the newer operation remains a configuration load");
+    assert.equal(requests[1].promise.aborted, false, "an older clear confirmation cannot cancel the newer configuration load");
+    api.invalidatePageLifecycle(page);
+    requests[1].resolve({ HueBridgeIp: "reloaded-bridge" });
+    await reload;
+}
+
+async function testCredentialClearConfirmationCannotCrossPageVisits() {
+    for (const staleResult of [true, false]) {
+        const { page, api, requests, dashboard } = makeHarness();
+        for (const method of ["loadEntertainmentAreas", "loadColorPresets", "loadScenePlaylists", "loadSceneSchedules"]) api[method] = () => {};
+        const confirmations = [];
+        dashboard.confirm = (_message, _title, callback) => { confirmations.push(callback); };
+        const checkbox = page.querySelector("#clearStoredCredentials");
+        const button = page.querySelector("#saveConfigurationBtn");
+        checkbox.checked = true;
+        const stale = api.saveConfiguration(page);
+        api.invalidatePageLifecycle(page);
+        assert.equal(button.disabled, false, "pagehide releases a pending credential-clear prompt's button");
+        await stale;
+
+        page._huePageActive = true;
+        const currentLoad = api.loadConfiguration(page);
+        checkbox.checked = true;
+        const currentPrompt = api.saveConfiguration(page);
+        assert.equal(confirmations.length, 2, "a later visit can request its own credential-clear confirmation");
+        const currentOwner = page._hueConfigurationClearConfirmation;
+        confirmations[0](staleResult);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(requests.length, 1, "an old prompt cannot submit configuration during a later visit");
+        assert.equal(requests[0].options.type, "GET", "the new visit still owns its configuration load");
+        assert.equal(requests[0].promise.aborted, false, "an old prompt cannot cancel the new visit's configuration load");
+        assert.equal(checkbox.checked, true, "stale approval and cancellation both leave the new checkbox untouched");
+        assert.equal(page._hueConfigurationClearConfirmation, currentOwner, "an old prompt cannot release the new prompt's ownership");
+        assert.equal(button.disabled, true, "an old prompt cannot unlock the new prompt's button");
+        confirmations[1](false);
+        await currentPrompt;
+        requests[0].resolve({ HueBridgeIp: "current-bridge", HasAppKey: true, HasClientKey: true });
+        await currentLoad;
+    }
 }
 
 function configureColorPresetSaveHarness(harness) {
@@ -7486,6 +7748,7 @@ await testSceneScheduleRuntimeStatusManualAnnouncements();
 testFfmpegFlagLengthContracts();
 testSectionNavigationRetainedPageScope();
 await testEditMappingLifecycleGuards();
+await testCancelMappingEditCancelsReplacementFetch();
 await testRetainedMappingPageStateIsolation();
 await testUserMappingSaveLifecycleGuards();
 await testUserMappingDependencyLifecycleGuards();
@@ -7510,6 +7773,9 @@ await testRegistrationLifecycleGuards();
 await testRouteSpecificMappingRegistration();
 await testMappingRegistrationSiblingPagehideGuard();
 testMappingPlaybackDeviceCacheReadOwnershipGuard();
+await testGlobalChannelDiscoveryWithPopulatedClientKey();
+await testChannelDiscoveryUnsignedByteBounds();
+await testBridgeDiscoveryRequestOwnership();
 await testMappingDeviceRouteChannelIsolation();
 await testMappingDeviceDiscoveryLifecycleGuards();
 await testBridgeDiscoveryLifecycleGuards();
@@ -7520,6 +7786,8 @@ await testSelectedAreaSnapshotPageIsolation();
 await testGlobalCredentialSnapshotPageIsolation();
 await testConfigurationSaveInvalidationSuppressesCallbacks();
 await testConfigurationSaveDuplicateSubmitIsBounded();
+await testCredentialClearConfirmationOwnership();
+await testCredentialClearConfirmationCannotCrossPageVisits();
 await testColorPresetSaveLifecycleGuards();
 await testColorPresetDuplicateLifecycleGuards();
 await testColorPresetDeleteLifecycleGuards();

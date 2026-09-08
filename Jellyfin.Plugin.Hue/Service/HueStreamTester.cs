@@ -2227,9 +2227,9 @@ public sealed class HueStreamTester :
 
             if (string.Equals(normalizedEffect, PluginConfiguration.ColorPresetEffectCandle, StringComparison.Ordinal))
             {
-                var candleRed = Math.Clamp(target[0] / 127d, 0d, 1d);
-                var candleGreen = Math.Clamp(target[2] / 127d, 0d, 1d);
-                var candleBlue = Math.Clamp(target[4] / 127d, 0d, 1d);
+                var candleRed = Math.Clamp(target[0] / 255d, 0d, 1d);
+                var candleGreen = Math.Clamp(target[2] / 255d, 0d, 1d);
+                var candleBlue = Math.Clamp(target[4] / 255d, 0d, 1d);
                 var candleValue = Math.Clamp(Math.Max(candleRed, Math.Max(candleGreen, candleBlue)), 0d, 1d);
                 const double warmMix = 0.45d;
                 // A candle remains deterministic and bounded while shifting the selected
@@ -2266,7 +2266,7 @@ public sealed class HueStreamTester :
                     throw new InvalidOperationException("Could not convert the Temperature effect color.");
 
                 var intensity = Math.Clamp(
-                    Math.Max(target[0], Math.Max(target[2], target[4])) / 127d,
+                    Math.Max(target[0], Math.Max(target[2], target[4])) / 255d,
                     0d,
                     1d);
                 colors[channelId] = new[]
@@ -2291,7 +2291,7 @@ public sealed class HueStreamTester :
                 var auroraHue = 70d + (180d * auroraWave);
                 var auroraSaturation = 0.72d + (0.18d * (0.5d + (0.5d * Math.Sin((auroraPhase * 4d * Math.PI) + (channelId * 0.41d)))));
                 var seedValue = Math.Clamp(
-                    Math.Max(target[0], Math.Max(target[2], target[4])) / 127d,
+                    Math.Max(target[0], Math.Max(target[2], target[4])) / 255d,
                     0d,
                     1d);
                 var auroraValue = seedValue * (0.72d + (0.28d * (0.5d + (0.5d * Math.Sin((auroraPhase * 2d * Math.PI) + 0.6d)))));
@@ -2322,7 +2322,7 @@ public sealed class HueStreamTester :
                 var fireHue = 4d + (42d * fireWave);
                 var fireSaturation = 0.86d + (0.10d * (0.5d + (0.5d * Math.Sin((firePhase * 4d * Math.PI) + 0.4d))));
                 var fireSeedValue = Math.Clamp(
-                    Math.Max(target[0], Math.Max(target[2], target[4])) / 127d,
+                    Math.Max(target[0], Math.Max(target[2], target[4])) / 255d,
                     0d,
                     1d);
                 var (fireRed, fireGreen, fireBlue) = HsvToRgb(
@@ -2349,7 +2349,7 @@ public sealed class HueStreamTester :
                 var oceanHue = 184d + (34d * oceanWave);
                 var oceanSaturation = 0.76d + (0.16d * (0.5d + (0.5d * Math.Sin((oceanPhase * 2d * Math.PI) + 0.8d))));
                 var oceanSeedValue = Math.Clamp(
-                    Math.Max(target[0], Math.Max(target[2], target[4])) / 127d,
+                    Math.Max(target[0], Math.Max(target[2], target[4])) / 255d,
                     0d,
                     1d);
                 var oceanValue = oceanSeedValue * (0.70d + (0.30d * oceanWave));
@@ -2383,7 +2383,7 @@ public sealed class HueStreamTester :
                 var lightningHue = 210d + (30d * (0.5d + (0.5d * Math.Sin((lightningPhase * 2d * Math.PI) + 0.3d))));
                 var lightningSaturation = 0.92d - (0.82d * flash);
                 var lightningSeedValue = Math.Clamp(
-                    Math.Max(target[0], Math.Max(target[2], target[4])) / 127d,
+                    Math.Max(target[0], Math.Max(target[2], target[4])) / 255d,
                     0d,
                     1d);
                 var lightningValue = lightningSeedValue * (0.08d + (0.92d * flash));
@@ -2413,7 +2413,7 @@ public sealed class HueStreamTester :
                 var starlightHue = 205d + (25d * drift);
                 var starlightSaturation = 0.68d - (0.58d * glint);
                 var starlightSeedValue = Math.Clamp(
-                    Math.Max(target[0], Math.Max(target[2], target[4])) / 127d,
+                    Math.Max(target[0], Math.Max(target[2], target[4])) / 255d,
                     0d,
                     1d);
                 var starlightValue = starlightSeedValue * (0.18d + (0.82d * glint));
@@ -2442,7 +2442,7 @@ public sealed class HueStreamTester :
                 var matrixHue = 112d + (42d * trail);
                 var matrixSaturation = 0.78d + (0.16d * shimmer);
                 var matrixSeedValue = Math.Clamp(
-                    Math.Max(target[0], Math.Max(target[2], target[4])) / 127d,
+                    Math.Max(target[0], Math.Max(target[2], target[4])) / 255d,
                     0d,
                     1d);
                 var matrixValue = matrixSeedValue * (0.24d + (0.76d * (0.72d * trail + (0.28d * shimmer))));
@@ -2459,9 +2459,9 @@ public sealed class HueStreamTester :
                 continue;
             }
 
-            var red = target[0] / 127d;
-            var green = target[2] / 127d;
-            var blue = target[4] / 127d;
+            var red = target[0] / 255d;
+            var green = target[2] / 255d;
+            var blue = target[4] / 255d;
             var value = Math.Clamp(Math.Max(red, Math.Max(green, blue)), 0d, 1d);
             var baseHue = RgbToHue(red, green, blue);
             var hue = (baseHue + ((elapsed / duration) * 360d * speedMultiplier)) % 360d;
@@ -2529,7 +2529,7 @@ public sealed class HueStreamTester :
 
     private static byte ToRgb16Byte(double component)
         => (byte)Math.Clamp(
-            (int)Math.Round(Math.Clamp(component, 0d, 1d) * 127d, MidpointRounding.AwayFromZero),
+            (int)Math.Round(Math.Clamp(component, 0d, 1d) * 255d, MidpointRounding.AwayFromZero),
             byte.MinValue,
             byte.MaxValue);
 
@@ -2557,7 +2557,7 @@ public sealed class HueStreamTester :
                 channelIdProperty.ValueKind != JsonValueKind.Number ||
                 !channelIdProperty.TryGetInt32(out var channelId) ||
                 channelId < 0 ||
-                channelId > ushort.MaxValue)
+                channelId > byte.MaxValue)
             {
                 channelColors.Clear();
                 return false;
@@ -2622,7 +2622,7 @@ public sealed class HueStreamTester :
                 channelIdProperty.ValueKind != JsonValueKind.Number ||
                 !channelIdProperty.TryGetInt32(out var channelId) ||
                 channelId < 0 ||
-                channelId > ushort.MaxValue)
+                channelId > byte.MaxValue)
             {
                 channelColors.Clear();
                 return false;
@@ -2656,10 +2656,7 @@ public sealed class HueStreamTester :
         if (component < 0 || component > 255 || brightnessPercent < 0 || brightnessPercent > 100)
             throw new ArgumentOutOfRangeException();
 
-        // Hue's entertainment protocol uses the high byte of each 16-bit RGB
-        // component. Match the runtime's divide-by-two conversion while applying
-        // the preview brightness ceiling first.
-        return (byte)Math.Clamp((int)(component * brightnessPercent / 100d / 2d), 0, 127);
+        return (byte)(component * brightnessPercent / 100d);
     }
 
     private static HueStreamProbeResult Failure(

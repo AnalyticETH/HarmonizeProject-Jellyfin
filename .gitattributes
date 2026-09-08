@@ -1,0 +1,17 @@
+# Package payloads and embedded/build inputs must have identical checkout bytes.
+/LICENSE text eol=lf
+/NOTICE text eol=lf
+/.gitattributes text eol=lf
+/.editorconfig text eol=lf
+*.cs text eol=lf
+*.csproj text eol=lf
+*.props text eol=lf
+*.targets text eol=lf
+*.sln text eol=lf
+*.rsp text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.py text eol=lf
+*.mjs text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=lf

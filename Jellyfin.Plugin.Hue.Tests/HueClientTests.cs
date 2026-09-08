@@ -28,7 +28,7 @@ public class HueClientTests : IDisposable
     {
         _loggerMock = new Mock<ILogger<HueClient>>();
         _httpHandlerMock = new Mock<HttpMessageHandler>();
-        _httpClient = new HttpClient(_httpHandlerMock.Object)
+        _httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(_httpHandlerMock.Object))
         {
             Timeout = TimeSpan.FromSeconds(10)
         };
@@ -613,12 +613,12 @@ public class HueClientTests : IDisposable
                     {
                         ""channel_id"": 0,
                         ""position"": {""x"": -1.0, ""y"": 0.0, ""z"": 1.0},
-                        ""members"": [{""service"": {""rid"": ""light-1"", ""rtype"": ""light""}}]
+                        ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-1""}}]
                     },
                     {
                         ""channel_id"": 1,
                         ""position"": {""x"": 1.0, ""y"": 0.0, ""z"": 1.0},
-                        ""members"": [{""service"": {""rid"": ""light-2"", ""rtype"": ""light""}}]
+                        ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-2""}}]
                     }
                 ]
             }]
@@ -658,8 +658,7 @@ public class HueClientTests : IDisposable
     {
         var channels = string.Join(
             ",",
-            Enumerable.Range(0, HueClient.MaxEntertainmentChannels + 1)
-                .Select(channelId => $"{{\"channel_id\":{channelId}}}"));
+            Enumerable.Repeat("{\"channel_id\":255}", HueClient.MaxEntertainmentChannels + 1));
         SetupHttpResponse(HttpStatusCode.OK, $"{{\"data\":[{{\"id\":\"area-1\",\"channels\":[{channels}]}}]}}");
 
         var client = new HueClient(_httpClient, _loggerMock.Object);
@@ -667,6 +666,55 @@ public class HueClientTests : IDisposable
         var result = await client.GetEntertainmentConfiguration("192.168.1.100", "test-app-key", "area-1");
 
         Assert.Null(result);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(255)]
+    public async Task GetEntertainmentConfiguration_AcceptsUnsignedByteChannelIdBoundaries(int channelId)
+    {
+        SetupHttpResponse(HttpStatusCode.OK, $"{{\"data\":[{{\"id\":\"area-1\",\"channels\":[{{\"channel_id\":{channelId}}}]}}]}}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "app-key", "area-1");
+
+        Assert.NotNull(result);
+        Assert.Equal(channelId, result.Value.GetProperty("channels")[0].GetProperty("channel_id").GetInt32());
+    }
+
+    [Theory]
+    [InlineData("256", false)]
+    [InlineData("256", true)]
+    [InlineData("-1", false)]
+    [InlineData("65535", false)]
+    [InlineData("65536", false)]
+    [InlineData("\"255\"", false)]
+    [InlineData("255.5", false)]
+    [InlineData("null", false)]
+    public async Task GetEntertainmentConfiguration_RejectsPresentInvalidChannelIds(string invalidId, bool legacy)
+    {
+        var identity = legacy ? string.Empty : "\"id\":\"area-1\",";
+        SetupHttpResponse(HttpStatusCode.OK, $"{{\"data\":[{{{identity}\"channels\":[{{\"channel_id\":{invalidId}}}]}}]}}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "app-key", "area-1");
+
+        Assert.Null(result);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetEntertainmentConfiguration_PreservesLegacyMissingChannelIds(bool legacy)
+    {
+        var identity = legacy ? string.Empty : "\"id\":\"area-1\",";
+        SetupHttpResponse(HttpStatusCode.OK, $"{{\"data\":[{{{identity}\"channels\":[{{\"members\":[]}},{{\"channel_id\":255}}]}}]}}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetEntertainmentConfiguration("192.168.1.100", "app-key", "area-1");
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result.Value.GetProperty("channels").GetArrayLength());
     }
 
     [Fact]
@@ -887,10 +935,7 @@ public class HueClientTests : IDisposable
             {
                 Content = new StringContent("busy", Encoding.UTF8, "text/plain")
             })
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            });
+            .ReturnsAsync(HueMutationResponseFixture.Success("entertainment_configuration", "area-uuid"));
 
         var client = new HueClient(_httpClient, _loggerMock.Object)
         {
@@ -910,7 +955,11 @@ public class HueClientTests : IDisposable
     [Fact]
     public async Task StartEntertainmentArea_WhenCanceled_PropagatesCancellation()
     {
-        SetupHttpResponse(HttpStatusCode.OK, "{}");
+        _httpHandlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+                HueMutationResponseFixture.Success(request));
         var client = new HueClient(_httpClient, _loggerMock.Object);
         using var cancellationSource = new CancellationTokenSource();
         cancellationSource.Cancel();
@@ -958,7 +1007,7 @@ public class HueClientTests : IDisposable
             ""channels"": [
                 {
                     ""channel_id"": 0,
-                    ""members"": [{""service"": {""rid"": ""light-1""}}]
+                    ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-1""}}]
                 }
             ]
         }");
@@ -998,7 +1047,7 @@ public class HueClientTests : IDisposable
     {
         using var doc = JsonDocument.Parse(@"{
             ""channels"": [
-                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-scalar""}}] }
+                { ""channel_id"": 0, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-scalar""}}] }
             ]
         }");
         SetupHttpResponse(HttpStatusCode.OK, responseJson);
@@ -1033,7 +1082,7 @@ public class HueClientTests : IDisposable
     {
         using var doc = JsonDocument.Parse(@"{
             ""channels"": [
-                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-malformed-resource""}}] }
+                { ""channel_id"": 0, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-malformed-resource""}}] }
             ]
         }");
         SetupHttpResponse(HttpStatusCode.OK, responseJson);
@@ -1065,7 +1114,7 @@ public class HueClientTests : IDisposable
     {
         using var doc = JsonDocument.Parse(@"{
             ""channels"": [
-                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-advanced""}}] }
+                { ""channel_id"": 0, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-advanced""}}] }
             ]
         }");
         SetupHttpResponse(HttpStatusCode.OK, @"{
@@ -1146,7 +1195,7 @@ public class HueClientTests : IDisposable
     {
         using var doc = JsonDocument.Parse(@"{
             ""channels"": [
-                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-malformed""}}] }
+                { ""channel_id"": 0, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-malformed""}}] }
             ]
         }");
         SetupHttpResponse(HttpStatusCode.OK, @"{
@@ -1183,7 +1232,7 @@ public class HueClientTests : IDisposable
     {
         using var doc = JsonDocument.Parse(@"{
             ""channels"": [
-                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-invalid-color""}}] }
+                { ""channel_id"": 0, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-invalid-color""}}] }
             ]
         }");
         SetupHttpResponse(HttpStatusCode.OK, $@"{{
@@ -1211,7 +1260,7 @@ public class HueClientTests : IDisposable
     {
         using var doc = JsonDocument.Parse(@"{
             ""channels"": [
-                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-invalid-mirek""}}] }
+                { ""channel_id"": 0, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-invalid-mirek""}}] }
             ]
         }");
         SetupHttpResponse(HttpStatusCode.OK, $@"{{
@@ -1236,7 +1285,7 @@ public class HueClientTests : IDisposable
     {
         using var doc = JsonDocument.Parse(@"{
             ""channels"": [
-                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""requested-light""}}] }
+                { ""channel_id"": 0, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-requested-light""}}] }
             ]
         }");
         SetupHttpResponse(HttpStatusCode.OK, @"{
@@ -1271,7 +1320,7 @@ public class HueClientTests : IDisposable
     {
         using var doc = JsonDocument.Parse(@"{
             ""channels"": [
-                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""requested-light""}}] }
+                { ""channel_id"": 0, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-requested-light""}}] }
             ]
         }");
         SetupHttpResponse(HttpStatusCode.OK, $@"{{
@@ -1306,11 +1355,11 @@ public class HueClientTests : IDisposable
             ""channels"": [
                 {
                     ""channel_id"": 0,
-                    ""members"": [{""service"": {""rid"": ""light-0""}}]
+                    ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-0""}}]
                 },
                 {
                     ""channel_id"": 1,
-                    ""members"": [{""service"": {""rid"": ""light-1""}}]
+                    ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-1""}}]
                 }
             ]
         }");
@@ -1355,7 +1404,7 @@ public class HueClientTests : IDisposable
             ""channels"": [
                 {
                     ""channel_id"": 0,
-                    ""members"": [{""service"": {""rid"": ""light-ct""}}]
+                    ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-ct""}}]
                 }
             ]
         }");
@@ -1384,7 +1433,7 @@ public class HueClientTests : IDisposable
             ""channels"": [
                 {
                     ""channel_id"": 0,
-                    ""members"": [{""service"": {""rid"": ""light-color""}}]
+                    ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-color""}}]
                 }
             ]
         }");
@@ -1425,6 +1474,57 @@ public class HueClientTests : IDisposable
         Assert.Empty(result);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(255)]
+    public async Task GetLightStatesWithResult_CapturesUnsignedByteBoundaryChannels(int channelId)
+    {
+        using var doc = JsonDocument.Parse($"{{\"channels\":[{{\"channel_id\":{channelId},\"members\":[{{\"service\":{{\"rtype\":\"entertainment\",\"rid\":\"ent-light-boundary\"}}}}]}}]}}");
+        SetupHttpResponse(HttpStatusCode.OK, "{\"data\":[{\"on\":{\"on\":true},\"dimming\":{\"brightness\":50}}]}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100", "app-key", doc.RootElement, new HashSet<int> { channelId });
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("light-boundary", Assert.Single(result.States).Id);
+    }
+
+    [Theory]
+    [InlineData("256")]
+    [InlineData("65535")]
+    [InlineData("\"255\"")]
+    [InlineData("null")]
+    public async Task GetLightStatesWithResult_RejectsInvalidPresentChannelIdsBeforeCapture(string invalidId)
+    {
+        using var doc = JsonDocument.Parse($"{{\"channels\":[{{\"channel_id\":{invalidId},\"members\":[{{\"service\":{{\"rtype\":\"entertainment\",\"rid\":\"ent-light-boundary\"}}}}]}}]}}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetLightStatesWithResult("192.168.1.100", "app-key", doc.RootElement);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(1, result.FailedCount);
+        Assert.Empty(result.States);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(256)]
+    [InlineData(-1)]
+    public async Task GetLightStatesWithResult_RejectsInvalidRequestedChannelIdsBeforeCapture(int channelId)
+    {
+        using var doc = JsonDocument.Parse("{\"channels\":[{\"members\":[]}]}");
+        var client = new HueClient(_httpClient, _loggerMock.Object);
+
+        var result = await client.GetLightStatesWithResult(
+            "192.168.1.100", "app-key", doc.RootElement, new HashSet<int> { channelId });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(1, result.FailedCount);
+        Assert.Empty(result.States);
+        _httpHandlerMock.VerifyNoOtherCalls();
+    }
+
     [Fact]
     public async Task GetLightStatesWithResult_IgnoresMalformedChannelAndMemberElements()
     {
@@ -1434,7 +1534,7 @@ public class HueClientTests : IDisposable
                 ""malformed-channel"",
                 {
                     ""channel_id"": 0,
-                    ""members"": [null, 42, {""service"": {""rid"": ""light-safe""}}]
+                    ""members"": [null, 42, {""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-safe""}}]
                 }
             ]
         }");
@@ -1463,9 +1563,9 @@ public class HueClientTests : IDisposable
     {
         using var doc = JsonDocument.Parse(@"{
             ""channels"": [
-                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-1""}}] },
-                { ""channel_id"": 1, ""members"": [{""service"": {""rid"": ""light-2""}}] },
-                { ""channel_id"": 2, ""members"": [{""service"": {""rid"": ""light-3""}}] }
+                { ""channel_id"": 0, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-1""}}] },
+                { ""channel_id"": 1, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-2""}}] },
+                { ""channel_id"": 2, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-3""}}] }
             ]
         }");
         _httpHandlerMock
@@ -1516,7 +1616,7 @@ public class HueClientTests : IDisposable
     {
         using var doc = JsonDocument.Parse(@"{
             ""channels"": [
-                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-1""}}] }
+                { ""channel_id"": 0, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-1""}}] }
             ]
         }");
         var requestCount = 0;
@@ -1565,8 +1665,8 @@ public class HueClientTests : IDisposable
     {
         using var doc = JsonDocument.Parse(@"{
             ""channels"": [
-                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""light-1""}}] },
-                { ""channel_id"": 1, ""members"": [{""service"": {""rid"": ""light-2""}}] }
+                { ""channel_id"": 0, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-1""}}] },
+                { ""channel_id"": 1, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-light-2""}}] }
             ]
         }");
         _httpHandlerMock
@@ -1612,8 +1712,8 @@ public class HueClientTests : IDisposable
     {
         using var doc = JsonDocument.Parse(@"{
             ""channels"": [
-                { ""channel_id"": 0, ""members"": [{""service"": {""rid"": ""shared-light""}}] },
-                { ""channel_id"": 1, ""members"": [{""service"": {""rid"": ""shared-light""}}] }
+                { ""channel_id"": 0, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-shared-light""}}] },
+                { ""channel_id"": 1, ""members"": [{""service"": {""rtype"": ""entertainment"", ""rid"": ""ent-shared-light""}}] }
             ]
         }");
         var requestedLightIds = new List<string>();
@@ -1837,10 +1937,8 @@ public class HueClientTests : IDisposable
                 ItExpr.IsAny<HttpRequestMessage>(),
                 ItExpr.IsAny<CancellationToken>())
             .Callback<HttpRequestMessage, CancellationToken>((req, _) => capturedRequests.Add(req))
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            });
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+                HueMutationResponseFixture.Success(request));
 
         var client = new HueClient(_httpClient, _loggerMock.Object);
 
@@ -1868,10 +1966,8 @@ public class HueClientTests : IDisposable
                 ItExpr.IsAny<CancellationToken>())
             .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
                 capturedBodyTask = request.Content!.ReadAsStringAsync())
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            });
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+                HueMutationResponseFixture.Success(request));
 
         var client = new HueClient(_httpClient, _loggerMock.Object);
 
@@ -1896,10 +1992,8 @@ public class HueClientTests : IDisposable
                 ItExpr.IsAny<CancellationToken>())
             .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
                 capturedBodyTask = request.Content!.ReadAsStringAsync())
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            });
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+                HueMutationResponseFixture.Success(request));
 
         var client = new HueClient(_httpClient, _loggerMock.Object)
         {
@@ -1956,10 +2050,8 @@ public class HueClientTests : IDisposable
                 ItExpr.IsAny<CancellationToken>())
             .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
                 capturedBodyTask = request.Content!.ReadAsStringAsync())
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            });
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+                HueMutationResponseFixture.Success(request));
 
         var client = new HueClient(_httpClient, _loggerMock.Object)
         {
@@ -2016,10 +2108,8 @@ public class HueClientTests : IDisposable
                 ItExpr.IsAny<CancellationToken>())
             .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
                 capturedBodyTask = request.Content!.ReadAsStringAsync())
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            });
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+                HueMutationResponseFixture.Success(request));
 
         var client = new HueClient(_httpClient, _loggerMock.Object)
         {
@@ -2069,10 +2159,8 @@ public class HueClientTests : IDisposable
                 ItExpr.IsAny<CancellationToken>())
             .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
                 capturedBodyTask = request.Content!.ReadAsStringAsync())
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            });
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+                HueMutationResponseFixture.Success(request));
 
         var client = new HueClient(_httpClient, _loggerMock.Object)
         {
@@ -2116,10 +2204,8 @@ public class HueClientTests : IDisposable
                 ItExpr.IsAny<CancellationToken>())
             .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
                 capturedBodyTask = request.Content!.ReadAsStringAsync())
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            });
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+                HueMutationResponseFixture.Success(request));
 
         var client = new HueClient(_httpClient, _loggerMock.Object);
 
@@ -2145,7 +2231,8 @@ public class HueClientTests : IDisposable
                 ItExpr.IsAny<HttpRequestMessage>(),
                 ItExpr.IsAny<CancellationToken>())
             .Callback<HttpRequestMessage, CancellationToken>((_, _) => requestCount++)
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK));
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+                HueMutationResponseFixture.Success(request));
 
         var client = new HueClient(_httpClient, _loggerMock.Object);
 
@@ -2168,10 +2255,7 @@ public class HueClientTests : IDisposable
         async Task<HttpResponseMessage> CaptureRequestAsync(HttpRequestMessage request)
         {
             capturedBodies.Add(await request.Content!.ReadAsStringAsync());
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            };
+            return HueMutationResponseFixture.Success(request);
         }
 
         _httpHandlerMock
@@ -2243,12 +2327,12 @@ public class HueClientTests : IDisposable
                 "SendAsync",
                 ItExpr.IsAny<HttpRequestMessage>(),
                 ItExpr.IsAny<CancellationToken>())
-            .ReturnsAsync(() =>
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
             {
                 requestCount++;
                 return requestCount == 1
                     ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
-                    : new HttpResponseMessage(HttpStatusCode.OK);
+                    : HueMutationResponseFixture.Success(request);
             });
 
         var client = new HueClient(_httpClient, _loggerMock.Object)
@@ -2556,7 +2640,7 @@ public class HueClientTests : IDisposable
     private static JsonDocument CreateLightStateAreaConfiguration(IReadOnlyList<string> lightIds)
     {
         var members = lightIds
-            .Select(lightId => new { service = new { rid = lightId } })
+            .Select(lightId => new { service = new { rtype = "entertainment", rid = "ent-" + lightId } })
             .ToArray();
         return JsonDocument.Parse(JsonSerializer.Serialize(new
         {

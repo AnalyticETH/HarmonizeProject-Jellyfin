@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import "./validate-documentation.mjs";
 
 const requiredFiles = [
   "LICENSE",
@@ -6,6 +7,9 @@ const requiredFiles = [
   "CONTRIBUTING.md",
   "CODE_OF_CONDUCT.md",
   "SUPPORT.md",
+  "RELEASE_READINESS.md",
+  "docs/CONFIGURATION.md",
+  "docs/API.md",
   ".github/ISSUE_TEMPLATE/bug_report.yml",
   ".github/ISSUE_TEMPLATE/feature_request.yml",
   ".github/ISSUE_TEMPLATE/config.yml",
@@ -58,8 +62,8 @@ for (const marker of [
 }
 
 const meta = JSON.parse(read("meta.json"));
-if (meta.version !== "1.5.460.0") {
-  throw new Error(`meta.json must carry the prepared release version 1.5.460.0, found ${meta.version}`);
+if (meta.version !== "1.5.461.0") {
+  throw new Error(`meta.json must carry the prepared release version 1.5.461.0, found ${meta.version}`);
 }
 if (!String(meta.changelog || "").includes("Open-source licensing: publish the complete GPL-3.0-only license")) {
   throw new Error("meta.json changelog is missing the open-source release entry");
@@ -67,13 +71,17 @@ if (!String(meta.changelog || "").includes("Open-source licensing: publish the c
 
 const readme = read("README.md");
 for (const marker of [
-  "license-GPL--3.0--only",
+  "GPL-3.0-only",
   "](LICENSE)",
   "[NOTICE](NOTICE)",
   "[Contributing guide](CONTRIBUTING.md)",
   "[Support guide](SUPPORT.md)",
+  "[Release readiness](RELEASE_READINESS.md)",
   "[Code of Conduct](CODE_OF_CONDUCT.md)",
   "[Issue templates](.github/ISSUE_TEMPLATE/)",
+  "[Configuration reference](docs/CONFIGURATION.md)",
+  "[Administrator API](docs/API.md)",
+  "[Changelog](CHANGELOG.md)",
 ]) {
   if (!readme.includes(marker)) {
     throw new Error(`README.md is missing open-source release guidance: ${marker}`);
@@ -123,6 +131,8 @@ for (const marker of [
   "/CONTRIBUTING.md @AnalyticETH",
   "/CODE_OF_CONDUCT.md @AnalyticETH",
   "/SUPPORT.md @AnalyticETH",
+  "/RELEASE_READINESS.md @AnalyticETH",
+  "/docs/ @AnalyticETH",
   "/scripts/validate-open-source-release.mjs @AnalyticETH",
 ]) {
   if (!codeOwners.includes(marker)) {
@@ -130,4 +140,4 @@ for (const marker of [
   }
 }
 
-console.log("Open-source production release contract passed");
+console.log("Open-source source-tree contract passed; publication gates require separate owner evidence");

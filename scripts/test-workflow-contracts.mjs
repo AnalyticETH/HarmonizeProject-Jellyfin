@@ -4,6 +4,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import "./test-documentation-contracts.mjs";
+import "./test-release-publication-contracts.mjs";
+import "./test-release-helper-contracts.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workflowNames = [
@@ -143,6 +146,8 @@ function runHostHealthStub(overrides = {}, failures = {}) {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hue-runner-health-"));
   const fixtureBin = path.join(fixtureRoot, "bin");
   fs.mkdirSync(fixtureBin, { recursive: true });
+  // Do not inherit an unrelated temporary-directory package's module type.
+  fs.writeFileSync(path.join(fixtureRoot, "package.json"), '{"type":"commonjs"}\n');
   const systemctlPath = path.join(fixtureBin, "systemctl");
   const failureStatePath = path.join(fixtureRoot, "failure-state.json");
   fs.writeFileSync(failureStatePath, JSON.stringify(failures));

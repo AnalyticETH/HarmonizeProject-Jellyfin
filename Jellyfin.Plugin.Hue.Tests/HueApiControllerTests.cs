@@ -32,7 +32,7 @@ public sealed class HueApiControllerTests : IDisposable
 
     public HueApiControllerTests()
     {
-        _httpClient = new HttpClient(_httpHandlerMock.Object);
+        _httpClient = new HttpClient(new HueEntertainmentResourceFixtureHandler(_httpHandlerMock.Object));
     }
 
     public void Dispose() => _httpClient.Dispose();
@@ -172,7 +172,8 @@ public sealed class HueApiControllerTests : IDisposable
     [Fact]
     public void LargeValidScalarRequestPayloadFitsRequestBodyLimit()
     {
-        var channelIds = string.Join(',', Enumerable.Repeat("65535", 682)) + new string(' ', 5);
+        var channelIds = string.Join(',', Enumerable.Repeat("255", 1023)) + new string(' ', 5);
+        Assert.True(PluginConfiguration.TryParseChannelIds(channelIds, out _));
         var request = new HueConnectionTestRequest
         {
             UserId = CreateDeterministicUserId(1),
@@ -315,7 +316,8 @@ public sealed class HueApiControllerTests : IDisposable
     [Fact]
     public void MaximumSupportedUserMappingPayloadFitsRequestBodyLimit()
     {
-        var channelIds = string.Join(',', Enumerable.Range(0, 1024));
+        var channelIds = string.Join(',', Enumerable.Repeat("255", 1023)) + new string(' ', 5);
+        Assert.Equal(PluginConfiguration.MaxChannelIdsInputLength, channelIds.Length);
         var payload = new
         {
             MappingId = new string('m', 64),
@@ -525,7 +527,7 @@ public sealed class HueApiControllerTests : IDisposable
                     new string('d', 44),
                     "local"),
                 _ => new string('a', 64));
-        settings.ChannelIds = string.Join(',', Enumerable.Repeat("65535", 682)) + new string(' ', 5);
+        settings.ChannelIds = string.Join(',', Enumerable.Repeat("255", 1023)) + new string(' ', 5);
         var customFfmpegFlags = "-c:v h264 -filter_threads 256 -hwaccel auto -hwaccel_device renderD128 -hwaccel_output_format vaapi -threads 256";
         settings.CustomFfmpegFlags = customFfmpegFlags + new string(' ', 768 - customFfmpegFlags.Length);
         return settings;
@@ -2609,7 +2611,7 @@ public sealed class HueApiControllerTests : IDisposable
     {
         SetupHttpResponse(
             HttpStatusCode.OK,
-            "{\"data\":[{\"channels\":[{\"channel_id\":9,\"members\":[{\"service\":{\"rid\":\"light-9\"}}]},{\"channel_id\":2,\"members\":[]}]}]}");
+            "{\"data\":[{\"channels\":[{\"channel_id\":9,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-9\"}}]},{\"channel_id\":2,\"members\":[]}]}]}");
         var controller = CreateController();
 
         var action = await controller.PostEntertainmentChannels(new HueEntertainmentChannelsRequest
@@ -2623,6 +2625,35 @@ public sealed class HueApiControllerTests : IDisposable
         var channels = Assert.IsAssignableFrom<IEnumerable<HueEntertainmentChannel>>(response.Value).ToArray();
         Assert.Equal(new[] { 2, 9 }, channels.Select(channel => channel.ChannelId));
         Assert.Equal(new[] { 0, 1 }, channels.Select(channel => channel.MemberCount));
+    }
+
+    [Theory]
+    [InlineData(255, true)]
+    [InlineData(256, false)]
+    public async Task PostEntertainmentChannels_EnforcesUnsignedByteChannelIds(int channelId, bool valid)
+    {
+        SetupHttpResponse(HttpStatusCode.OK, $"{{\"data\":[{{\"channels\":[{{\"channel_id\":{channelId}}}]}}]}}");
+        var controller = CreateController();
+
+        var action = await controller.PostEntertainmentChannels(new HueEntertainmentChannelsRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-secret",
+            EntertainmentAreaId = "area-1"
+        });
+
+        if (valid)
+        {
+            var response = Assert.IsType<OkObjectResult>(action.Result);
+            var channels = Assert.IsAssignableFrom<IEnumerable<HueEntertainmentChannel>>(response.Value);
+            Assert.Equal(channelId, Assert.Single(channels).ChannelId);
+        }
+        else
+        {
+            var response = Assert.IsType<ObjectResult>(action.Result);
+            Assert.Equal(StatusCodes.Status502BadGateway, response.StatusCode);
+            Assert.DoesNotContain("app-secret", JsonSerializer.Serialize(response.Value), StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -2782,7 +2813,7 @@ public sealed class HueApiControllerTests : IDisposable
             .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}]}",
+                    "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-1\"}}]}]}]}",
                     Encoding.UTF8,
                     "application/json")
             })
@@ -3093,7 +3124,7 @@ public sealed class HueApiControllerTests : IDisposable
             new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    "{\"data\":[{\"channels\":[{\"channel_id\":4,\"members\":[{\"service\":{\"rid\":\"light-device\"}}]}]}]}",
+                    "{\"data\":[{\"channels\":[{\"channel_id\":4,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-device\"}}]}]}]}",
                     Encoding.UTF8,
                     "application/json")
             },
@@ -3217,7 +3248,7 @@ public sealed class HueApiControllerTests : IDisposable
             .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    "{\"data\":[{\"channels\":[{\"channel_id\":2,\"members\":[{\"service\":{\"rid\":\"light-bedroom\"}}]}]}]}",
+                    "{\"data\":[{\"channels\":[{\"channel_id\":2,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-bedroom\"}}]}]}]}",
                     Encoding.UTF8,
                     "application/json")
             })
@@ -3346,7 +3377,7 @@ public sealed class HueApiControllerTests : IDisposable
             new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    "{\"data\":[{\"channels\":[{\"channel_id\":4,\"members\":[{\"service\":{\"rid\":\"light-upper\"}}]}]}]}",
+                    "{\"data\":[{\"channels\":[{\"channel_id\":4,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-upper\"}}]}]}]}",
                     Encoding.UTF8,
                     "application/json")
             },
@@ -3367,7 +3398,7 @@ public sealed class HueApiControllerTests : IDisposable
             new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    "{\"data\":[{\"channels\":[{\"channel_id\":5,\"members\":[{\"service\":{\"rid\":\"light-lower\"}}]}]}]}",
+                    "{\"data\":[{\"channels\":[{\"channel_id\":5,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-lower\"}}]}]}]}",
                     Encoding.UTF8,
                     "application/json")
             },
@@ -3450,7 +3481,7 @@ public sealed class HueApiControllerTests : IDisposable
             .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}]}",
+                    "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-1\"}}]}]}]}",
                     Encoding.UTF8,
                     "application/json")
             })
@@ -3471,7 +3502,7 @@ public sealed class HueApiControllerTests : IDisposable
             .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    "{\"data\":[{\"channels\":[{\"channel_id\":2,\"members\":[{\"service\":{\"rid\":\"light-2\"}},{\"service\":{\"rid\":\"light-3\"}}]}]}]}",
+                    "{\"data\":[{\"channels\":[{\"channel_id\":2,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-2\"}},{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-3\"}}]}]}]}",
                     Encoding.UTF8,
                     "application/json")
             })
@@ -3556,7 +3587,7 @@ public sealed class HueApiControllerTests : IDisposable
             .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}]}",
+                    "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-1\"}}]}]}]}",
                     Encoding.UTF8,
                     "application/json")
             })
@@ -3577,7 +3608,7 @@ public sealed class HueApiControllerTests : IDisposable
             .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    "{\"data\":[{\"channels\":[{\"channel_id\":2,\"members\":[{\"service\":{\"rid\":\"light-2\"}},{\"service\":{\"rid\":\"light-3\"}}]}]}]}",
+                    "{\"data\":[{\"channels\":[{\"channel_id\":2,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-2\"}},{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-3\"}}]}]}]}",
                     Encoding.UTF8,
                     "application/json")
             })
@@ -3676,7 +3707,7 @@ public sealed class HueApiControllerTests : IDisposable
             .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}]}",
+                    "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-1\"}}]}]}]}",
                     Encoding.UTF8,
                     "application/json")
             })
@@ -3953,7 +3984,7 @@ public sealed class HueApiControllerTests : IDisposable
     }
 
     [Fact]
-    public async Task TestConnection_WithNoValidEntertainmentChannelsReportsNoControllableChannels()
+    public async Task TestConnection_WithInvalidEntertainmentChannelsFailsClosedBeforeProbe()
     {
         _httpHandlerMock
             .Protected()
@@ -4004,7 +4035,7 @@ public sealed class HueApiControllerTests : IDisposable
         var result = Assert.IsType<HueConnectionTestResult>(response.Value);
         Assert.False(result.AreaFound);
         Assert.Null(result.AreaName);
-        Assert.Contains("no controllable channels", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("could not be loaded", result.Message, StringComparison.OrdinalIgnoreCase);
         streamTester.Verify(tester => tester.TestAsync(
             It.IsAny<string>(),
             It.IsAny<string>(),
@@ -4221,6 +4252,27 @@ public sealed class HueApiControllerTests : IDisposable
             It.IsAny<System.Text.Json.JsonElement>(),
             It.IsAny<IReadOnlySet<int>?>(),
             It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("256")]
+    [InlineData("255,256")]
+    [InlineData("65535")]
+    public async Task TestConnection_ChannelProfileOutsideByteRangeFailsBeforeNetworkWork(string channelIds)
+    {
+        var controller = CreateController();
+
+        var action = await controller.TestConnection(new HueConnectionTestRequest
+        {
+            IpAddress = "192.168.1.100",
+            AppKey = "app-key",
+            EntertainmentAreaId = "area-1",
+            ChannelIds = channelIds
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action.Result);
+        Assert.Contains("0 to 255", Assert.IsType<string>(response.Value), StringComparison.Ordinal);
+        _httpHandlerMock.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -13031,7 +13083,7 @@ public sealed class HueApiControllerTests : IDisposable
             {
                 var path = request.RequestUri!.AbsolutePath;
                 var body = path.Contains("entertainment_configuration/", StringComparison.Ordinal)
-                    ? "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rid\":\"light-1\"}}]}]}]}"
+                    ? "{\"data\":[{\"channels\":[{\"channel_id\":1,\"members\":[{\"service\":{\"rtype\":\"entertainment\",\"rid\":\"ent-light-1\"}}]}]}]}"
                     : "{\"data\":[{\"id\":\"area-global\",\"metadata\":{\"name\":\"Global Room\"}},{\"id\":\"area-custom\",\"metadata\":{\"name\":\"Custom Room\"}}]}";
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
@@ -17638,8 +17690,14 @@ public sealed class HueApiControllerTests : IDisposable
         await service.StopCurrentSyncAsync();
     }
 
-    [Fact]
-    public void SaveUserMapping_BlankSecretsPreserveExistingCredentials()
+    [Theory]
+    [InlineData("192.168.1.100", "192.168.1.100")]
+    [InlineData(" 192.168.1.100 ", "192.168.1.100")]
+    [InlineData("hue-bridge.local.", " HUE-BRIDGE.LOCAL ")]
+    [InlineData("fd00:0:0:0:0:0:0:100", "fd00::100")]
+    public void SaveUserMapping_BlankSecretsPreserveExistingCredentialsForSameTarget(
+        string existingBridgeAddress,
+        string requestedBridgeAddress)
     {
         var configuration = InstallConfiguration(new PluginConfiguration
         {
@@ -17650,7 +17708,7 @@ public sealed class HueApiControllerTests : IDisposable
                     UserId = "user-1",
                     UserName = "Viewer",
                     SyncEnabled = true,
-                    HueBridgeIp = "192.168.1.100",
+                    HueBridgeIp = existingBridgeAddress,
                     HueAppKey = "old-app-secret",
                     HueClientKey = "old-client-secret",
                     EntertainmentAreaId = "old-area",
@@ -17664,7 +17722,7 @@ public sealed class HueApiControllerTests : IDisposable
             UserId = "user-1",
             UserName = "Viewer",
             SyncEnabled = true,
-            HueBridgeIp = "192.168.1.101",
+            HueBridgeIp = requestedBridgeAddress,
             EntertainmentAreaId = "new-area",
             EntertainmentAreaName = "New Room",
             UseCinemaModeOverride = true,
@@ -17714,7 +17772,7 @@ public sealed class HueApiControllerTests : IDisposable
         var mapping = Assert.Single(configuration.UserMappings);
         Assert.Equal("old-app-secret", mapping.HueAppKey);
         Assert.Equal("old-client-secret", mapping.HueClientKey);
-        Assert.Equal("192.168.1.101", mapping.HueBridgeIp);
+        Assert.Equal(requestedBridgeAddress, mapping.HueBridgeIp);
         Assert.Equal("new-area", mapping.EntertainmentAreaId);
         Assert.Equal((bool?)true, mapping.UseCinemaModeOverride);
         Assert.Equal((int?)20, mapping.BrightnessDimLevelOverride);
@@ -17757,6 +17815,94 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal(PluginConfiguration.SamplingModeCenterPixel, mapping.SamplingModeOverride);
         Assert.Equal(PluginConfiguration.SpatialOrientationRotate180, mapping.SpatialOrientationOverride);
         Assert.Equal((int?)35, mapping.ColorSmoothingPercentOverride);
+    }
+
+    [Theory]
+    [InlineData("", "")]
+    [InlineData("replacement-app", "")]
+    [InlineData("", "replacement-client")]
+    public void SaveUserMapping_ChangedCustomTargetRejectsMissingReplacementCredentialsWithoutMutation(
+        string appKey,
+        string clientKey)
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        var existingMapping = new UserBridgeMapping
+        {
+            UserId = "user-1",
+            UserName = "Existing viewer",
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "stored-app",
+            HueClientKey = "stored-client",
+            EntertainmentAreaId = "stored-area"
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { existingMapping }
+        }, serializer.Object);
+        var previousMappings = configuration.UserMappings;
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            UserId = existingMapping.UserId,
+            UserName = "Updated viewer",
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.101",
+            HueAppKey = appKey,
+            HueClientKey = clientKey,
+            EntertainmentAreaId = "replacement-area"
+        });
+
+        var response = Assert.IsType<BadRequestObjectResult>(action);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        Assert.Contains("Bridge credentials", Assert.IsType<string>(response.Value), StringComparison.Ordinal);
+        Assert.Same(previousMappings, configuration.UserMappings);
+        Assert.Same(existingMapping, Assert.Single(configuration.UserMappings));
+        Assert.Empty(existingMapping.MappingId);
+        Assert.Equal("Existing viewer", existingMapping.UserName);
+        Assert.Equal("192.168.1.100", existingMapping.HueBridgeIp);
+        Assert.Equal("stored-app", existingMapping.HueAppKey);
+        Assert.Equal("stored-client", existingMapping.HueClientKey);
+        Assert.Equal("stored-area", existingMapping.EntertainmentAreaId);
+        serializer.Verify(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void SaveUserMapping_ChangedCustomTargetAcceptsCompleteReplacementCredentials()
+    {
+        var existingMapping = new UserBridgeMapping
+        {
+            MappingId = "mapping-row",
+            UserId = "user-1",
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.100",
+            HueAppKey = "stored-app",
+            HueClientKey = "stored-client",
+            EntertainmentAreaId = "stored-area"
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            UserMappings = new List<UserBridgeMapping> { existingMapping }
+        });
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            MappingId = existingMapping.MappingId,
+            UserId = existingMapping.UserId,
+            SyncEnabled = true,
+            HueBridgeIp = "192.168.1.101",
+            HueAppKey = "replacement-app",
+            HueClientKey = "replacement-client",
+            EntertainmentAreaId = "replacement-area"
+        });
+
+        Assert.IsType<OkObjectResult>(action);
+        var mapping = Assert.Single(configuration.UserMappings);
+        Assert.Equal("mapping-row", mapping.MappingId);
+        Assert.Equal("192.168.1.101", mapping.HueBridgeIp);
+        Assert.Equal("replacement-app", mapping.HueAppKey);
+        Assert.Equal("replacement-client", mapping.HueClientKey);
+        Assert.Equal("replacement-area", mapping.EntertainmentAreaId);
     }
 
     [Fact]
@@ -17893,7 +18039,7 @@ public sealed class HueApiControllerTests : IDisposable
         {
             UserId = " user-1 ",
             SyncEnabled = true,
-            HueBridgeIp = "192.168.1.101",
+            HueBridgeIp = "192.168.1.100",
             EntertainmentAreaId = "area-2"
         });
 
@@ -17902,7 +18048,7 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Equal("user-1", mapping.UserId);
         Assert.Equal("stored-app-key", mapping.HueAppKey);
         Assert.Equal("stored-client-key", mapping.HueClientKey);
-        Assert.Equal("192.168.1.101", mapping.HueBridgeIp);
+        Assert.Equal("192.168.1.100", mapping.HueBridgeIp);
     }
 
     [Fact]
@@ -18127,8 +18273,156 @@ public sealed class HueApiControllerTests : IDisposable
         Assert.Contains("playback media scope override must be AllVideo, Movies, Episodes, OtherVideo, Audio, or AllMedia", validationBody, StringComparison.Ordinal);
         Assert.Contains("FFmpeg stall timeout override must be between 1 and 60 seconds", validationBody, StringComparison.Ordinal);
         Assert.Contains("network retry attempts override must be between 0 and 10", validationBody, StringComparison.Ordinal);
-        Assert.Contains("channel IDs override must be a comma-separated list of IDs from 0 to 65535", validationBody, StringComparison.Ordinal);
+        Assert.Contains("channel IDs override must be a comma-separated list of IDs from 0 to 255", validationBody, StringComparison.Ordinal);
         Assert.Empty(configuration.UserMappings);
+    }
+
+    [Theory]
+    [InlineData(false, 140, null, null)]
+    [InlineData(true, 140, null, null)]
+    [InlineData(false, null, 800, null)]
+    [InlineData(true, null, 800, null)]
+    [InlineData(false, null, null, 3800)]
+    [InlineData(true, null, null, 3800)]
+    [InlineData(false, 140, 800, null)]
+    [InlineData(true, 140, 800, null)]
+    [InlineData(false, 140, null, 3800)]
+    [InlineData(true, 140, null, 3800)]
+    [InlineData(false, null, 800, 3800)]
+    [InlineData(true, null, 800, 3800)]
+    public void SaveUserMapping_ValidPartialAudioFrequenciesAllowRepairWithUnrelatedInvalidRow(
+        bool editingExisting,
+        int? lowFrequency,
+        int? midFrequency,
+        int? highFrequency)
+    {
+        var userId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var unrelatedMapping = new UserBridgeMapping
+        {
+            MappingId = "unrelated-row",
+            UserId = "22222222-2222-2222-2222-222222222222",
+            AudioLowFrequencyHzOverride = 1000
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            AudioLowFrequencyHz = 180,
+            AudioMidFrequencyHz = 900,
+            AudioHighFrequencyHz = 3600,
+            UserMappings = new List<UserBridgeMapping> { unrelatedMapping }
+        });
+        if (editingExisting)
+        {
+            configuration.UserMappings.Add(new UserBridgeMapping
+            {
+                MappingId = "edited-row",
+                UserId = userId.ToString("D"),
+                AudioLowFrequencyHzOverride = 1000
+            });
+        }
+
+        var action = CreateController().SaveUserMapping(new UserBridgeMapping
+        {
+            MappingId = editingExisting ? "edited-row" : string.Empty,
+            UserId = userId.ToString("D"),
+            AudioLowFrequencyHzOverride = lowFrequency,
+            AudioMidFrequencyHzOverride = midFrequency,
+            AudioHighFrequencyHzOverride = highFrequency
+        });
+
+        Assert.IsType<OkObjectResult>(action);
+        Assert.Equal(2, configuration.UserMappings.Count);
+        var mapping = Assert.Single(configuration.UserMappings, candidate => candidate.UserId == userId.ToString("D"));
+        Assert.Equal(lowFrequency, mapping.AudioLowFrequencyHzOverride);
+        Assert.Equal(midFrequency, mapping.AudioMidFrequencyHzOverride);
+        Assert.Equal(highFrequency, mapping.AudioHighFrequencyHzOverride);
+        Assert.Equal(
+            (lowFrequency ?? 180, midFrequency ?? 900, highFrequency ?? 3600),
+            configuration.GetAudioFrequenciesForUser(userId));
+        Assert.Same(unrelatedMapping, configuration.UserMappings[0]);
+        Assert.Equal("unrelated-row", unrelatedMapping.MappingId);
+        Assert.Equal((int?)1000, unrelatedMapping.AudioLowFrequencyHzOverride);
+        if (editingExisting)
+            Assert.Equal("edited-row", mapping.MappingId);
+    }
+
+    [Theory]
+    [InlineData(false, 900, null, null)]
+    [InlineData(true, 900, null, null)]
+    [InlineData(false, 1000, null, null)]
+    [InlineData(true, 1000, null, null)]
+    [InlineData(false, null, 180, null)]
+    [InlineData(true, null, 180, null)]
+    [InlineData(false, null, 3700, null)]
+    [InlineData(true, null, 3700, null)]
+    [InlineData(false, null, null, 800)]
+    [InlineData(true, null, null, 800)]
+    [InlineData(false, 400, 300, null)]
+    [InlineData(true, 400, 300, null)]
+    [InlineData(false, 140, 3700, null)]
+    [InlineData(true, 140, 3700, null)]
+    [InlineData(false, 1000, null, 3800)]
+    [InlineData(true, 1000, null, 3800)]
+    [InlineData(false, 140, null, 800)]
+    [InlineData(true, 140, null, 800)]
+    [InlineData(false, null, 170, 3800)]
+    [InlineData(true, null, 170, 3800)]
+    [InlineData(false, null, 3800, 3700)]
+    [InlineData(true, null, 3800, 3700)]
+    public void SaveUserMapping_InvalidPartialAudioFrequenciesRejectWithoutMutation(
+        bool editingExisting,
+        int? lowFrequency,
+        int? midFrequency,
+        int? highFrequency)
+    {
+        const string userId = "11111111-1111-1111-1111-111111111111";
+        var serializer = new Mock<IXmlSerializer>();
+        var existingMapping = new UserBridgeMapping
+        {
+            UserId = editingExisting ? userId : "22222222-2222-2222-2222-222222222222",
+            UserName = "Existing viewer",
+            AudioLowFrequencyHzOverride = 140,
+            AudioMidFrequencyHzOverride = 800,
+            AudioHighFrequencyHzOverride = 3800
+        };
+        var configuration = InstallConfiguration(new PluginConfiguration
+        {
+            AudioLowFrequencyHz = 180,
+            AudioMidFrequencyHz = 900,
+            AudioHighFrequencyHz = 3600,
+            UserMappings = new List<UserBridgeMapping> { existingMapping }
+        }, serializer.Object);
+        var previousMappings = configuration.UserMappings;
+        var request = new UserBridgeMapping
+        {
+            UserId = userId,
+            UserName = "Updated viewer",
+            AudioLowFrequencyHzOverride = lowFrequency,
+            AudioMidFrequencyHzOverride = midFrequency,
+            AudioHighFrequencyHzOverride = highFrequency
+        };
+
+        var action = CreateController().SaveUserMapping(request);
+
+        var response = Assert.IsType<BadRequestObjectResult>(action);
+        Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(JsonSerializer.Serialize(response.Value));
+        Assert.Equal("User performance profile is invalid.", body.RootElement.GetProperty("message").GetString());
+        Assert.Contains(
+            "effective audio frequencies must be strictly ordered low < mid < high",
+            Assert.Single(body.RootElement.GetProperty("errors").EnumerateArray()).GetString(),
+            StringComparison.Ordinal);
+        Assert.Same(previousMappings, configuration.UserMappings);
+        Assert.Same(existingMapping, Assert.Single(configuration.UserMappings));
+        Assert.Empty(existingMapping.MappingId);
+        Assert.Empty(request.MappingId);
+        Assert.Equal("Existing viewer", existingMapping.UserName);
+        Assert.Equal((int?)140, existingMapping.AudioLowFrequencyHzOverride);
+        Assert.Equal((int?)800, existingMapping.AudioMidFrequencyHzOverride);
+        Assert.Equal((int?)3800, existingMapping.AudioHighFrequencyHzOverride);
+        Assert.Equal(180, configuration.AudioLowFrequencyHz);
+        Assert.Equal(900, configuration.AudioMidFrequencyHz);
+        Assert.Equal(3600, configuration.AudioHighFrequencyHz);
+        serializer.Verify(xml => xml.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()), Times.Never);
     }
 
     [Fact]

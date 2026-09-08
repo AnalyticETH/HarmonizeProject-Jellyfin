@@ -304,10 +304,11 @@ jobs:
     - name: Create plugin package
       run: |
         mkdir -p release-package
-        # Include the plugin assembly, its managed DTLS dependency, and meta.json.
+        # Include the tested assemblies and metadata with redistribution licenses.
         cp tested-publish/Jellyfin.Plugin.Hue.dll release-package/
         cp tested-publish/BouncyCastle.Cryptography.dll release-package/
         cp tested-publish/meta.json release-package/
+        cp LICENSE NOTICE release-package/
         META_VERSION=$(jq -er '.version | strings | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$"))' tested-publish/meta.json)
         SOURCE_META_VERSION=$(jq -er '.version | strings | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$"))' meta.json)
         PROJECT_VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' Jellyfin.Plugin.Hue/Jellyfin.Plugin.Hue.csproj | head -n 1)
@@ -323,7 +324,7 @@ jobs:
         python3 scripts/create-deterministic-release-zip.py \
           --input-dir release-package \
           --output jellyfin-plugin-hue-release.zip
-        test "$(unzip -Z1 jellyfin-plugin-hue-release.zip | sort | tr '\n' ' ')" = "BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "
+        test "$(unzip -Z1 jellyfin-plugin-hue-release.zip | tr '\n' ' ')" = "BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll LICENSE NOTICE meta.json "
         sha256sum jellyfin-plugin-hue-release.zip > jellyfin-plugin-hue-release.zip.sha256
         sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256
         python3 scripts/create-release-manifest.py \
@@ -423,9 +424,9 @@ jobs:
         test -f "$HELPER_MANIFEST_CHECKSUM"
         sha256sum --check --strict "$HELPER_CHECKSUM"
         sha256sum --check --strict "$HELPER_MANIFEST_CHECKSUM"
-        EXPECTED_ENTRIES="BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll meta.json "
-        test "$(unzip -Z1 "$HELPER_ZIP" | sort | tr '\n' ' ')" = "$EXPECTED_ENTRIES"
-        test "$(unzip -Z1 "$CANONICAL_PACKAGE_DIR/jellyfin-plugin-hue-release.zip" | sort | tr '\n' ' ')" = "$EXPECTED_ENTRIES"
+        EXPECTED_ENTRIES="BouncyCastle.Cryptography.dll Jellyfin.Plugin.Hue.dll LICENSE NOTICE meta.json "
+        test "$(unzip -Z1 "$HELPER_ZIP" | tr '\n' ' ')" = "$EXPECTED_ENTRIES"
+        test "$(unzip -Z1 "$CANONICAL_PACKAGE_DIR/jellyfin-plugin-hue-release.zip" | tr '\n' ' ')" = "$EXPECTED_ENTRIES"
         unzip -p "$HELPER_ZIP" meta.json > helper-meta.json
         unzip -p "$CANONICAL_PACKAGE_DIR/jellyfin-plugin-hue-release.zip" meta.json > canonical-meta.json
         test "$(jq -er '.version' helper-meta.json)" = "$VERSION"
@@ -514,11 +515,22 @@ jobs:
         path: ./
 
     - name: Verify release package checksum
+      env:
+        RELEASE_VERSION: ${{ steps.version.outputs.version }}
       run: |
         set -euo pipefail
         sha256sum --check --strict jellyfin-plugin-hue-release.zip.sha256
         sha256sum --check --strict jellyfin-plugin-hue-release.manifest.json.sha256
-        jq -e --arg source_commit "$GITHUB_SHA" '(.schemaVersion == 2) and (.pluginVersion | type == "string") and (.sourceCommit == $source_commit) and ((.packageFiles | length) == 3) and ((.nuget.packages | length) > 0)' jellyfin-plugin-hue-release.manifest.json >/dev/null
+        jq -e -s --arg source_commit "$GITHUB_SHA" --arg version "$RELEASE_VERSION" '
+          length == 1 and (.[0] |
+            (.schemaVersion == 2) and
+            (.pluginVersion == $version) and
+            (.sourceCommit == $source_commit) and
+            (.packageFiles | type == "array") and
+            (([.packageFiles[].name] | sort) == ["BouncyCastle.Cryptography.dll", "Jellyfin.Plugin.Hue.dll", "LICENSE", "NOTICE", "meta.json"]) and
+            (.nuget.packages | type == "array" and length > 0)
+          )
+        ' jellyfin-plugin-hue-release.manifest.json >/dev/null
 
     - name: Install GitHub CLI
       env:
@@ -664,6 +676,8 @@ jobs:
             "### What's Included" \
             '- `Jellyfin.Plugin.Hue.dll` - Main plugin assembly' \
             '- `BouncyCastle.Cryptography.dll` - Managed DTLS transport dependency' \
+            '- `LICENSE` - Complete GPL-3.0-only license' \
+            '- `NOTICE` - Project and runtime dependency notices' \
             '- `meta.json` - Plugin metadata (required by Jellyfin)' \
             '- `jellyfin-plugin-hue-release.manifest.json` - Hash-locked package and dependency manifest' \
             '- `.sha256` sidecars - Integrity checks for the ZIP and manifest'

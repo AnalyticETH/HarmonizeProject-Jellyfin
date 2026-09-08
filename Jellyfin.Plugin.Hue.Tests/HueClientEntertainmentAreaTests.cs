@@ -85,7 +85,11 @@ public class HueClientEntertainmentAreaTests : IDisposable
     [Fact]
     public async Task StartEntertainmentArea_BridgeReturns200_ReturnsTrue()
     {
-        SetupHttpResponse(HttpStatusCode.OK, "{}");
+        _httpHandlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+                HueMutationResponseFixture.Success(request));
         var client = new HueClient(_httpClient, _loggerMock.Object);
 
         var result = await client.StartEntertainmentArea("192.168.1.100", "test-app-key", "area-uuid");
@@ -136,10 +140,8 @@ public class HueClientEntertainmentAreaTests : IDisposable
                 capturedRequest = req;
                 capturedBody = req.Content != null ? await req.Content.ReadAsStringAsync() : null;
             })
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            });
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+                HueMutationResponseFixture.Success(request));
 
         var client = new HueClient(_httpClient, _loggerMock.Object);
         await client.StartEntertainmentArea("192.168.1.100", "my-app-key", "my-area-id");
@@ -186,10 +188,8 @@ public class HueClientEntertainmentAreaTests : IDisposable
                 capturedRequest = req;
                 capturedBody = req.Content != null ? await req.Content.ReadAsStringAsync() : null;
             })
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            });
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+                HueMutationResponseFixture.Success(request));
 
         var client = new HueClient(_httpClient, _loggerMock.Object);
         await client.StopEntertainmentArea("192.168.1.100", "my-app-key", "my-area-id");

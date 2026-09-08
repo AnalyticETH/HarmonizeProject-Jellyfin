@@ -256,6 +256,9 @@ internal sealed class HueDatagramTransport : DatagramTransport, IDisposable
     public HueDatagramTransport(Socket socket)
     {
         _socket = socket ?? throw new ArgumentNullException(nameof(socket));
+        // DTLS sends are synchronous and serialize with stream retirement. A full
+        // socket buffer must not hold the lifecycle lock indefinitely.
+        _socket.SendTimeout = 1000;
     }
 
     public bool IsOpen => Volatile.Read(ref _closed) == 0;
