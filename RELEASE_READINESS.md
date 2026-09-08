@@ -32,6 +32,8 @@ Completed in this working tree on 2026-09-08:
 - Native platform builds cover Linux x64 (`ubuntu-24.04`), Windows x64
   (`windows-2022`), macOS Intel (`macos-15-intel`), and macOS Apple Silicon
   (`macos-15`), with separate verification artifacts for each target.
+- Native workflow run `34248845097` at source `1b1a47b` passed all four jobs and
+  finalized the Linux, Windows, Intel macOS, and Apple Silicon artifacts.
 - The scheduled health probe checks Node, Python, jq, Docker, and the pinned .NET
   SDK without repository secrets or administrative API access.
 - The trusted release job treats an already-published stable version tag as an
@@ -93,6 +95,8 @@ runtime preflight; manifest regressions also reject changed license/notice bytes
 
 | Source | Verification | Boundary |
 | --- | --- | --- |
+| `1b1a47b6566d0927b5e39c72369b14dd52055763` | Native Platform Builds run `34248845097` passed Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon build/test/format/publish jobs; the corrected environment-probe tests reported 1,850 passed tests on Windows | Hosted compiled-package/build evidence; no physical device installation or Hue bridge acceptance |
+| `1b1a47b6566d0927b5e39c72369b14dd52055763` | Trusted `.NET CI/CD` run `34248845480` passed Build/Test, Code Quality, Gitleaks, Semgrep, deterministic package creation, Linux helper parity, Jellyfin 10.9.0/10.10.7 runtime smoke, and the existing-release no-op path | Exact-source hosted evidence for this maintenance push; `v1.5.461.0` still targets `76a1eb5`, so no tag or asset was replaced |
 | `13c15f56279b0398b7d737615cbfe4b69e4bcddd` | Trusted hosted run `34239469164` passed Build/Test, Code Quality, Gitleaks, Semgrep, deterministic package creation, Linux helper parity, Jellyfin 10.9.0/10.10.7 runtime smoke, and release-tag safety; dependency submission run `34239468548` passed | The release job explicitly skipped publication because stable `v1.5.461.0` already targets `76a1eb5`; this verifies hosted CI and no-overwrite behavior, not physical Hue, native-platform, or upgrade/rollback acceptance |
 | `62d552cb98ddcafc36d8ee7b812ae9a4254f2d43` | PR #63 run `34177970321` passed build/tests/format/contracts and secret/static scans on existing runner `26`; the PR merge tree matches the commit tree | PR integration evidence, not trusted-main publication verification |
 | `4bd567940d1a3debe11126a93eda1e2b49fa290f` | Real Bash release helper in a clean clone: locked restore, .NET SDK 8.0.424, zero build warnings/errors, 1,850 passed tests without failures/skips, formatting pass, five-file ZIP and source-bound manifest with verified sidecars | Linux local evidence; subsequent release-note changes require a new exact-source package |
@@ -136,14 +140,14 @@ tests passed with no skips, formatting verification passed, and
 documentation/workflow/package contracts passed. The refreshed pinned production
 Semgrep scan reports zero findings, scanner errors, or fixpoint timeouts across
 68 files; the earlier JavaScript/Python scans also passed and those sources are
-unchanged by F27. Real fork-PR execution and private vulnerability reporting are
+unchanged by F27. The hosted native matrix and trusted run above are terminal
+successes. Real fork-PR execution and private vulnerability reporting are
 owner-waived for this launch. Protocol fixtures do not substitute for bridge
 acceptance.
 
 All 30 recorded findings (F01-F30) are corrected locally; F27 follows the
 approved captured-target policy. Native Windows/macOS compiled-package parity is
-exercised by the hosted native build workflow, with its terminal remote result
-recorded after this commit. Some SDK-suite environment probes return early without FFmpeg;
+verified by hosted run `34248845097`. Some SDK-suite environment probes return early without FFmpeg;
 the separate real-decoder checks below are not included in the 1,850-test count.
 
 ## Earlier working-tree runtime evidence
@@ -211,8 +215,8 @@ access and physical interoperability acceptance remain unverified.
 | Source availability and license authority | Owner confirms authority for the declared GPL-3.0-only license and provides accessible corresponding source for the exact binary release, with dependency notices. Public GitHub source/release URLs are inaccessible while the repository remains private. |
 | Physical Hue acceptance | Record plugin/source version, Jellyfin/.NET/FFmpeg versions, bridge firmware and light models; verify registration with explicit certificate confirmation, playback sync, pause/resume/stop, original-state restoration, scheduled cues, concurrent users/rooms, bridge disconnect/reconnect, and server restart. Capture sanitized logs and cleanup outcomes. Automated loopback DTLS and container boot do not prove hardware behavior. |
 | Upgrade and rollback | On a disposable representative installation, back up private configuration securely, upgrade from the prior release, check settings/automation preservation, then restore the previous package/configuration and verify startup, playback, and cleanup. Do not publish credentials or private backup files as evidence. |
-| Native platform parity | The pushed `native-platform-build.yml` workflow builds and tests Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon on hosted runners. Its four terminal jobs are the remaining remote evidence for this repository-side gate; physical device installation is not implied. |
-| Public cutover | Owner approval for the remaining release work is granted; protected host policies remain authoritative. Public availability still requires an allowed visibility change and unauthenticated checks of repository/source links, installation assets, checksums, contributor forms, support, and security intake. Authorization is not evidence that cutover or production acceptance occurred. |
+| Native platform parity | Hosted run `34248845097` passed Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon build/test/format/publish jobs. Physical device installation and Hue bridge behavior are not implied. |
+| Public cutover | Owner approval for the remaining release work is granted; protected host policies remain authoritative. Public availability still requires an allowed visibility change and unauthenticated checks of repository/source links, installation assets, checksums, contributor forms, and support. Private security intake is owner-waived for this launch. |
 
 ## Verification commands
 
