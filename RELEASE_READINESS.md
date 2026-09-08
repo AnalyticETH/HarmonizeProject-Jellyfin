@@ -13,8 +13,8 @@ operation. The hosted-runner migration passed trusted hosted `main` run
 `34239469164` at commit `13c15f56279b0398b7d737615cbfe4b69e4bcddd`. The owner
 has waived a real fork-PR run and private vulnerability-reporting setup as launch
 gates for this release; that decision does not establish hardware acceptance,
-upgrade/rollback evidence, license authority, or permission to bypass protected
-machine policies.
+physical installation acceptance, license authority, or permission to bypass
+protected machine policies.
 
 The current protected GitHub policy blocks repository creation and public
 visibility changes. Release assets can be published in the existing private
@@ -32,8 +32,9 @@ Completed in this working tree on 2026-09-08:
 - Native platform builds cover Linux x64 (`ubuntu-24.04`), Windows x64
   (`windows-2022`), macOS Intel (`macos-15-intel`), and macOS Apple Silicon
   (`macos-15`), with separate verification artifacts for each target.
-- Native workflow run `34248845097` at source `1b1a47b` passed all four jobs and
-  finalized the Linux, Windows, Intel macOS, and Apple Silicon artifacts.
+- Native workflow run `34251592019` at source
+  `ee42d398b49c876813196407ebfadaf351a53d98` passed all four jobs and finalized
+  the Linux, Windows, Intel macOS, and Apple Silicon artifacts.
 - The scheduled health probe checks Node, Python, jq, Docker, and the pinned .NET
   SDK without repository secrets or administrative API access.
 - The trusted release job treats an already-published stable version tag as an
@@ -42,9 +43,23 @@ Completed in this working tree on 2026-09-08:
 - The 200-line self-hosted operational runbook was reduced to a retirement note;
   the executable workflow and negative-contract validators remain source-controlled.
 - Local workflow contracts, documentation contracts, package contracts, and
-  source/license checks pass. Trusted hosted run `34239469164` passed build/test,
-  security, packaging, Linux helper parity, and both Jellyfin runtime smoke legs;
-  dependency submission run `34239468548` also passed.
+  source/license checks pass. Trusted hosted run `34251600527` at the current
+  source SHA passed build/test, security, packaging, Linux helper parity, both
+  Jellyfin runtime smoke legs, and the existing-release no-op path; dependency
+  submission run `34251590289` also passed.
+
+## Current exact-source container verification
+
+Executed on 2026-09-08 from clean source commit
+`ee42d398b49c876813196407ebfadaf351a53d98`. Generated archives and the
+disposable Docker evidence directory are not tracked release inputs.
+
+| Check | Evidence | Boundary |
+| --- | --- | --- |
+| Release build | Pinned `mcr.microsoft.com/dotnet/sdk:8.0.424` container; zero build warnings/errors; `1,850` passed, `0` failed, `0` skipped; deterministic five-file package and source-bound manifest generated | Linux SDK-container evidence for this exact SHA; hosted run `34251600527` is the remote confirmation |
+| Jellyfin 10.9.0 runtime smoke | Candidate ZIP SHA-256 `7e19e3765ef1e1c92c364360f8bc49774655a12af411ebad6bb3f14fd7bfe341`; digest-pinned image `jellyfin/jellyfin@sha256:d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67`; plugin-load marker and in-container `/health` passed; disposable container cleaned | Startup/plugin compatibility only; no Hue bridge, playback, or hardware claim |
+| Jellyfin 10.10.7 runtime smoke | The same candidate ZIP passed with digest-pinned image `jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123`; plugin-load marker and in-container `/health` passed; disposable container cleaned | Startup/plugin compatibility only; no Hue bridge, playback, or hardware claim |
+| Persistent upgrade/rollback | On Jellyfin 10.10.7, private release `v1.5.460.0` ZIP SHA-256 `cef0f613bc4365e95000d85649da8eed0e46875b0dc4d526938ab95e7ca900c4` loaded, the current `1.5.461.0` package replaced it and loaded, then `1.5.460.0` was restored and loaded again. The same `/config` bind mount retained a marker across all three restarts; each phase passed `/health` and plugin-load checks | Disposable package/configuration drill; it does not verify real saved settings, automation, playback, Hue hardware, or a production backup/restore procedure |
 
 ## Verified baseline
 
@@ -214,8 +229,8 @@ access and physical interoperability acceptance remain unverified.
 | Exact-source release verification | Review and commit the prepared changes, run the complete trusted CI at that source SHA, verify all package and manifest digests/source binding, and publish a new unused version. A later push with an already-published stable version is a verified no-op; never replace an existing tag or asset to repair the old archive. |
 | Source availability and license authority | Owner confirms authority for the declared GPL-3.0-only license and provides accessible corresponding source for the exact binary release, with dependency notices. Public GitHub source/release URLs are inaccessible while the repository remains private. |
 | Physical Hue acceptance | Record plugin/source version, Jellyfin/.NET/FFmpeg versions, bridge firmware and light models; verify registration with explicit certificate confirmation, playback sync, pause/resume/stop, original-state restoration, scheduled cues, concurrent users/rooms, bridge disconnect/reconnect, and server restart. Capture sanitized logs and cleanup outcomes. Automated loopback DTLS and container boot do not prove hardware behavior. |
-| Upgrade and rollback | On a disposable representative installation, back up private configuration securely, upgrade from the prior release, check settings/automation preservation, then restore the previous package/configuration and verify startup, playback, and cleanup. Do not publish credentials or private backup files as evidence. |
-| Native platform parity | Hosted run `34248845097` passed Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon build/test/format/publish jobs. Physical device installation and Hue bridge behavior are not implied. |
+| Upgrade and rollback | Container drill at `ee42d398b49c876813196407ebfadaf351a53d98` completed old `1.5.460.0` -> current `1.5.461.0` -> old `1.5.460.0` on one persistent `/config`; all three Jellyfin 10.10.7 startups passed `/health` and plugin-load checks, and the persistent marker survived | Real saved settings/automation, playback, Hue hardware, secure production backup/restore, and a representative owner installation remain unverified |
+| Native platform parity | Hosted run `34251592019` at `ee42d398b49c876813196407ebfadaf351a53d98` passed Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon build/test/format/publish jobs. Physical device installation and Hue bridge behavior are not implied. |
 | Public cutover | Owner approval for the remaining release work is granted; protected host policies remain authoritative. Public availability still requires an allowed visibility change and unauthenticated checks of repository/source links, installation assets, checksums, contributor forms, and support. Private security intake is owner-waived for this launch. |
 
 ## Verification commands
