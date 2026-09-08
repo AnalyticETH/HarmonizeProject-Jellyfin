@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Administrator request ownership**: correct channel discovery, stale credential-clear confirmations, and canceled mapping edits without allowing old requests to overwrite newer page state.
 - **Scheduler coverage and efficiency**: account for cleanup time, revisit newly due priorities, search complete conflict horizons including solar offsets, and include sequential distinct-target occupancy with bounded result retention.
 - **Release safeguards**: fail closed on Git provenance errors before artifact cleanup, pin build-input line endings, keep runtime self-tests portable, and bound Docker startup and cleanup with explicit retained-resource reporting.
+- **Repeatable local packaging**: ignore only root-level generated release manifests and their checksum sidecars, so a successful build does not block the next provenance check; unrelated untracked source still fails closed.
 - **Documentation**: shorten the human-first README, retain technical references and historical notes in linked documents, and validate titled/reference-style links and README size limits.
 
 ### Hue v2 streaming correction

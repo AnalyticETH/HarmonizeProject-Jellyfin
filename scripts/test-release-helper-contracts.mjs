@@ -133,6 +133,42 @@ function checkGuard(runner, name, overrides = {}, options = {}) {
   }
 }
 
+function checkGeneratedOutputIgnores() {
+  const directory = path.join(fixtureRoot, "generated-output-checkout");
+  fs.mkdirSync(directory);
+  const gitEnvironment = { ...process.env };
+  for (const name of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR"]) delete gitEnvironment[name];
+  function git(args) {
+    const result = run("git", ["-c", "core.excludesFile=", ...args], { cwd: directory, env: gitEnvironment });
+    assert.equal(result.status, 0, `Fixture Git command failed: ${args.join(" ")}\n${result.output}`);
+    return result.stdout;
+  }
+  git(["init", "--quiet"]);
+  // info/exclude uses root-relative ignore rules without needing a fixture commit.
+  fs.copyFileSync(path.join(repositoryRoot, ".gitignore"), path.join(directory, ".git", "info", "exclude"));
+  const status = () => git(["status", "--porcelain=v1", "--untracked-files=all"]);
+  assert.equal(status(), "");
+
+  const version = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "meta.json"), "utf8")).version;
+  const basename = `jellyfin-plugin-hue-v${version}`;
+  const generated = ["zip", "zip.sha256", "manifest.json", "manifest.json.sha256"].map(suffix => `${basename}.${suffix}`);
+  for (const file of generated) fs.writeFileSync(path.join(directory, file), "generated release fixture\n");
+  assert.equal(status(), "", "Generated release outputs must not dirty the checkout before the next helper invocation");
+
+  const visible = [
+    "untracked-source.cs", "fixture.manifest.json", "fixture.manifest.json.sha256",
+    `fixtures/${basename}.manifest.json`, `fixtures/${basename}.manifest.json.sha256`,
+  ];
+  for (const file of visible) {
+    const target = path.join(directory, file);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, "untracked source fixture\n");
+  }
+  assert.deepEqual(status().trim().split(/\r?\n/).sort(), visible.map(file => `?? ${file}`).sort(),
+    "Release output ignores must not hide unrelated source or nested manifest fixtures");
+  console.log(`Generated release-output ignore contracts passed (${generated.length} outputs ignored; ${visible.length} unrelated/nested files visible)`);
+}
+
 function checkCheckoutBytes() {
   const inputs = [
     ".gitattributes", ".editorconfig", "LICENSE", "NOTICE", "meta.json", "global.json",
@@ -216,6 +252,7 @@ function checkCheckoutBytes() {
 }
 
 try {
+  checkGeneratedOutputIgnores();
   fs.mkdirSync(fixtureBin);
   fs.writeFileSync(path.join(fixtureRoot, "package.json"), '{"type":"commonjs"}\n');
   for (const command of ["git", "rm", "dotnet", "python3", "unzip"]) fs.writeFileSync(path.join(fixtureBin, command), commandStub, { mode: 0o755 });
