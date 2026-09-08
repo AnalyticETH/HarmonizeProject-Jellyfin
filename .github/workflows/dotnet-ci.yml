@@ -28,8 +28,8 @@ jobs:
   build-and-test:
     name: Build and Test
     if: github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, linux, x64, local-docker]
-    # Bound persistent-runner occupancy if a restore, test, or external tool stalls.
+    runs-on: ubuntu-24.04
+    # Bound hosted-runner occupancy if a restore, test, or external tool stalls.
     timeout-minutes: 20
     env:
       # Codecov is optional for installations that do not provision an upload token.
@@ -72,12 +72,11 @@ jobs:
           ffmpeg_source="$ffmpeg_path"
         else
           if ! command -v docker >/dev/null; then
-            echo "FFmpeg is absent from the replacement runner PATH and Docker is unavailable for the pinned runtime probe." >&2
+            echo "FFmpeg is absent from the hosted runner PATH and Docker is unavailable for the pinned runtime probe." >&2
             exit 1
           fi
-          # The replacement runner is Docker-backed. Use the same digest-pinned
-          # Jellyfin runtime image used by the smoke gate when the runner image
-          # does not carry a host ffmpeg executable.
+          # Use the same digest-pinned Jellyfin runtime image used by the smoke
+          # gate when the hosted runner image does not carry ffmpeg.
           if ! docker image inspect "$JELLYFIN_RUNTIME_IMAGE" >/dev/null 2>&1; then
             timeout --kill-after=10s 300s docker pull "$JELLYFIN_RUNTIME_IMAGE"
           fi
@@ -231,7 +230,7 @@ jobs:
   code-quality:
     name: Code Quality Checks
     if: github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, linux, x64, local-docker]
+    runs-on: ubuntu-24.04
     needs: build-and-test
     timeout-minutes: 15
 
@@ -284,7 +283,7 @@ jobs:
 
   create-release-package:
     name: Create Release Package
-    runs-on: [self-hosted, linux, x64, local-docker]
+    runs-on: ubuntu-24.04
     needs: [build-and-test, code-quality, security-analysis]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 15
@@ -376,7 +375,7 @@ jobs:
 
   validate-release-helper:
     name: Validate Linux Release Helper
-    runs-on: [self-hosted, linux, x64, local-docker]
+    runs-on: ubuntu-24.04
     needs: create-release-package
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 20
@@ -439,7 +438,7 @@ jobs:
 
   runtime-smoke:
     name: Runtime Smoke (${{ matrix.jellyfin_version }})
-    runs-on: [self-hosted, linux, x64, local-docker]
+    runs-on: ubuntu-24.04
     needs: create-release-package
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
@@ -486,8 +485,8 @@ jobs:
 
   create-github-release:
     name: Create GitHub Release
-    # Keep the contents:write token in the same replacement runner boundary.
-    runs-on: [self-hosted, linux, x64, local-docker]
+    # Keep the contents:write token scoped to this single hosted release job.
+    runs-on: ubuntu-24.04
     needs: [create-release-package, validate-release-helper, runtime-smoke]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 10
@@ -577,6 +576,7 @@ jobs:
         echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Pin release tag to workflow commit
+      id: pin-release-tag
       env:
         RELEASE_TAG: ${{ steps.version.outputs.tag }}
         RELEASE_SHA: ${{ github.sha }}
@@ -601,12 +601,38 @@ jobs:
 
         remote_tag_sha="$(printf '%s\n' "$remote_tag_info" | awk 'NR == 1 { print $1 }')"
         if [ -n "$remote_tag_sha" ]; then
-          if [ "$remote_tag_sha" != "$SHA" ]; then
-            echo "Release tag ${TAG} already points to ${remote_tag_sha}, expected workflow commit ${SHA}; refusing to publish." >&2
-            exit 1
-          fi
+          existing_release_json="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            | jq -sc --arg tag "$TAG" 'add | [.[] | select(.tag_name == $tag)] | first')"
+          if [ "$existing_release_json" = "null" ]; then
+            if [ "$remote_tag_sha" != "$SHA" ]; then
+              echo "Release tag ${TAG} already points to ${remote_tag_sha}, but no corresponding release exists; refusing to publish." >&2
+              exit 1
+            fi
+            echo "Release tag ${TAG} already points to workflow commit ${SHA}, but its release record is absent; continuing with publication."
+          else
+            existing_release_target="$(jq -er '.target_commitish' <<<"$existing_release_json")"
+            existing_release_draft="$(jq -er '.draft | tostring' <<<"$existing_release_json")"
+            existing_release_prerelease="$(jq -er '.prerelease | tostring' <<<"$existing_release_json")"
+            if [ "$existing_release_target" != "$remote_tag_sha" ]; then
+              echo "Release ${TAG} targets ${existing_release_target}, but tag points to ${remote_tag_sha}; refusing to publish." >&2
+              exit 1
+            fi
+            if [ "$existing_release_draft" = "false" ] && [ "$existing_release_prerelease" = "false" ]; then
+              echo "Release ${TAG} is already published at ${remote_tag_sha}."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$remote_tag_sha" != "$SHA" ]; then
+              echo "Release tag ${TAG} already points to ${remote_tag_sha}, but its release is not a published stable release; refusing to publish." >&2
+              exit 1
+            fi
 
-          echo "Release tag ${TAG} already points to workflow commit ${SHA}."
+            if [ "$existing_release_draft" != "true" ] || [ "$existing_release_prerelease" != "false" ]; then
+              echo "Release ${TAG} has an unsupported draft/prerelease state at the current workflow commit; refusing to publish." >&2
+              exit 1
+            fi
+            echo "Release tag ${TAG} already points to workflow commit ${SHA}; resuming its stable draft."
+          fi
         else
           if git show-ref --verify --quiet "$local_tag_ref"; then
             echo "Removing stale local release tag ${TAG}; the remote tag is absent."
@@ -622,6 +648,7 @@ jobs:
         fi
 
     - name: Create GitHub Release
+      if: steps.pin-release-tag.outputs.skip != 'true'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         RELEASE_VERSION: ${{ steps.version.outputs.version }}

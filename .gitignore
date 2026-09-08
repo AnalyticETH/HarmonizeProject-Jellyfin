@@ -8,6 +8,8 @@ obj/
 
 # Test results
 TestResults/
+__pycache__/
+*.py[cod]
 *.trx
 *.coverage
 *.coveragexml

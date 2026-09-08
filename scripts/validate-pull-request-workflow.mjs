@@ -95,7 +95,7 @@ for (const marker of [
   "pull_request:",
   "types: [opened, synchronize, reopened, ready_for_review]",
   "permissions:\n  contents: read",
-  "runs-on: [self-hosted, linux, x64, local-docker]",
+  "runs-on: ubuntu-24.04",
   "github.event.pull_request.number",
   "Validate pinned .NET SDK parity",
   "node scripts/validate-dotnet-sdk.mjs",
@@ -149,10 +149,11 @@ if (jobWrites.length > 0) {
 }
 
 const runnerLines = [...workflow.matchAll(/^\s*runs-on:\s*(.+)$/gm)].map(match => match[1].trim());
-if (runnerLines.length === 0 || runnerLines.some(
-  runner => runner !== "[self-hosted, linux, x64, local-docker]",
-)) {
-  throw new Error(`${file} must run every PR job on the replacement local-docker runner`);
+if (runnerLines.length === 0 || runnerLines.some(runner => runner !== "ubuntu-24.04")) {
+  throw new Error(`${file} must run every PR job on the GitHub-hosted ubuntu-24.04 runner`);
+}
+if (workflow.includes("self-hosted") || workflow.includes("local-docker")) {
+  throw new Error(`${file} must not reference self-hosted runner labels`);
 }
 
 for (const match of workflow.matchAll(/^\s*uses:\s*([^\s#]+)$/gm)) {

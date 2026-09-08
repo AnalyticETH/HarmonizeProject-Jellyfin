@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import "./test-documentation-contracts.mjs";
 import "./test-release-publication-contracts.mjs";
+import "./test-release-tag-contracts.mjs";
 import "./test-release-helper-contracts.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -444,12 +445,12 @@ runNegativeFixture(
     fixtureRoot,
     "pull-request-validation.yml",
     workflow => workflow.replaceAll(
-      '[self-hosted, linux, x64, local-docker]',
-      '[self-hosted, linux, x64, retired-runner]',
+      'ubuntu-24.04',
+      'ubuntu-22.04',
     ),
   ),
   ["inventory", "pullRequest"],
-  /missing PR validation marker|dedicated PR runner|replacement local-docker runner|retired-runner/,
+  /missing PR validation marker|GitHub-hosted ubuntu-24.04 runner|must use runner ubuntu-24.04|ubuntu-22.04/,
 );
 
 runNegativeFixture(
@@ -486,12 +487,12 @@ runNegativeFixture(
     fixtureRoot,
     "dotnet-ci.yml",
     workflow => workflow.replace(
-      'runs-on: [self-hosted, linux, x64, local-docker]',
-      'runs-on: [self-hosted, linux, x64, retired-runner]',
+      'runs-on: ubuntu-24.04',
+      'runs-on: ubuntu-22.04',
     ),
   ),
   ["inventory", "trusted"],
-  /must use runner|missing trusted-workflow marker/,
+  /must use runner|must keep exactly six GitHub-hosted jobs|missing trusted-workflow marker|ubuntu-22.04/,
 );
 
 runNegativeFixture(
@@ -500,12 +501,12 @@ runNegativeFixture(
     fixtureRoot,
     "security-scan.yml",
     workflow => workflow.replace(
-      'runs-on: [self-hosted, linux, x64, local-docker]',
-      'runs-on: [self-hosted, linux, x64, retired-runner]',
+      'runs-on: ubuntu-24.04',
+      'runs-on: ubuntu-22.04',
     ),
   ),
   ["inventory", "trusted"],
-  /must use runner|missing trusted-workflow marker/,
+  /must use runner|must keep exactly six GitHub-hosted jobs|missing trusted-workflow marker|ubuntu-22.04/,
 );
 
 runNegativeFixture(
@@ -514,12 +515,12 @@ runNegativeFixture(
     fixtureRoot,
     "runner-health.yml",
     workflow => workflow.replace(
-      '    runs-on: [self-hosted, linux, x64, local-docker]\n',
-      "    runs-on: ubuntu-24.04\n",
+      '    runs-on: ubuntu-24.04\n',
+      "    runs-on: ubuntu-22.04\n",
     ),
   ),
   ["inventory"],
-  /runner-health\.yml job runner-health must use runner \[self-hosted, linux, x64, local-docker\]/,
+  /runner-health\.yml job runner-health must use runner ubuntu-24\.04/,
 );
 
 runNegativeFixture(
@@ -528,12 +529,12 @@ runNegativeFixture(
     fixtureRoot,
     "runner-health.yml",
     workflow => workflow.replace(
-      "    if: github.ref == 'refs/heads/main'\n",
-      "",
+      "          docker info --format '{{.ServerVersion}}'\n",
+      "          docker version\n",
     ),
   ),
   ["inventory"],
-  /runner-health\.yml job runner-health has a self-hosted runner without a default-branch guard/,
+  /runner-health\.yml is missing health contract marker: docker info --format/,
 );
 
 runNegativeFixture(
@@ -542,8 +543,8 @@ runNegativeFixture(
     fixtureRoot,
     "runner-health.yml",
     workflow => workflow.replace(
-      "permissions:\n  actions: read\n  contents: read",
-      "permissions:\n  actions: write\n  contents: read",
+      "permissions:\n  contents: read",
+      "permissions:\n  contents: write",
     ),
   ),
   ["inventory"],
@@ -556,12 +557,12 @@ runNegativeFixture(
     fixtureRoot,
     "runner-health.yml",
     workflow => workflow.replace(
-      "local-docker",
-      "local-docker-missing",
+      "ubuntu-24.04",
+      "ubuntu-22.04",
     ),
   ),
   ["inventory"],
-  /runner-health\.yml is missing health contract marker: local-docker|runner-health\.yml job runner-health must use runner/,
+  /runner-health\.yml job runner-health must use runner ubuntu-24\.04/,
 );
 
 runNegativeFixture(
@@ -570,12 +571,12 @@ runNegativeFixture(
     fixtureRoot,
     "dotnet-ci.yml",
     workflow => workflow.replace(
-      'runs-on: [self-hosted, linux, x64, local-docker]',
-      'runs-on: [self-hosted, linux, x64, retired-runner]',
+      'runs-on: ubuntu-24.04',
+      'runs-on: ubuntu-22.04',
     ),
   ),
   ["inventory", "trusted"],
-  /must use runner|missing trusted-workflow marker/,
+  /must use runner|must keep exactly six GitHub-hosted jobs|missing trusted-workflow marker|ubuntu-22.04/,
 );
 
 console.log("Workflow security contract negative tests passed");

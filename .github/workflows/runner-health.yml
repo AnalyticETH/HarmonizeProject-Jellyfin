@@ -1,223 +1,51 @@
-name: Self-hosted Runner Health
+name: Hosted Runner Health
 
-# This read-only monitor runs on the replacement local Docker-backed self-hosted runner so its
-# 15-minute schedule does not consume GitHub-hosted Actions minutes. The current runner context
-# is the authoritative identity check; the GitHub Actions API adds queue/history diagnostics when
-# the read-only token exposes complete metadata. The retired legacy systemd pool is intentionally
-# not part of this workflow.
+# Keep a small scheduled probe for the GitHub-hosted environment used by every
+# workflow. It checks the tools that the build, scanner, and runtime jobs rely on;
+# it does not inspect or mutate repository settings.
 on:
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
 
 concurrency:
-  group: harmonizeproject-jellyfin-runner-health
+  group: harmonizeproject-jellyfin-hosted-runner-health
   cancel-in-progress: true
+
+env:
+  DOTNET_VERSION: '8.0.424'
 
 jobs:
   runner-health:
-    name: Runner health
-    if: github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, linux, x64, local-docker]
-    timeout-minutes: 5
+    name: GitHub-hosted toolchain health
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - name: Check trusted queue and recent runner usage
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
         env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Verify hosted toolchain
         run: |
           set -euo pipefail
-
-          command -v jq >/dev/null
-          command -v date >/dev/null
-          test -n "${GITHUB_REPOSITORY:-}"
-
-          gh_available=true
-          if ! command -v gh >/dev/null; then
-            gh_available=false
-            echo "gh CLI is unavailable; recording runner-health API diagnostics only." >&2
-          fi
-
-          queued_json="$RUNNER_TEMP/harmonize-runner-health-queued.json"
-          trusted_runs_json="$RUNNER_TEMP/harmonize-runner-health-trusted-runs.json"
-          trusted_jobs_json="$RUNNER_TEMP/harmonize-runner-health-trusted-jobs.json"
-
-          if [ "$gh_available" = true ]; then
-            if ! gh api \
-              "repos/${GITHUB_REPOSITORY}/actions/runs?status=queued&per_page=100" \
-              > "$queued_json"; then
-              echo "Queued Actions API was unavailable; recording a diagnostic." >&2
-              : > "$queued_json"
-            fi
-            if ! gh api \
-              "repos/${GITHUB_REPOSITORY}/actions/workflows/dotnet-ci.yml/runs?branch=main&per_page=20" \
-              > "$trusted_runs_json"; then
-              echo "Trusted workflow-runs API was unavailable; recording a diagnostic." >&2
-              : > "$trusted_runs_json"
-            fi
-          else
-            : > "$queued_json"
-            : > "$trusted_runs_json"
-          fi
-
-          # A truncated or malformed API response is a failed health check,
-          # not an opportunity to report a false-green result.
-          queued_api_ok=true
-          if ! jq -e '
-            type == "object" and
-            (.workflow_runs | type == "array") and
-            all(.workflow_runs[]?;
-              (.id | type == "number") and
-              (.created_at | type == "string")
-            )
-          ' "$queued_json" >/dev/null; then
-            queued_api_ok=false
-            echo "Queued Actions API response failed schema validation." >&2
-            jq -c '{keys, total_count, workflow_runs: ((.workflow_runs // []) | map({id,name,created_at,head_sha})[:3])}' "$queued_json" >&2 || true
-          fi
-          trusted_api_ok=true
-          if ! jq -e '
-            type == "object" and
-            (.workflow_runs | type == "array") and
-            all(.workflow_runs[]?;
-              (.id | type == "number") and
-              (.status | type == "string") and
-              ((.conclusion == null) or (.conclusion | type == "string")) and
-              (.created_at | type == "string")
-            )
-          ' "$trusted_runs_json" >/dev/null; then
-            trusted_api_ok=false
-            echo "Trusted workflow-runs API response failed schema validation." >&2
-            jq -c '{keys, total_count, workflow_runs: ((.workflow_runs // []) | map({id,status,conclusion,created_at,head_sha,event})[:3])}' "$trusted_runs_json" >&2 || true
-          fi
-
-          latest_trusted_run_id=""
-          latest_trusted_head_sha=""
-          if [ "$trusted_api_ok" = true ]; then
-            latest_trusted_run_id="$(jq -r '
-              [.workflow_runs[]
-                | select(.status == "completed" and .conclusion == "success")
-                | {id, head_sha, created_at}]
-              | sort_by(.created_at)
-              | last
-              | .id // empty
-            ' "$trusted_runs_json")"
-            latest_trusted_head_sha="$(jq -r --arg run_id "$latest_trusted_run_id" '
-              [.workflow_runs[] | select((.id | tostring) == $run_id) | .head_sha] | first // empty
-            ' "$trusted_runs_json")"
-          fi
-
-          runner_health_ok=true
-          if [ "$queued_api_ok" != true ] || [ "$trusted_api_ok" != true ]; then
-            echo "Actions API metadata was partial; current runner context remains the authoritative health gate." >&2
-          fi
-          queued_count="$(jq -er '.total_count // empty' "$queued_json" 2>/dev/null || echo unknown)"
-          trusted_count="$(jq -er '.total_count // empty' "$trusted_runs_json" 2>/dev/null || echo unknown)"
-          echo "Runner-health API counts: queued=$queued_count, trusted-main=$trusted_count."
-          echo "Latest successful trusted main run candidate: ${latest_trusted_run_id:-none}."
-          jobs_ready=false
-          if [ -z "$latest_trusted_run_id" ]; then
-            echo "No successful trusted main run metadata is available; current runner context remains authoritative." >&2
-          else
-            expected_labels='["local-docker"]'
-            for attempt in 1 2 3 4 5; do
-              if ! gh api \
-                "repos/${GITHUB_REPOSITORY}/actions/runs/${latest_trusted_run_id}/jobs?per_page=100" \
-                > "$trusted_jobs_json"; then
-                : > "$trusted_jobs_json"
-              fi
-              if jq -e '
-                type == "object" and
-                (.total_count | type == "number") and
-                (.jobs | type == "array") and
-                ((.jobs | length) <= .total_count) and
-                all(.jobs[]?;
-                  (.id | type == "number") and
-                  (.name | type == "string") and
-                  ((.runner_name == null) or (.runner_name | type == "string")) and
-                  ((.labels == null) or (.labels | type == "array")) and
-                  all((.labels // [])[]?; (. | type == "string"))
-                )
-              ' "$trusted_jobs_json" >/dev/null &&
-                jq -e --argjson expected "$expected_labels" '
-                  . as $root |
-                  all($expected[]; . as $label |
-                    any($root.jobs[]?;
-                      .conclusion == "success" and
-                      (((.labels // []) | index($label)) != null)
-                    )
-                  )
-                ' "$trusted_jobs_json" >/dev/null; then
-                jobs_ready=true
-                break
-              fi
-              if [ "$attempt" -lt 5 ]; then
-                echo "Trusted job metadata is not ready; retrying ($attempt/5)." >&2
-                sleep 10
-              fi
-            done
-            if [ "$jobs_ready" != true ]; then
-              echo "Trusted job metadata did not expose a successful local-docker job; current runner context remains authoritative." >&2
-            fi
-          fi
-
-          now_epoch="$(date -u +%s)"
-          stale_cutoff=$((now_epoch - 3600))
-          stale_count=0
-          if [ "$queued_api_ok" = true ]; then
-            stale_count="$(jq --argjson cutoff "$stale_cutoff" '
-              [.workflow_runs[]
-                | (.created_at | fromdateiso8601) as $created
-                | select($created < $cutoff)]
-              | length
-            ' "$queued_json" 2>/dev/null || echo unknown)"
-          fi
-          if [[ "$stale_count" =~ ^[0-9]+$ ]] && [ "$stale_count" -ne 0 ]; then
-            echo "Found $stale_count queued workflow run(s) older than one hour; recording an operator diagnostic." >&2
-          fi
-
-          {
-            echo "### Self-hosted runner health"
-            echo
-            echo "Checked at $(date -u +%Y-%m-%dT%H:%M:%SZ)."
-            echo
-            echo "The replacement runner identity is checked from the current runner context; retired legacy runner services are intentionally excluded."
-            echo
-            echo "Latest successful trusted main run: ${latest_trusted_run_id:-none} (${latest_trusted_head_sha:-none})."
-            echo
-            echo "| Job | Runner | Labels |"
-            echo "| --- | --- | --- |"
-            if [ "$jobs_ready" = true ] && [ -f "$trusted_jobs_json" ]; then
-              jq -r '
-                .jobs[]
-                | select(.conclusion == "success")
-                | [(.name), (.runner_name // "unknown"), ((.labels // []) | join(", "))]
-                | "| `\(.[0])` | `\(.[1])` | \(.[2]) |"
-              ' "$trusted_jobs_json"
-            else
-              echo "| metadata unavailable | current selector | local-docker |"
-            fi
-            echo
-            echo "Queued workflow runs: $queued_count."
-            echo "Queued runs older than one hour: $stale_count."
-            if [[ "$stale_count" =~ ^[0-9]+$ ]] && [ "$stale_count" -gt 0 ]; then
-              echo
-              echo "Stale queued runs:"
-              jq -r --argjson cutoff "$stale_cutoff" '
-                .workflow_runs[]
-                | (.created_at | fromdateiso8601) as $created
-                | select($created < $cutoff)
-                | "- run \(.id), workflow=\(.name), created=\(.created_at), head=\(.head_sha)"
-              ' "$queued_json"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$runner_health_ok" != true ]; then
-            echo "Self-hosted runner health failed; inspect the step summary and replacement runner service." >&2
-            exit 1
-          fi
-          echo "Self-hosted runner health passed: replacement selector is active; API diagnostics were recorded when available."
+          node --version
+          python3 --version
+          jq --version
+          docker --version
+          docker info --format '{{.ServerVersion}}'
+          dotnet --version
+          node scripts/validate-dotnet-sdk.mjs
+          node scripts/validate-workflow-inventory.mjs
+          echo "GitHub-hosted runner health passed for ubuntu-24.04."

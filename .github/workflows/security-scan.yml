@@ -50,8 +50,8 @@ jobs:
   gitleaks:
     name: Secret scan (gitleaks)
     if: github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, linux, x64, local-docker]
-    # Bound persistent-runner occupancy if an upstream download or scan stalls.
+    runs-on: ubuntu-24.04
+    # Bound hosted-runner occupancy if an upstream download or scan stalls.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -116,8 +116,8 @@ jobs:
   semgrep:
     name: Static analysis (semgrep)
     if: github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, linux, x64, local-docker]
-    # The replacement Docker-backed runner measured a full cold Semgrep pass
+    runs-on: ubuntu-24.04
+    # The hosted Docker-backed runner executes each scan in an ephemeral workspace.
     # at just over 30 minutes; keep a bounded 40-minute ceiling for its first
     # run while still failing closed on a stalled scanner.
     timeout-minutes: 40
@@ -135,9 +135,8 @@ jobs:
         run: |
           set -euo pipefail
           # Keep every run's generated snapshots, extracted page, and scanner
-          # environment isolated. A persistent runner can finish cleanup for a
-          # canceled attempt after the next attempt starts; shared RUNNER_TEMP
-          # paths could otherwise be removed or replaced mid-scan.
+          # environment isolated. Run-scoped paths also make cancellation cleanup
+          # independent from a later attempt.
           semgrep_work_dir="$RUNNER_TEMP/semgrep-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           mkdir -p "$semgrep_work_dir"
           chmod 0700 "$semgrep_work_dir"
@@ -190,9 +189,9 @@ jobs:
           set -euo pipefail
           set +e
           # Production C# taint analysis can hit a transient fixpoint timeout
-          # on the shared runner; keep the gate fail-closed while allowing a
-          # bounded five-minute per-file analysis window. Serial execution
-          # keeps taint fixpoint analysis stable on the shared host.
+          # on the hosted runner; keep the gate fail-closed while allowing a
+          # bounded five-minute per-file analysis window. Serial execution keeps
+          # taint fixpoint analysis stable.
           "$SEMGREP_BIN" scan \
             --config "$SEMGREP_WORK_DIR/semgrep-default.yml" --metrics off --jobs 1 --timeout 300 \
             --include='*.cs' --include='*.yml' --include='*.yaml' \

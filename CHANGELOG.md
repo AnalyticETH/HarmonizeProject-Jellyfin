@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Hosted CI and repository cleanup
+- **GitHub-hosted execution**: move pull-request validation, trusted release jobs, security scans, and the scheduled health probe to ephemeral `ubuntu-24.04` runners; no workflow selects the retired self-hosted labels.
+- **Duplicate-version safety**: a main push whose version tag already has a published stable release is an explicit no-op; missing, draft, prerelease, or conflicting release metadata still fails closed without moving the tag.
+- **Runner documentation**: reduce the obsolete self-hosted operations runbook to a retirement note and retain executable workflow-boundary checks.
+- **Generated-output hygiene**: ignore Python bytecode caches alongside existing build, test, and release outputs.
+
 ## [1.5.461] - 2026-09-06
 
 ### Hue v2 streaming correction

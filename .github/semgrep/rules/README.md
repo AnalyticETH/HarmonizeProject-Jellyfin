@@ -14,5 +14,5 @@ registry alias or CDN response from changing the security policy mid-run.
 
 When refreshing a ruleset, download the official URL, replace only the matching
 snapshot, update the corresponding workflow digest in both blocking workflows,
-run `node scripts/validate-semgrep-lock.mjs`, and review the complete self-hosted
+run `node scripts/validate-semgrep-lock.mjs`, and review the complete hosted
 security scan before pushing the intentional update to `main`.

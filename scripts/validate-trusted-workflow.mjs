@@ -3,10 +3,8 @@ import fs from "node:fs";
 const ciPath = ".github/workflows/dotnet-ci.yml";
 const securityPath = ".github/workflows/security-scan.yml";
 const MAX_TIMEOUT_MINUTES = 40;
-const replacementRunner = '[self-hosted, linux, x64, local-docker]';
-const trustedBuildRunner = replacementRunner;
-const trustedRuntimeRunner = replacementRunner;
-const trustedReleaseRunner = replacementRunner;
+const githubHostedRunner = 'ubuntu-24.04';
+const trustedBuildRunner = githubHostedRunner;
 const ci = fs.readFileSync(ciPath, "utf8");
 const security = fs.readFileSync(securityPath, "utf8");
 const allowedActionRepositories = new Set([
@@ -159,7 +157,7 @@ function validateJobTimeout(block, workflowName) {
 for (const marker of [
   "on:\n  push:\n    branches: [ main ]",
   "workflow_dispatch:",
-  "runs-on: [self-hosted, linux, x64, local-docker]",
+  "runs-on: ubuntu-24.04",
   "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
   "GH_VERSION: '2.100.0'",
   "GH_ARCHIVE_SHA256: 'e4d4bb4498e8d007abe545b6568926793ace1b6447da598294a610018cb164be'",
@@ -183,6 +181,11 @@ for (const marker of [
   "jq -er '.version | strings | select(test(\"^[0-9]+\\\\.[0-9]+\\\\.[0-9]+\\\\.[0-9]+$\"))'",
   'local_tag_ref="refs/tags/${TAG}"',
   'git show-ref --verify --quiet "$local_tag_ref"',
+  "id: pin-release-tag",
+  "existing_release_json=",
+  "Release ${TAG} is already published",
+  'echo "skip=true" >> "$GITHUB_OUTPUT"',
+  "if: steps.pin-release-tag.outputs.skip != 'true'",
   "find_release_json()",
   "gh api --paginate \"repos/${GITHUB_REPOSITORY}/releases?per_page=100\"",
   "jq -sc --arg tag \"$RELEASE_TAG\" 'add | [.[] | select(.tag_name == $tag)] | first'",
@@ -268,7 +271,7 @@ for (const marker of [
   "workflow_call:",
   "schedule:",
   "if: github.ref == 'refs/heads/main'",
-  "runs-on: [self-hosted, linux, x64, local-docker]",
+  "runs-on: ubuntu-24.04",
   "--redact --exit-code 1",
   "SEMGREP_DEFAULT_CONFIG_URL: 'https://semgrep.dev/c/p/default'",
   "SEMGREP_DEFAULT_CONFIG_SHA256:",
@@ -281,9 +284,9 @@ for (const marker of [
   }
 }
 
-const selfHostedJobCount = (ci.match(/runs-on: \[self-hosted,/g) || []).length;
-if (selfHostedJobCount !== 6) {
-  throw new Error(`${ciPath} must keep exactly six self-hosted jobs (found ${selfHostedJobCount})`);
+const githubHostedJobCount = (ci.match(/runs-on: ubuntu-24\.04/g) || []).length;
+if (githubHostedJobCount !== 6) {
+  throw new Error(`${ciPath} must keep exactly six GitHub-hosted jobs (found ${githubHostedJobCount})`);
 }
 const mainGuardCount = (ci.match(/if: github\.ref == 'refs\/heads\/main'/g) || []).length;
 if (mainGuardCount !== 3) {
@@ -313,7 +316,7 @@ if (failClosedArtifactUploads !== 2) {
 
 for (const job of ciJobs) {
   if (isReusableWorkflowJob(job)) continue;
-  const expectedRunner = replacementRunner;
+  const expectedRunner = githubHostedRunner;
   const runsOnValues = getRunsOnValues(job);
   if (runsOnValues.length !== 1 || runsOnValues[0] !== expectedRunner) {
     throw new Error(`${ciPath} job ${job.name} must use runner ${expectedRunner}`);
@@ -321,7 +324,7 @@ for (const job of ciJobs) {
 }
 for (const job of securityJobs) {
   const runsOnValues = getRunsOnValues(job);
-  if (runsOnValues.length !== 1 || runsOnValues[0] !== replacementRunner) {
+  if (runsOnValues.length !== 1 || runsOnValues[0] !== githubHostedRunner) {
     throw new Error(`${securityPath} job ${job.name} must use runner ${trustedBuildRunner}`);
   }
 }
@@ -390,6 +393,9 @@ for (const [file, workflow] of [[ciPath, ci], [securityPath, security]]) {
 
 if (/^\s*pull_request\s*:/m.test(ci) || /^\s*pull_request_target\s*:/m.test(ci)) {
   throw new Error(`${ciPath} must not execute trusted jobs for pull requests`);
+}
+if (ci.includes("self-hosted") || ci.includes("local-docker") || security.includes("self-hosted") || security.includes("local-docker")) {
+  throw new Error("Trusted workflows must not reference self-hosted runner labels");
 }
 if (!/contents:\s*read/.test(ci) || !/contents:\s*write/.test(ci)) {
   throw new Error(`${ciPath} must declare read-only defaults and isolated release write permissions`);

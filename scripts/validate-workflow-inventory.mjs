@@ -9,11 +9,7 @@ const expectedWorkflows = new Set([
   "runner-health.yml",
   "security-scan.yml",
 ]);
-const replacementRunner = '[self-hosted, linux, x64, local-docker]';
-const trustedBuildRunner = replacementRunner;
-const trustedRuntimeRunner = replacementRunner;
-const trustedReleaseRunner = replacementRunner;
-const pullRequestRunner = replacementRunner;
+const githubHostedRunner = 'ubuntu-24.04';
 const allowedActionRepositories = new Set([
   "actions/checkout",
   "actions/setup-dotnet",
@@ -30,7 +26,6 @@ for (const requiredEntry of [
   "/.github/dependabot.yml @AnalyticETH",
   "/.github/semgrep/ @AnalyticETH",
   "/.github/workflows/ @AnalyticETH",
-  "/ops/ @AnalyticETH",
   "/build-release.sh @AnalyticETH",
   "/build-release.ps1 @AnalyticETH",
   "/Directory.Build.props @AnalyticETH",
@@ -40,7 +35,6 @@ for (const requiredEntry of [
   "/.gitleaks.toml @AnalyticETH",
   "/codecov.yml @AnalyticETH",
   "/SECURITY.md @AnalyticETH",
-  "/SELF_HOSTED_RUNNERS.md @AnalyticETH",
   "/README.md @AnalyticETH",
   "/CHANGELOG.md @AnalyticETH",
   "/Jellyfin.Plugin.Hue/ @AnalyticETH",
@@ -234,44 +228,17 @@ for (const name of workflowFiles) {
       throw new Error(`${name} job ${job.name} uses a dynamic runner expression; review it explicitly`);
     }
 
-    // Bind every concrete job to the replacement local Docker-backed runner so
-    // no workflow can silently fall back to a retired runner or GitHub-hosted
-    // execution while still satisfying the generic self-hosted/default-branch
-    // checks below.
-    if (name === "dotnet-ci.yml" && !isReusableWorkflowJob(job)) {
-      const expectedRunner = replacementRunner;
-      if (runsOnValues.length !== 1 || runsOnValues[0] !== expectedRunner) {
-        throw new Error(`${name} job ${job.name} must use runner ${expectedRunner}`);
-      }
+    if (!isReusableWorkflowJob(job) &&
+        (runsOnValues.length !== 1 || runsOnValues[0] !== githubHostedRunner)) {
+      throw new Error(`${name} job ${job.name} must use runner ${githubHostedRunner}`);
     }
-    if (name === "security-scan.yml" &&
-        (runsOnValues.length !== 1 || runsOnValues[0] !== trustedBuildRunner)) {
-      throw new Error(`${name} job ${job.name} must use runner ${trustedBuildRunner}`);
-    }
+  }
+}
 
-    const selfHosted = runsOnValues.some(value => /\bself-hosted\b/.test(value));
-    const hasJobMainGuard = job.lines.some(line =>
-      /^\s{4}if:\s*.*github\.ref\s*==\s*['"]refs\/heads\/main['"]/.test(withoutComment(line)));
-    if (selfHosted && name === "pull-request-validation.yml" &&
-        (runsOnValues.length !== 1 || runsOnValues[0] !== pullRequestRunner)) {
-      throw new Error(`${name} job ${job.name} must use dedicated PR runner ${pullRequestRunner}`);
-    }
-    if (selfHosted && !["dotnet-ci.yml", "security-scan.yml", "runner-health.yml", "pull-request-validation.yml"].includes(name)) {
-      throw new Error(`${name} job ${job.name} routes code to a persistent runner outside the trusted workflow set`);
-    }
-    if (selfHosted && name !== "pull-request-validation.yml" && !hasJobMainGuard) {
-      throw new Error(`${name} job ${job.name} has a self-hosted runner without a default-branch guard`);
-    }
-
-    if (name === "pull-request-validation.yml" &&
-        (runsOnValues.length !== 1 || runsOnValues[0] !== pullRequestRunner)) {
-      throw new Error(`${name} job ${job.name} must use dedicated PR runner ${pullRequestRunner}`);
-    }
-
-    if (name === "runner-health.yml" &&
-        (runsOnValues.length !== 1 || runsOnValues[0] !== trustedBuildRunner)) {
-      throw new Error(`${name} job ${job.name} must use runner ${trustedBuildRunner}`);
-    }
+for (const name of workflowFiles) {
+  const workflow = workflowText(name);
+  if (workflow.includes("self-hosted") || workflow.includes("local-docker")) {
+    throw new Error(`${name} must not reference self-hosted runner labels`);
   }
 }
 
@@ -305,8 +272,7 @@ if (/^\s*(push|pull_request|pull_request_target):\s*$/m.test(runnerHealthWorkflo
   throw new Error("runner-health.yml must not run for pushes or pull requests");
 }
 const runnerHealthTopLevelPermissions = getPermissionLines(runnerHealthWorkflow);
-if (!runnerHealthTopLevelPermissions.some(line => /\bactions\s*:\s*read\b/.test(line)) ||
-    !runnerHealthTopLevelPermissions.some(line => /\bcontents\s*:\s*read\b/.test(line)) ||
+if (!runnerHealthTopLevelPermissions.some(line => /\bcontents\s*:\s*read\b/.test(line)) ||
     getWritePermissionNames(runnerHealthTopLevelPermissions).length > 0) {
   throw new Error("runner-health.yml must declare read-only actions and contents permissions");
 }
@@ -314,24 +280,14 @@ if (/\$\{\{[^}]*\bsecrets\./.test(runnerHealthWorkflow)) {
   throw new Error("runner-health.yml must not access repository secrets");
 }
 for (const marker of [
-  "actions/runs?status=queued&per_page=100",
-  "actions/workflows/dotnet-ci.yml/runs?branch=main&per_page=20",
-  "gh_available=true",
-  "Queued Actions API was unavailable; recording a diagnostic.",
-  "Trusted workflow-runs API was unavailable; recording a diagnostic.",
-  "actions/runs/${latest_trusted_run_id}/jobs?per_page=100",
-  "Latest successful trusted main run",
-  "queued_count=\"$(jq -er '.total_count // empty'",
-  "Queued Actions API response failed schema validation.",
-  "Trusted workflow-runs API response failed schema validation.",
-  "if [ -z \"$latest_trusted_run_id\" ]; then",
-  "jobs_ready=false",
-  "metadata unavailable",
-  "retrying ($attempt/5)",
-  "stale_cutoff=$((now_epoch - 3600))",
-  "recording an operator diagnostic",
-  "exit 1",
-  "local-docker"
+  "node --version",
+  "python3 --version",
+  "jq --version",
+  "docker info --format",
+  "dotnet --version",
+  "node scripts/validate-dotnet-sdk.mjs",
+  "node scripts/validate-workflow-inventory.mjs",
+  "GitHub-hosted runner health passed for ubuntu-24.04."
 ]) {
   if (!runnerHealthWorkflow.includes(marker)) {
     throw new Error(`runner-health.yml is missing health contract marker: ${marker}`);
@@ -340,9 +296,9 @@ for (const marker of [
 if (getJobBlocks(pullRequestWorkflow, "pull-request-validation.yml")
   .some(job => {
     const runners = getRunsOnValues(job);
-    return runners.length !== 1 || runners[0] !== pullRequestRunner;
+    return runners.length !== 1 || runners[0] !== githubHostedRunner;
   })) {
-  throw new Error(`pull-request-validation.yml must use only the dedicated PR runner ${pullRequestRunner}`);
+  throw new Error(`pull-request-validation.yml must use only the GitHub-hosted runner ${githubHostedRunner}`);
 }
 if (/\$\{\{[^}]*\bsecrets\./.test(pullRequestWorkflow)) {
   throw new Error("pull-request-validation.yml must not access repository secrets");

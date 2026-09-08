@@ -148,7 +148,7 @@ The source-commit binding ties the published bytes to the reviewed workflow comm
 
 Trusted `main` CI also boots the canonical published ZIP inside disposable localhost-only Jellyfin
 containers before release publication by running `scripts/verify-jellyfin-runtime-smoke.py` on the
-replacement `local-docker` self-hosted label. The runtime matrix covers the
+GitHub-hosted `ubuntu-24.04` runner. The runtime matrix covers the
 official Jellyfin 10.9.0 linux/amd64 image pinned as
 `jellyfin/jellyfin@sha256:d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67`
 and Jellyfin 10.10.7 pinned as
@@ -239,15 +239,16 @@ playback acceptance remains separate from local and container verification.
 | Release verification | Tested publish output, deterministic package/manifest parity, Linux helper execution, both pinned Jellyfin runtime smoke targets, verified tag/source binding and four release assets |
 | Coverage | Nonempty TRX and Cobertura evidence is required; Codecov is optional when its token is absent and blocking when configured |
 | Retention | Generated CI/security artifacts expire after one day; published release assets are not cleanup targets |
-| PR validation | Read-only workflow permissions on the shared replacement `local-docker` runner; isolation from trusted release state remains a publication gate |
-| Dependency maintenance | Dependabot covers all three NuGet projects, Actions, and the hash-locked Semgrep environment; native self-hosted execution requires the owner-controlled GitHub setting |
+| PR validation | Read-only workflow permissions on an ephemeral GitHub-hosted `ubuntu-24.04` runner; a real fork-PR verification remains a publication gate |
+| Dependency maintenance | Dependabot covers all three NuGet projects, Actions, and the hash-locked Semgrep environment on GitHub-hosted runners |
 
 The trusted workflow accepts main-only `workflow_dispatch` validation/recovery.
 Publication requires a trusted `main` push; manual dispatch does not publish a
-release. Retired runner identities must remain offline.
+release. Any legacy self-hosted runner services are outside the workflow contract
+and must remain offline until the owner deregisters them.
 
 See [SECURITY.md](SECURITY.md) for scanner integrity and credential boundaries,
-[SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md) for live runner operations,
+[SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md) for the retired-runner note,
 [RELEASE_READINESS.md](RELEASE_READINESS.md) for owner-controlled gates, and
 [the trusted workflow](.github/workflows/dotnet-ci.yml) for executable policy.
 

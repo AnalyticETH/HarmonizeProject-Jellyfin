@@ -4,19 +4,37 @@ Status: owner-approved release execution; production acceptance remains unverifi
 Prepared version: `1.5.461.0`. Repository visibility and published assets are
 owner-controlled; pushing `main` automatically invokes the release workflow.
 
-Owner runner decision: retain `gaming-pc-analyticeth-harmonizeproject-jellyfin-01`
-with `[self-hosted, linux, x64, local-docker]` for all existing workflow jobs.
-Runner selection is settled; no GitHub-hosted migration, replacement runner, or
-routing change is requested. The owner also approved the remaining merge and
-publication work. Authorization does not establish public-PR isolation, hardware
-acceptance, native-platform parity, or license authority, and does not permit
-modifying or bypassing protected machine policies.
+Repository-side CI migration: all executable workflows now target the ephemeral
+GitHub-hosted `ubuntu-24.04` runner. The old self-hosted runner services and
+registrations have not been stopped or deregistered by this repository change;
+that is an owner-controlled machine operation. The hosted-runner migration is
+implemented locally but still needs a real remote fork-PR run and trusted `main`
+run after commit. Authorization does not establish hardware acceptance,
+native-platform parity, or license authority, and does not permit modifying or
+bypassing protected machine policies.
 
 The current protected GitHub policy blocks repository creation and public
 visibility changes. Release assets can be published in the existing private
 repository; public cutover cannot be completed through this agent under that
 policy. The authorized private-reporting enable request returned HTTP 404, and
 runner/fork administration remains inaccessible through the current token.
+
+## Current repository-side work
+
+Completed in this working tree on 2026-09-08:
+
+- PR validation, trusted build/release, security scans, and the scheduled health
+  probe use `ubuntu-24.04`; no workflow selects `self-hosted` or `local-docker`.
+- The scheduled health probe checks Node, Python, jq, Docker, and the pinned .NET
+  SDK without repository secrets or administrative API access.
+- The trusted release job treats an already-published stable version tag as an
+  explicit no-op on later `main` pushes; missing, draft, prerelease, or
+  conflicting tag/release state still fails closed and never moves an existing tag.
+- The 200-line self-hosted operational runbook was reduced to a retirement note;
+  the executable workflow and negative-contract validators remain source-controlled.
+- Local workflow contracts, documentation contracts, package contracts, and
+  source/license checks pass. Remote hosted execution remains unverified until a
+  commit is available to Actions.
 
 ## Verified baseline
 
@@ -27,7 +45,7 @@ Evidence inspected on 2026-09-06 America/New_York (2026-09-07 UTC).
 | Existing release provenance | `v1.5.460.0`, release ID `383784665`, source `98f8ee5e99e5efb498f097944e676f69e03e6ede`; downloaded ZIP and manifest pass their SHA-256 sidecars | Verified for the existing private release only |
 | Existing trusted CI | Run `34071927844` at `98f8ee5`; build/tests, format, dependency audit, Gitleaks, Semgrep, deterministic helper parity, both Jellyfin smoke jobs, publication succeed; Linux helper reports 1,483 passed tests | Baseline evidence; does not verify subsequent changes |
 | Redistribution notices | Existing `v1.5.460.0` ZIP and manifest contain only the two DLLs and `meta.json`, despite source-tree `LICENSE` and `NOTICE` | Corrected in the prepared package contract; existing assets remain unchanged |
-| Public contribution execution | PR, build, security, packaging, and release jobs select `[self-hosted, linux, x64, local-docker]`; successful trusted jobs use `gaming-pc-analyticeth-harmonizeproject-jellyfin-01` | Untrusted/trusted isolation is not established |
+| Public contribution execution | PR, build, security, packaging, release, and health jobs select ephemeral GitHub-hosted `ubuntu-24.04` runners in the working tree | Local contract proof is complete; a real fork PR and trusted remote run are still required |
 | Repository visibility | GitHub repository API reports `private` | Unchanged; publication needs explicit owner approval |
 | Dependency alerts | Authenticated open Dependabot alert query returns `[]` | No open alerts at inspection time; not a complete security audit |
 | Administrative security controls | Runner inventory, branch protection, and fork-contributor approval queries return HTTP 403; private vulnerability reporting returns HTTP 404 | Unverified, not disabled or passing by inference |
@@ -40,10 +58,10 @@ No repository settings, workflows, releases, or credentials were changed.
 | Gate | Current evidence | Remaining limit |
 | --- | --- | --- |
 | Main ruleset | Active ruleset `21321676` protects `refs/heads/main` against deletion/non-fast-forward updates and requires strict CI checks, one approval, code-owner/last-push review, stale-review dismissal, and resolved threads | The configured owner has an `always` bypass; legacy protection GET still returns 403. This verifies the readable ruleset, not every enforcement/administrative control |
-| Runner and fork controls | Runner inventory and both fork-approval/private-fork workflow settings return 403 with `Resource not accessible by personal access token` | Current inventory, approval policy, and untrusted/trusted isolation remain unverified |
+| Runner and fork controls | Workflow files no longer select a self-hosted runner; runner inventory and fork-approval/private-fork settings still return 403 with `Resource not accessible by personal access token` | Legacy service deregistration, fork policy, and real hosted fork-PR execution remain unverified |
 | GitHub scanning features | Code-scanning setup returns 403 with `Code scanning is not enabled for this repository`; secret-scan history returns 404 with `Advanced Security is disabled on this repository` | These explicit API messages establish feature-unavailable states, not the state of every security control. Custom blocking Semgrep/Gitleaks workflows are separate |
 | Private reporting | Private vulnerability reporting returns 404 `Not Found` | Setting and new-contributor access remain unverified; an existing private contact is not a demonstrated public intake path |
-| Release and exact-source CI | Repository remains private; remote main and latest `v1.5.460.0` release remain at `98f8ee5`. Run `34071927844` and its nine jobs succeeded there. The local `cc78244` reference returns zero Actions runs | Neither that baseline nor the later successful runner-health run verifies the uncommitted working-tree fixes |
+| Release and exact-source CI | Repository remains private; the last recorded private release and trusted run remain historical evidence. Local hosted-runner validators pass for the current working tree | A new committed SHA, hosted remote CI run, package/manifest digest receipt, and release publication are still required |
 | Primary Hue specification | The official URL still redirects to sign-in; the supported browser runtime reports no connected browser | Authenticated specification access remains unavailable. No sign-in, alternate control path, or access-boundary bypass was attempted |
 
 ## Prepared package contract
@@ -175,10 +193,10 @@ access and physical interoperability acceptance remain unverified.
 
 | Gate | Required evidence before public production availability |
 | --- | --- |
-| Untrusted PR isolation | Retain the owner-selected existing runner. Before enabling untrusted public PR execution, prove that its job boundary excludes trusted runner state, shared writable caches, the host Docker socket, release credentials, and privileged network access; verify a real fork PR follows that boundary. Read-only tokens, checkout cleanup, and a Docker label alone are insufficient. Runner selection is not pending; isolation evidence remains unverified. Keep retired legacy runners offline. |
+| Untrusted PR isolation | The workflows now use ephemeral GitHub-hosted `ubuntu-24.04` jobs with no secrets or write permissions for PRs. Verify a real fork PR and a trusted `main` run after commit, and confirm no legacy self-hosted service remains registered. |
 | Owner review and Actions policy | Owner reviews the verified main ruleset and its `always` bypass, and verifies remaining fork-approval, enforcement, and administrative controls. Readable ruleset metadata does not establish the inaccessible settings or an isolated PR execution boundary. |
 | Private security intake | Enable and test GitHub private vulnerability reporting or document a working owner-approved private contact usable by a new contributor. An already-established private channel is not a complete public intake path. |
-| Exact-source release verification | Review and commit the prepared changes, run the complete trusted CI at that source SHA, verify all package and manifest digests/source binding, and publish a new unused version. Never replace an existing tag or asset to repair the old archive. |
+| Exact-source release verification | Review and commit the prepared changes, run the complete trusted CI at that source SHA, verify all package and manifest digests/source binding, and publish a new unused version. A later push with an already-published stable version is a verified no-op; never replace an existing tag or asset to repair the old archive. |
 | Source availability and license authority | Owner confirms authority for the declared GPL-3.0-only license and provides accessible corresponding source for the exact binary release, with dependency notices. Public GitHub source/release URLs are inaccessible while the repository remains private. |
 | Physical Hue acceptance | Record plugin/source version, Jellyfin/.NET/FFmpeg versions, bridge firmware and light models; verify registration with explicit certificate confirmation, playback sync, pause/resume/stop, original-state restoration, scheduled cues, concurrent users/rooms, bridge disconnect/reconnect, and server restart. Capture sanitized logs and cleanup outcomes. Automated loopback DTLS and container boot do not prove hardware behavior. |
 | Upgrade and rollback | On a disposable representative installation, back up private configuration securely, upgrade from the prior release, check settings/automation preservation, then restore the previous package/configuration and verify startup, playback, and cleanup. Do not publish credentials or private backup files as evidence. |
