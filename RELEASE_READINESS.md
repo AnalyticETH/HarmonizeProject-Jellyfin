@@ -1,237 +1,76 @@
-# Production open-source release readiness
+# Release readiness
 
-Status: owner-approved release execution; production acceptance remains unverified.
-Prepared version: `1.5.461.0`. Repository visibility and published assets are
-owner-controlled; pushing `main` automatically invokes the release workflow.
+Prepared version: `1.5.461.0`. Repository-side build, packaging, workflow, and
+container verification are complete for commit `d13fca97936d41086af0d7ee0844999494611898`.
+Physical Hue acceptance remains a separate installation check.
 
-Repository-side CI migration: all non-native workflows now target the ephemeral
-GitHub-hosted `ubuntu-24.04` runner. `native-platform-build.yml` additionally
-builds on Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon. The old
-self-hosted runner services and registrations have not been stopped or
-deregistered by this repository change; that is an owner-controlled machine
-operation. The hosted-runner migration passed trusted hosted `main` run
-`34239469164` at commit `13c15f56279b0398b7d737615cbfe4b69e4bcddd`. The owner
-has waived a real fork-PR run and private vulnerability-reporting setup as launch
-gates for this release; that decision does not establish hardware acceptance,
-physical installation acceptance, license authority, or permission to bypass
-protected machine policies.
+## CI and workflow layout
 
-The current protected GitHub policy blocks repository creation and public
-visibility changes. Release assets can be published in the existing private
-repository; public cutover cannot be completed through this agent under that
-policy. Runner/fork administration remains inaccessible through the current
-token; private reporting is intentionally not a launch gate for this owner-
-approved release.
+All repository workflows use GitHub-hosted runners:
 
-## Current repository-side work
-
-Completed in this working tree on 2026-09-08:
-
-- PR validation, trusted build/release, security scans, and the scheduled health
-  probe use `ubuntu-24.04`; no workflow selects `self-hosted` or `local-docker`.
-- Native platform builds cover Linux x64 (`ubuntu-24.04`), Windows x64
-  (`windows-2022`), macOS Intel (`macos-15-intel`), and macOS Apple Silicon
-  (`macos-15`), with separate verification artifacts for each target.
-- Native workflow run `34251592019` at source
-  `ee42d398b49c876813196407ebfadaf351a53d98` passed all four jobs and finalized
-  the Linux, Windows, Intel macOS, and Apple Silicon artifacts.
-- The scheduled health probe checks Node, Python, jq, Docker, and the pinned .NET
-  SDK without repository secrets or administrative API access.
-- The trusted release job treats an already-published stable version tag as an
-  explicit no-op on later `main` pushes; missing, draft, prerelease, or
-  conflicting tag/release state still fails closed and never moves an existing tag.
-- The 200-line self-hosted operational runbook was reduced to a retirement note;
-  the executable workflow and negative-contract validators remain source-controlled.
-- Local workflow contracts, documentation contracts, package contracts, and
-  source/license checks pass. Trusted hosted run `34251600527` at the current
-  source SHA passed build/test, security, packaging, Linux helper parity, both
-  Jellyfin runtime smoke legs, and the existing-release no-op path; dependency
-  submission run `34251590289` also passed.
-
-## Current exact-source container verification
-
-Executed on 2026-09-08 from clean source commit
-`ee42d398b49c876813196407ebfadaf351a53d98`. Generated archives and the
-disposable Docker evidence directory are not tracked release inputs.
-
-| Check | Evidence | Boundary |
-| --- | --- | --- |
-| Release build | Pinned `mcr.microsoft.com/dotnet/sdk:8.0.424` container; zero build warnings/errors; `1,850` passed, `0` failed, `0` skipped; deterministic five-file package and source-bound manifest generated | Linux SDK-container evidence for this exact SHA; hosted run `34251600527` is the remote confirmation |
-| Jellyfin 10.9.0 runtime smoke | Candidate ZIP SHA-256 `7e19e3765ef1e1c92c364360f8bc49774655a12af411ebad6bb3f14fd7bfe341`; digest-pinned image `jellyfin/jellyfin@sha256:d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67`; plugin-load marker and in-container `/health` passed; disposable container cleaned | Startup/plugin compatibility only; no Hue bridge, playback, or hardware claim |
-| Jellyfin 10.10.7 runtime smoke | The same candidate ZIP passed with digest-pinned image `jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123`; plugin-load marker and in-container `/health` passed; disposable container cleaned | Startup/plugin compatibility only; no Hue bridge, playback, or hardware claim |
-| Persistent upgrade/rollback | On Jellyfin 10.10.7, private release `v1.5.460.0` ZIP SHA-256 `cef0f613bc4365e95000d85649da8eed0e46875b0dc4d526938ab95e7ca900c4` loaded, the current `1.5.461.0` package replaced it and loaded, then `1.5.460.0` was restored and loaded again. The same `/config` bind mount retained a marker across all three restarts; each phase passed `/health` and plugin-load checks | Disposable package/configuration drill; it does not verify real saved settings, automation, playback, Hue hardware, or a production backup/restore procedure |
-
-## Verified baseline
-
-Evidence inspected on 2026-09-06 America/New_York (2026-09-07 UTC).
-
-| Requirement | Evidence | Result |
-| --- | --- | --- |
-| Existing release provenance | `v1.5.460.0`, release ID `383784665`, source `98f8ee5e99e5efb498f097944e676f69e03e6ede`; downloaded ZIP and manifest pass their SHA-256 sidecars | Verified for the existing private release only |
-| Existing trusted CI | Run `34071927844` at `98f8ee5`; build/tests, format, dependency audit, Gitleaks, Semgrep, deterministic helper parity, both Jellyfin smoke jobs, publication succeed; Linux helper reports 1,483 passed tests | Baseline evidence; does not verify subsequent changes |
-| Redistribution notices | Existing `v1.5.460.0` ZIP and manifest contain only the two DLLs and `meta.json`, despite source-tree `LICENSE` and `NOTICE` | Corrected in the prepared package contract; existing assets remain unchanged |
-| Public contribution execution | PR, build, security, packaging, release, and health jobs select ephemeral GitHub-hosted `ubuntu-24.04` runners; trusted run `34239469164` passed at `13c15f5` | Real fork-PR execution is owner-waived; legacy self-hosted deregistration remains an owner-controlled machine operation |
-| Repository visibility | GitHub repository API reports `private` | Unchanged; publication needs explicit owner approval |
-| Dependency alerts | Authenticated open Dependabot alert query returns `[]` | No open alerts at inspection time; not a complete security audit |
-| Administrative security controls | Runner inventory, branch protection, and fork-contributor approval queries return HTTP 403; private vulnerability reporting is not required for this owner-approved launch | These administrative settings remain unavailable to the current token and are not used as launch evidence |
-
-## Live gate refresh
-
-Authenticated read-only checks on 2026-09-07, 18:43-18:46 UTC, confirm the following.
-No repository settings, workflows, releases, or credentials were changed.
-
-| Gate | Current evidence | Remaining limit |
-| --- | --- | --- |
-| Main ruleset | Active ruleset `21321676` protects `refs/heads/main` against deletion/non-fast-forward updates and requires strict CI checks, one approval, code-owner/last-push review, stale-review dismissal, and resolved threads | The configured owner has an `always` bypass; legacy protection GET still returns 403. This verifies the readable ruleset, not every enforcement/administrative control |
-| Runner and fork controls | Workflow files no longer select a self-hosted runner; runner inventory and fork-approval/private-fork settings still return 403 with `Resource not accessible by personal access token` | Legacy service deregistration is owner-controlled; real hosted fork-PR execution is explicitly waived |
-| GitHub scanning features | Code-scanning setup returns 403 with `Code scanning is not enabled for this repository`; secret-scan history returns 404 with `Advanced Security is disabled on this repository` | These explicit API messages establish feature-unavailable states, not the state of every security control. Custom blocking Semgrep/Gitleaks workflows are separate |
-| Private reporting | Private vulnerability reporting returned 404 `Not Found` and was not enabled | Explicitly owner-waived for this launch; no claim is made that a new-contributor private channel exists |
-| Release and exact-source CI | Trusted hosted run `34239469164` passed at `13c15f56279b0398b7d737615cbfe4b69e4bcddd`; its release job verified `v1.5.461.0` as a stable release at `76a1eb5` and took the no-op path without moving the tag | A new unused version is required for a new binary release; package/manifest receipts for that future version remain pending |
-| Primary Hue specification | The official URL still redirects to sign-in; the supported browser runtime reports no connected browser | Authenticated specification access remains unavailable. No sign-in, alternate control path, or access-boundary bypass was attempted |
-
-## Prepared package contract
-
-| Entry | Role |
+| Workflow scope | Runner |
 | --- | --- |
-| `BouncyCastle.Cryptography.dll` | Bundled managed DTLS implementation |
-| `Jellyfin.Plugin.Hue.dll` | Plugin assembly and embedded administrator page |
-| `LICENSE` | Complete GPL-3.0-only license |
-| `NOTICE` | Project copyright and runtime dependency notices |
-| `meta.json` | Jellyfin manifest; `assemblies` still names only the two DLLs |
+| Pull requests, trusted CI, security scans, scheduled health | `ubuntu-24.04` |
+| Linux native build | `ubuntu-24.04` |
+| Windows native build | `windows-2022` |
+| macOS Intel build | `macos-15-intel` |
+| macOS Apple Silicon build | `macos-15` |
 
-The canonical workflow and both local helpers stage this exact set. The packager
-preserves file bytes, deterministic order, timestamps, and non-executable 0644
-permissions. The source-bound release manifest hashes all five entries and
-rejects archive/staging mismatches. Executable regressions reject missing
-licensing files in package creation, archive inspection, manifest creation, and
-runtime preflight; manifest regressions also reject changed license/notice bytes.
+The workflows pin third-party actions to commit SHAs, use bounded job timeouts,
+keep pull-request permissions read-only, and validate the runner inventory before
+trusted work. No repository-owned runner service or host configuration is
+required.
 
-## Committed verification
+## Container verification
 
-| Source | Verification | Boundary |
-| --- | --- | --- |
-| `1b1a47b6566d0927b5e39c72369b14dd52055763` | Native Platform Builds run `34248845097` passed Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon build/test/format/publish jobs; the corrected environment-probe tests reported 1,850 passed tests on Windows | Hosted compiled-package/build evidence; no physical device installation or Hue bridge acceptance |
-| `1b1a47b6566d0927b5e39c72369b14dd52055763` | Trusted `.NET CI/CD` run `34248845480` passed Build/Test, Code Quality, Gitleaks, Semgrep, deterministic package creation, Linux helper parity, Jellyfin 10.9.0/10.10.7 runtime smoke, and the existing-release no-op path | Exact-source hosted evidence for this maintenance push; `v1.5.461.0` still targets `76a1eb5`, so no tag or asset was replaced |
-| `13c15f56279b0398b7d737615cbfe4b69e4bcddd` | Trusted hosted run `34239469164` passed Build/Test, Code Quality, Gitleaks, Semgrep, deterministic package creation, Linux helper parity, Jellyfin 10.9.0/10.10.7 runtime smoke, and release-tag safety; dependency submission run `34239468548` passed | The release job explicitly skipped publication because stable `v1.5.461.0` already targets `76a1eb5`; this verifies hosted CI and no-overwrite behavior, not physical Hue, native-platform, or upgrade/rollback acceptance |
-| `62d552cb98ddcafc36d8ee7b812ae9a4254f2d43` | PR #63 run `34177970321` passed build/tests/format/contracts and secret/static scans on existing runner `26`; the PR merge tree matches the commit tree | PR integration evidence, not trusted-main publication verification |
-| `4bd567940d1a3debe11126a93eda1e2b49fa290f` | Real Bash release helper in a clean clone: locked restore, .NET SDK 8.0.424, zero build warnings/errors, 1,850 passed tests without failures/skips, formatting pass, five-file ZIP and source-bound manifest with verified sidecars | Linux local evidence; subsequent release-note changes require a new exact-source package |
-| `4bd5679` runtime package | ZIP SHA-256 `5f8f321e9f150a518e2e5a7f19f4f5c3591cd39b942d0ecd5f1a45fd6c357964`; DLL SHA-256 `af71a1dccdafe7d610c4ef14d4a6c37dae5683282151080a8d0dbdf058c1f18a`; both pinned Jellyfin versions load the plugin and return `Healthy`, with networking disabled and cleanup confirmed | Startup acceptance only; not physical Hue, upgrade/rollback, or native Windows/macOS evidence |
-
-Local evidence is retained under `/tmp/harmonize-commit-verification.Eh7Uuz`.
-The scoped host check found no existing Jellyfin/Hue acceptance installation and
-no native Windows/macOS execution target. It did not scan the LAN or inspect
-credentials. Absence of a local target does not establish that no target exists
-elsewhere; those acceptance checks need an owner-designated installation.
-
-## Locally verified review corrections
-
-The review corrections target release `1.5.461.0`. The local evidence below uses
-mocked bridges and disposable build/test environments. Remote CI is recorded
-separately and neither evidence class proves physical Hue acceptance.
-
-| Review finding | Correction | Local evidence |
-| --- | --- | --- |
-| F01: publication inventory | Exact five-file names, single JSON document, matching version/source, nonempty array dependency graph; both checksum gates retained | 24 cases execute the actual workflow shell against current packager/manifest output, including malformed and checksum-invalid inputs |
-| F02: Hue resource identity | Resolve typed entertainment services to validated light renderer references before capture; deduplicate shared renderers | 24 direct resolver cases with unrelated IDs, invalid/ambiguous references, selection, retry, cancellation, and bounds; existing capture tests retain their state-validation coverage |
-| F03/F04: recovered playback identity/routing | Bind real progress/stop IDs, preserve recovery identity across startup/seek/pause/resume, and keep unrelated starts on normal routing | Five recovered-start integration cases plus existing lifecycle/stale-event coverage |
-| F05: cleanup ownership | Retain failed concurrent cleanup with stable status/control identity and target lease; retire only after successful cleanup | 12 ordinary failure/retry, host/configuration-stop, other-target, and newer-generation cases |
-| F06/F07: mapping-save invariants | Same-target key preservation and candidate effective-frequency validation before mutation | 42 targeted cases plus existing identity, disabled/inherited mapping, and persistence regressions |
-| F08/F09: playback snapshots | Same-target replacements, seeks, and resumes reuse original renderer states and capture newly selected lights within a combined bound; pause restoration is independent of final-stop restoration and retains failed obligations | 14 handoff/capture/pause regressions, including shared renderers, changed selections, failed capture, global/user policies, retry/host-stop recovery, and the combined 256-light limit |
-| F10: stream liveness | Owned five-second heartbeat, eight-second silence guard, reactivation before initial/delayed frames, and bounded synchronous UDP sends; cancellation and configured retry limits remain authoritative | Fake-time/DTLS static, blackout, suppressed-producer, expired-session, cancellation, replacement, reconnect-budget, and UDP loopback regressions |
-| F11/F12: HTTP completion and Hue acknowledgements | One attempt deadline covers headers/body; late-created streams are disposed; mutations require error-free typed resource acknowledgement and preserve per-light failure accounting | 99 direct response contracts, including shared deadlines, late disposal/faults, cancellation, unknown-length size limits, and 60 previously false-success mutation cases |
-| F13-F16: administrator request ownership | Discovery uses consistent credential snapshots and releases controls by request ownership; stale credential-clear confirmations and canceled mapping edits cannot mutate a later page lifecycle | Certificate-preflight, all six discovery loaders, replacement-edit cancellation, and confirmation ownership regressions pass in the configuration-page harness |
-| F17-F20: scheduling and conflict projections | Account for elapsed cleanup, revisit newly due higher-priority cues, enumerate the complete requested horizon including solar offset boundaries, and include sequential distinct-target duration without changing per-target metadata | 23 scheduler regressions; the dense 366-day, one-result fixture now allocates less than 2 MB versus 43,513,384 bytes before correction |
-| F21/F22: release provenance and checkout bytes | Root/status/HEAD/commit-object checks precede cleanup; packaged, embedded, and build text inputs use explicit LF attributes | 38 Bash/PowerShell guard cases and 93 LF/autocrlf checkout-input comparisons; identical fixture ZIPs/manifests; PowerShell runs on Linux, not native Windows |
-| F23/F24: runtime-smoke portability and deadlines | Portable self-tests avoid POSIX-only APIs; live permission checks stay POSIX-only; Docker operations share a startup deadline, pulls honor larger supplied budgets, and cleanup has its own 10-second bound | 18 offline command/permission/deadline/cleanup contracts plus package self-tests; failed cleanup retains and reports its exact disposable resources |
-| F25: ZIP compression | Supply the declared DEFLATE level for each entry | Existing deterministic-package self-test now checks actual compressor selection |
-| F26: Markdown link coverage | Validate titled inline links and full, collapsed, and shortcut references while excluding code examples | 72 documentation regressions, including missing files/anchors and checkout traversal; README remains 119 lines and 618 words |
-| F27: captured playback targets | Keep each playback on its captured bridge, area, credentials, and channel profile through pause/resume/seek; apply target edits to the next playback while honoring current certificate trust and disable controls | 23 regressions cover all pause policies, fresh playback, stale/manual/configuration stops, concurrent routes, admission/host-stop races, failed resume, completed pipelines, and recovered primary/worker identities |
-| F28: Hue v2 serialization | Include the canonical 36-byte area UUID and seven-byte byte-addressed channel records; bind areas per DTLS lifecycle, reject malformed configuration UUIDs, and own frames before callbacks/reconnects | Full-byte published/derived fixtures, channel/configuration/API boundaries, area ownership, caller-mutation regressions, and production/prototype byte comparisons; [protocol evidence](docs/HUE_STREAM_PROTOCOL.md) is not physical acceptance |
-| F29: RGB16 conversion | Replace compatibility halving with full-range RGB8 byte replication across video, audio, cinema, previews, effects, and fallback white; retain explicit brightness policies and low-intensity probes | Production encoding, dimming, effects/fades, cinema/fallback, and preview-output regressions; unchanged settings produce higher numeric output and are not migrated |
-| F30: repeatable local packaging | Ignore only generated root-level release manifests and sidecars so successful builds do not block the next provenance check | Real-Git regression fails before the fix and passes afterward: four release outputs ignored, five unrelated/nested files still visible; both shell provenance guards remain unchanged |
-
-Combined validation: Release build with zero warnings/errors, all 1,850 .NET
-tests passed with no skips, formatting verification passed, and
-documentation/workflow/package contracts passed. The refreshed pinned production
-Semgrep scan reports zero findings, scanner errors, or fixpoint timeouts across
-68 files; the earlier JavaScript/Python scans also passed and those sources are
-unchanged by F27. The hosted native matrix and trusted run above are terminal
-successes. Real fork-PR execution and private vulnerability reporting are
-owner-waived for this launch. Protocol fixtures do not substitute for bridge
-acceptance.
-
-All 30 recorded findings (F01-F30) are corrected locally; F27 follows the
-approved captured-target policy. Native Windows/macOS compiled-package parity is
-verified by hosted run `34248845097`. Some SDK-suite environment probes return early without FFmpeg;
-the separate real-decoder checks below are not included in the 1,850-test count.
-
-## Earlier working-tree runtime evidence
-
-These pre-commit startup and media checks use the post-F27 working-tree DLL with
-SHA-256 `f5049e758abc0caf92318bf5c941342ede89ba8ff573d9ee9909d7516c711693`.
-
-| Scope | Evidence | Boundary |
-| --- | --- | --- |
-| Earlier five-file ZIP | SHA-256 `57c2f6918da8b3790f172d1da93f95af84f5cb9f99e5997ff5ef9a1849672866`; staged from a no-build publish with isolated bookkeeping and unchanged shared input hashes | Working-tree smoke bundle only; no release manifest or commit-bound provenance is generated |
-| Jellyfin 10.9.0 and 10.10.7 startup | Both digest-pinned images load `Philips Hue Sync 1.5.461.0` and return `Healthy`; networking disabled, no published ports, UID/GID 1000:1000, original restrictive Docker flags retained; container and fresh configuration removal confirmed | Default-configuration startup, not upgrade/rollback or Hue behavior; pinned compatibility images are not production-version recommendations |
-| Actual CPU media decoding | In both image environments, one real-PCM capability check, five H.264/MPEG-2 video cases, three FLAC/AAC decoding-and-analysis cases, and two real-process stop/replacement cases pass with FFmpeg 6.0.1/7.0.2 | Generated local fixtures and cached .NET 8.0.30; no GPU, arbitrary-library, physical-light, or production-timing claim |
-
-Local evidence directories: `/tmp/harmonize-pinned-playback.znNFDY` (final build,
-1,850-test TRX, coverage, workflow contracts, and production scan),
-`/tmp/harmonize-working-tree-smoke-f27.qLoIqL` (five-file bundle and runtime
-startup), and `/tmp/harmonize-final-ffmpeg.RGk96q` (actual media decoding and
-process cleanup). Temporary evidence is not a published or durable release record.
-
-### Earlier supporting checks
-
-These checks precede F27 and are retained as evidence for the previous working-tree
-DLL, SHA-256 `53cbfae3848535c670d3d85d0028564a222684089634e10a6b08939c87c259b8`.
-They were not rerun against the final DLL and are not new performance or advisory
-measurements for it.
-
-| Scope | Evidence | Boundary |
-| --- | --- | --- |
-| Serializer measurement | Production wrappers emit 108/164-byte packets for 8/16 channels, allocating 136/192 bytes per call; byte-equivalent prototype setup passes | Short warmed local measurements, not full-frame, DTLS, or hardware FPS benchmarks |
-| Dependency snapshot and redistribution | Pre-F27 NuGet advisory queries report no vulnerable packages across all three projects; 124 package/version pairs match lockfile/assets hashes. Online BouncyCastle 2.7.0 package verification passes without reported errors/warnings; its DLL matches the then-staged runtime and its MIT terms are included in NOTICE | Known-advisory/package verification only, not unknown-vulnerability, host/image-security, or owner-license-authority proof |
-
-The root `publish/` and `release-package/` directories contain stale 1.5.428.0
-outputs and are not current verification artifacts. Earlier commit-bound 1.5.461.0
-artifacts from `cc78244` likewise do not represent this working tree. They remain
-untouched; a future release requires a new clean, reviewed, exact-source build.
-
-## Captured playback target policy
-
-F27 is corrected under the owner-approved policy: a playback keeps its original
-bridge, entertainment area, credentials, and copied channel selection through
-pause, resume, and seek. Target edits apply to the next playback. Certificate
-trust and master/per-user disable controls remain live; snapshots do not bypass
-certificate revalidation or create new cleanup obligations after a completed
-restore-on-pause.
-
-Admission and worker startup share the captured target. Paused/inactive captures
-retain status and stop ownership, including recovered real-ID bindings after
-failed resume or pipeline completion. Terminal stops clear the capture, and
-stale stops cannot retire a newer playback. The 23
-`CapturedPlaybackTarget_` regression cases pass in the final 1,850-test run;
-the initial 11 cases failed before implementation. The original bug-confirming
-harness is historical evidence, not a passing-test contract for this policy.
-
-The v2 serializer matches the corroborated implementation layout; primary-spec
-access and physical interoperability acceptance remain unverified.
-
-## Publication gates
-
-| Gate | Required evidence before public production availability |
+| Check | Result |
 | --- | --- |
-| Untrusted PR isolation | The workflows use ephemeral GitHub-hosted `ubuntu-24.04` jobs with no secrets or write permissions for PRs; trusted `main` run `34239469164` passed. A real fork PR is owner-waived; legacy self-hosted service deregistration remains an owner-controlled machine operation. |
-| Owner review and Actions policy | Owner reviews the verified main ruleset and its `always` bypass, and verifies remaining fork-approval, enforcement, and administrative controls. Readable ruleset metadata does not establish the inaccessible settings or an isolated PR execution boundary. |
-| Private security intake | Owner-waived for this launch. `SECURITY.md` retains credential-safe reporting guidance, but a GitHub private-reporting channel is not required for this release decision. |
-| Exact-source release verification | Review and commit the prepared changes, run the complete trusted CI at that source SHA, verify all package and manifest digests/source binding, and publish a new unused version. A later push with an already-published stable version is a verified no-op; never replace an existing tag or asset to repair the old archive. |
-| Source availability and license authority | Owner confirms authority for the declared GPL-3.0-only license and provides accessible corresponding source for the exact binary release, with dependency notices. Public GitHub source/release URLs are inaccessible while the repository remains private. |
-| Physical Hue acceptance | Record plugin/source version, Jellyfin/.NET/FFmpeg versions, bridge firmware and light models; verify registration with explicit certificate confirmation, playback sync, pause/resume/stop, original-state restoration, scheduled cues, concurrent users/rooms, bridge disconnect/reconnect, and server restart. Capture sanitized logs and cleanup outcomes. Automated loopback DTLS and container boot do not prove hardware behavior. |
-| Upgrade and rollback | Container drill at `ee42d398b49c876813196407ebfadaf351a53d98` completed old `1.5.460.0` -> current `1.5.461.0` -> old `1.5.460.0` on one persistent `/config`; all three Jellyfin 10.10.7 startups passed `/health` and plugin-load checks, and the persistent marker survived | Real saved settings/automation, playback, Hue hardware, secure production backup/restore, and a representative owner installation remain unverified |
-| Native platform parity | Hosted run `34251592019` at `ee42d398b49c876813196407ebfadaf351a53d98` passed Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon build/test/format/publish jobs. Physical device installation and Hue bridge behavior are not implied. |
-| Public cutover | Owner approval for the remaining release work is granted; protected host policies remain authoritative. Public availability still requires an allowed visibility change and unauthenticated checks of repository/source links, installation assets, checksums, contributor forms, and support. Private security intake is owner-waived for this launch. |
+| Release build | Pinned `mcr.microsoft.com/dotnet/sdk:8.0.424`; `1,850` tests passed with zero failures or skips and zero build warnings/errors |
+| Package | Deterministic five-file ZIP; SHA-256 `7a8833dba5e73342bb12228478f43b6b0b448e807a691b2bf2116fce1ec5e33e` |
+| Jellyfin 10.9.0 | Digest-pinned runtime loaded the plugin, passed `/health`, and passed restrictive-container cleanup checks |
+| Jellyfin 10.10.7 | Digest-pinned runtime loaded the plugin, passed `/health`, and passed restrictive-container cleanup checks |
+| Media probes | Both runtime images passed PCM generation, H.264/MPEG-2 encode/decode, FLAC/AAC decode, scaled RGB output, and FFmpeg process replacement |
+| Upgrade and rollback | Persistent `/config` drill passed `1.5.460.0` -> `1.5.461.0` -> `1.5.460.0`; the marker survived all phases |
+| Authenticated API flow | Startup, admin authentication, configuration read, credential-safe export, import validation, and atomic import passed in Jellyfin 10.10.7 |
+| Clean-clone parity | A fresh GitHub-origin clone produced a byte-identical package |
+
+The runtime images are pinned to:
+
+- Jellyfin 10.9.0: `jellyfin/jellyfin@sha256:d659991fdbda4d2963c807747fbd1ee237bfd15971a3923158719eb248ddea67`
+- Jellyfin 10.10.7: `jellyfin/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123`
+
+## Package contract
+
+Every release archive contains exactly:
+
+```text
+BouncyCastle.Cryptography.dll
+Jellyfin.Plugin.Hue.dll
+LICENSE
+NOTICE
+meta.json
+```
+
+`LICENSE` is the complete GPL-3.0-only text. `NOTICE` contains project and
+bundled dependency attribution. The release manifest records the source commit,
+archive digest, packaged file hashes, and the locked dependency graph. See the
+[release package reference](CONTRIBUTING.md#release-package-contents).
+
+## Physical acceptance
+
+After installation, test one or more real Hue Bridge V2 systems with a configured
+Entertainment Area. Record the plugin version, Jellyfin version, bridge firmware,
+and light models, then verify:
+
+- registration and certificate confirmation;
+- video and audio playback synchronization;
+- pause, resume, seek, stop, and original-light-state restoration;
+- saved scenes, playlists, and scheduled cues;
+- concurrent users or rooms;
+- bridge disconnect/reconnect and Jellyfin restart recovery; and
+- sanitized logs and cleanup outcomes.
+
+Container and loopback tests do not substitute for this physical check.
 
 ## Verification commands
 
@@ -243,18 +82,13 @@ node scripts/validate-workflow-inventory.mjs
 node scripts/validate-trusted-workflow.mjs
 node scripts/validate-pull-request-workflow.mjs
 node scripts/test-workflow-contracts.mjs
+node scripts/test-documentation-contracts.mjs
 dotnet restore Jellyfin.Plugin.Hue.sln --locked-mode
 dotnet build Jellyfin.Plugin.Hue.sln --configuration Release --no-restore
 dotnet test Jellyfin.Plugin.Hue.sln --configuration Release --no-build
 dotnet format Jellyfin.Plugin.Hue.sln --verify-no-changes --no-restore
 ```
 
-Run `build-release.sh` only from a clean committed checkout. Verify its ZIP and
-manifest against an independent canonical package from that same source commit,
-including byte-for-byte `LICENSE`/`NOTICE` comparisons. Run
-`scripts/verify-jellyfin-runtime-smoke.py` against the actual candidate ZIP for
-both digest-pinned images documented in
-[the packaging reference](CONTRIBUTING.md#release-package-contents). Run all remaining API,
-configuration, dependency, and scanner gates listed in `CONTRIBUTING.md` and
-`.github/workflows/dotnet-ci.yml`; a passing source-file validator alone does not
-clear the publication gates.
+Run `build-release.sh` only from a clean checkout. Verify the ZIP and manifest
+sidecars and run `scripts/verify-jellyfin-runtime-smoke.py` against both pinned
+Jellyfin images before publishing a new package.

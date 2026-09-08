@@ -86,7 +86,7 @@ function linkTargets(text) {
 const documentationFiles = [
   "README.md", "docs/CONFIGURATION.md", "docs/API.md", "docs/HUE_STREAM_PROTOCOL.md", "CONTRIBUTING.md",
   "SUPPORT.md", "CHANGELOG.md", "RELEASE_READINESS.md", "SECURITY.md",
-  "SELF_HOSTED_RUNNERS.md", "CODE_OF_CONDUCT.md",
+  "CODE_OF_CONDUCT.md",
 ];
 for (const file of documentationFiles) {
   const text = prose(fs.readFileSync(file, "utf8"));

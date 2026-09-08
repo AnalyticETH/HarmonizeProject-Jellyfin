@@ -9,7 +9,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hue-documentation-contracts-"));
 const fixtureFiles = [
   "README.md", "CONTRIBUTING.md", "SUPPORT.md", "CHANGELOG.md", "SECURITY.md",
-  "RELEASE_READINESS.md", "SELF_HOSTED_RUNNERS.md", "CODE_OF_CONDUCT.md", "LICENSE", "NOTICE",
+  "RELEASE_READINESS.md", "CODE_OF_CONDUCT.md", "LICENSE", "NOTICE",
   "docs/CONFIGURATION.md", "docs/API.md", "docs/HUE_STREAM_PROTOCOL.md", "meta.json", "Directory.Build.props", "MSBuild.rsp",
   "build-release.sh", "build-release.ps1", ".github/CODEOWNERS", ".github/pull_request_template.md",
   ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/feature_request.yml",

@@ -22,6 +22,18 @@ for (const file of requiredFiles) {
   }
 }
 
+for (const obsoleteRunnerPath of [
+  "SELF_HOSTED_RUNNERS.md",
+  "ops",
+  "scripts/check-runner-services.sh",
+  "scripts/check-runner-versions.sh",
+  "scripts/cleanup-pr-runner.sh",
+]) {
+  if (fs.existsSync(obsoleteRunnerPath)) {
+    throw new Error(`Open-source tree contains obsolete self-hosted runner infrastructure: ${obsoleteRunnerPath}`);
+  }
+}
+
 function read(file) {
   return fs.readFileSync(file, "utf8");
 }

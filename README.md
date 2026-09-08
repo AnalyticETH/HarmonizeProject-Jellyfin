@@ -4,8 +4,8 @@ Synchronize Philips Hue lights with video and audio playing on your Jellyfin
 server. The plugin uses FFmpeg to analyze media and streams lighting updates to
 a Hue Entertainment Area.
 
-Release preparation is ongoing. Check [Release readiness](RELEASE_READINESS.md)
-for verification evidence and remaining production-release requirements.
+See [Release readiness](RELEASE_READINESS.md) for verification evidence and the
+remaining physical-acceptance check.
 
 ## What it does
 

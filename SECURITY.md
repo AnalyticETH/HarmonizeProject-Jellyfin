@@ -65,11 +65,6 @@ write operation, and receives a fresh hosted workspace for every job.
 
 The `native-platform-build.yml` workflow builds and tests Linux x64, Windows x64,
 macOS Intel, and macOS Apple Silicon and uploads one verification artifact per
-target. Read-only workflow permissions are defense in depth; the owner has
-waived real fork-PR execution and private vulnerability-reporting setup as launch
-gates. Physical Hue, upgrade/rollback, licensing/source authority, and protected
-visibility remain separate release-readiness questions; see
+target. Read-only workflow permissions are defense in depth. Physical Hue and
+installation acceptance remain separate from repository-side automation; see
 [RELEASE_READINESS.md](RELEASE_READINESS.md).
-
-Former self-hosted runner details are retained only as a short retirement note in
-[SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md).

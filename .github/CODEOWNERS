@@ -3,7 +3,6 @@
 /.github/dependabot.yml @AnalyticETH
 /.github/semgrep/ @AnalyticETH
 /.github/workflows/ @AnalyticETH
-/ops/ @AnalyticETH
 
 # Keep the release, build, dependency, and security contracts owner-reviewed.
 /build-release.sh @AnalyticETH
@@ -15,7 +14,6 @@
 /.gitleaks.toml @AnalyticETH
 /codecov.yml @AnalyticETH
 /SECURITY.md @AnalyticETH
-/SELF_HOSTED_RUNNERS.md @AnalyticETH
 /README.md @AnalyticETH
 /docs/ @AnalyticETH
 /CHANGELOG.md @AnalyticETH

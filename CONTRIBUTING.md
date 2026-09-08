@@ -74,7 +74,7 @@ must remain credential-free. New bridge or FFmpeg inputs need bounded parsing,
 fail-closed validation, and cancellation coverage.
 
 Reviewers may request changes to documentation, tests, dependency locks, or
-release contracts before merge. Changes to `.github/`, `ops/`, release helpers,
+release contracts before merge. Changes to `.github/`, release helpers,
 dependency locks, security policy, and plugin source are owner-reviewed through
 the repository `CODEOWNERS` file.
 
@@ -251,12 +251,12 @@ playback acceptance remains separate from local and container verification.
 
 The trusted workflow accepts main-only `workflow_dispatch` validation/recovery.
 Publication requires a trusted `main` push; manual dispatch does not publish a
-release. Any legacy self-hosted runner services are outside the workflow contract
-and must remain offline until the owner deregisters them.
+release. All workflow jobs use the GitHub-hosted runner matrix declared in the
+workflow files; no repository-owned runner service or host configuration is
+required.
 
 See [SECURITY.md](SECURITY.md) for scanner integrity and credential boundaries,
-[SELF_HOSTED_RUNNERS.md](SELF_HOSTED_RUNNERS.md) for the retired-runner note,
-[RELEASE_READINESS.md](RELEASE_READINESS.md) for owner-controlled gates, and
+[RELEASE_READINESS.md](RELEASE_READINESS.md) for release evidence, and
 [the trusted workflow](.github/workflows/dotnet-ci.yml) for executable policy.
 
 ### Performance Benchmarks

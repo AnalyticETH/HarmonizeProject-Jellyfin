@@ -392,10 +392,8 @@ def verify_runtime_smoke(
     image = validate_image_reference(image)
     deadline = time.monotonic() + startup_timeout_seconds
     ensure_image_present(image, deadline=deadline)
-    # The runtime runner service has PrivateTmp enabled, while its rootless
-    # Docker daemon is a separate user service. Use RUNNER_TEMP (under the
-    # shared runner work tree) when present so bind mounts are visible to both
-    # namespaces; local invocations fall back to the normal system temp path.
+    # Prefer the workflow-provided temporary directory when present so the
+    # Docker client and daemon share a visible bind-mount path.
     temp_root = Path(tempfile.mkdtemp(prefix="jellyfin-runtime-smoke-", dir=resolve_runtime_temp_dir()))
     container_name = f"{container_name_prefix}-{temp_root.name}"
     container_may_exist = False
