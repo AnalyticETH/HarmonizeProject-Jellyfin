@@ -12,7 +12,7 @@ const expectedWorkflows = new Set([
 ]);
 const githubHostedRunner = 'ubuntu-24.04';
 const nativePlatformRunners = new Map([
-  ["native-platform-build.yml", new Set(["ubuntu-24.04", "windows-2022", "macos-13", "macos-14"])],
+  ["native-platform-build.yml", new Set(["ubuntu-24.04", "windows-2022", "macos-15-intel", "macos-15"])],
 ]);
 const allowedActionRepositories = new Set([
   "actions/checkout",
@@ -271,8 +271,8 @@ for (const marker of [
   "name: Native Platform Builds",
   "runs-on: ubuntu-24.04",
   "runs-on: windows-2022",
-  "runs-on: macos-13",
-  "runs-on: macos-14",
+  "runs-on: macos-15-intel",
+  "runs-on: macos-15",
   "dotnet restore --locked-mode",
   "dotnet build --configuration \"$BUILD_CONFIGURATION\" --no-restore",
   "dotnet test --configuration \"$BUILD_CONFIGURATION\" --no-build",

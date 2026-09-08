@@ -30,8 +30,8 @@ Completed in this working tree on 2026-09-08:
 - PR validation, trusted build/release, security scans, and the scheduled health
   probe use `ubuntu-24.04`; no workflow selects `self-hosted` or `local-docker`.
 - Native platform builds cover Linux x64 (`ubuntu-24.04`), Windows x64
-  (`windows-2022`), macOS Intel (`macos-13`), and macOS Apple Silicon
-  (`macos-14`), with separate verification artifacts for each target.
+  (`windows-2022`), macOS Intel (`macos-15-intel`), and macOS Apple Silicon
+  (`macos-15`), with separate verification artifacts for each target.
 - The scheduled health probe checks Node, Python, jq, Docker, and the pinned .NET
   SDK without repository secrets or administrative API access.
 - The trusted release job treats an already-published stable version tag as an

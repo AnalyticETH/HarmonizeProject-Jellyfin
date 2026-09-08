@@ -139,7 +139,7 @@ jobs:
   build-macos-intel:
     name: Native Build (macOS Intel)
     if: github.ref == 'refs/heads/main'
-    runs-on: macos-13
+    runs-on: macos-15-intel
     timeout-minutes: 30
     defaults:
       run:
@@ -197,7 +197,7 @@ jobs:
   build-macos-arm64:
     name: Native Build (macOS Apple Silicon)
     if: github.ref == 'refs/heads/main'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     defaults:
       run:
