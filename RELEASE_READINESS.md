@@ -8,10 +8,11 @@ Repository-side CI migration: all executable workflows now target the ephemeral
 GitHub-hosted `ubuntu-24.04` runner. The old self-hosted runner services and
 registrations have not been stopped or deregistered by this repository change;
 that is an owner-controlled machine operation. The hosted-runner migration is
-implemented locally but still needs a real remote fork-PR run and trusted `main`
-run after commit. Authorization does not establish hardware acceptance,
-native-platform parity, or license authority, and does not permit modifying or
-bypassing protected machine policies.
+implemented and has passed trusted hosted `main` run `34239469164` at commit
+`13c15f56279b0398b7d737615cbfe4b69e4bcddd`; a real remote fork-PR run is still
+required. Authorization does not establish hardware acceptance, native-platform
+parity, or license authority, and does not permit modifying or bypassing
+protected machine policies.
 
 The current protected GitHub policy blocks repository creation and public
 visibility changes. Release assets can be published in the existing private
@@ -33,8 +34,9 @@ Completed in this working tree on 2026-09-08:
 - The 200-line self-hosted operational runbook was reduced to a retirement note;
   the executable workflow and negative-contract validators remain source-controlled.
 - Local workflow contracts, documentation contracts, package contracts, and
-  source/license checks pass. Remote hosted execution remains unverified until a
-  commit is available to Actions.
+  source/license checks pass. Trusted hosted run `34239469164` passed build/test,
+  security, packaging, Linux helper parity, and both Jellyfin runtime smoke legs;
+  dependency submission run `34239468548` also passed.
 
 ## Verified baseline
 
@@ -45,7 +47,7 @@ Evidence inspected on 2026-09-06 America/New_York (2026-09-07 UTC).
 | Existing release provenance | `v1.5.460.0`, release ID `383784665`, source `98f8ee5e99e5efb498f097944e676f69e03e6ede`; downloaded ZIP and manifest pass their SHA-256 sidecars | Verified for the existing private release only |
 | Existing trusted CI | Run `34071927844` at `98f8ee5`; build/tests, format, dependency audit, Gitleaks, Semgrep, deterministic helper parity, both Jellyfin smoke jobs, publication succeed; Linux helper reports 1,483 passed tests | Baseline evidence; does not verify subsequent changes |
 | Redistribution notices | Existing `v1.5.460.0` ZIP and manifest contain only the two DLLs and `meta.json`, despite source-tree `LICENSE` and `NOTICE` | Corrected in the prepared package contract; existing assets remain unchanged |
-| Public contribution execution | PR, build, security, packaging, release, and health jobs select ephemeral GitHub-hosted `ubuntu-24.04` runners in the working tree | Local contract proof is complete; a real fork PR and trusted remote run are still required |
+| Public contribution execution | PR, build, security, packaging, release, and health jobs select ephemeral GitHub-hosted `ubuntu-24.04` runners; trusted run `34239469164` passed at `13c15f5` | A real fork PR and legacy self-hosted deregistration remain unverified |
 | Repository visibility | GitHub repository API reports `private` | Unchanged; publication needs explicit owner approval |
 | Dependency alerts | Authenticated open Dependabot alert query returns `[]` | No open alerts at inspection time; not a complete security audit |
 | Administrative security controls | Runner inventory, branch protection, and fork-contributor approval queries return HTTP 403; private vulnerability reporting returns HTTP 404 | Unverified, not disabled or passing by inference |
@@ -61,7 +63,7 @@ No repository settings, workflows, releases, or credentials were changed.
 | Runner and fork controls | Workflow files no longer select a self-hosted runner; runner inventory and fork-approval/private-fork settings still return 403 with `Resource not accessible by personal access token` | Legacy service deregistration, fork policy, and real hosted fork-PR execution remain unverified |
 | GitHub scanning features | Code-scanning setup returns 403 with `Code scanning is not enabled for this repository`; secret-scan history returns 404 with `Advanced Security is disabled on this repository` | These explicit API messages establish feature-unavailable states, not the state of every security control. Custom blocking Semgrep/Gitleaks workflows are separate |
 | Private reporting | Private vulnerability reporting returns 404 `Not Found` | Setting and new-contributor access remain unverified; an existing private contact is not a demonstrated public intake path |
-| Release and exact-source CI | Repository remains private; the last recorded private release and trusted run remain historical evidence. Local hosted-runner validators pass for the current working tree | A new committed SHA, hosted remote CI run, package/manifest digest receipt, and release publication are still required |
+| Release and exact-source CI | Trusted hosted run `34239469164` passed at `13c15f56279b0398b7d737615cbfe4b69e4bcddd`; its release job verified `v1.5.461.0` as a stable release at `76a1eb5` and took the no-op path without moving the tag | A new unused version is required for a new binary release; package/manifest receipts for that future version remain pending |
 | Primary Hue specification | The official URL still redirects to sign-in; the supported browser runtime reports no connected browser | Authenticated specification access remains unavailable. No sign-in, alternate control path, or access-boundary bypass was attempted |
 
 ## Prepared package contract
@@ -85,6 +87,7 @@ runtime preflight; manifest regressions also reject changed license/notice bytes
 
 | Source | Verification | Boundary |
 | --- | --- | --- |
+| `13c15f56279b0398b7d737615cbfe4b69e4bcddd` | Trusted hosted run `34239469164` passed Build/Test, Code Quality, Gitleaks, Semgrep, deterministic package creation, Linux helper parity, Jellyfin 10.9.0/10.10.7 runtime smoke, and release-tag safety; dependency submission run `34239468548` passed | The release job explicitly skipped publication because stable `v1.5.461.0` already targets `76a1eb5`; this verifies hosted CI and no-overwrite behavior, not physical Hue, native-platform, upgrade/rollback, or public intake |
 | `62d552cb98ddcafc36d8ee7b812ae9a4254f2d43` | PR #63 run `34177970321` passed build/tests/format/contracts and secret/static scans on existing runner `26`; the PR merge tree matches the commit tree | PR integration evidence, not trusted-main publication verification |
 | `4bd567940d1a3debe11126a93eda1e2b49fa290f` | Real Bash release helper in a clean clone: locked restore, .NET SDK 8.0.424, zero build warnings/errors, 1,850 passed tests without failures/skips, formatting pass, five-file ZIP and source-bound manifest with verified sidecars | Linux local evidence; subsequent release-note changes require a new exact-source package |
 | `4bd5679` runtime package | ZIP SHA-256 `5f8f321e9f150a518e2e5a7f19f4f5c3591cd39b942d0ecd5f1a45fd6c357964`; DLL SHA-256 `af71a1dccdafe7d610c4ef14d4a6c37dae5683282151080a8d0dbdf058c1f18a`; both pinned Jellyfin versions load the plugin and return `Healthy`, with networking disabled and cleanup confirmed | Startup acceptance only; not physical Hue, upgrade/rollback, or native Windows/macOS evidence |
@@ -193,7 +196,7 @@ access and physical interoperability acceptance remain unverified.
 
 | Gate | Required evidence before public production availability |
 | --- | --- |
-| Untrusted PR isolation | The workflows now use ephemeral GitHub-hosted `ubuntu-24.04` jobs with no secrets or write permissions for PRs. Verify a real fork PR and a trusted `main` run after commit, and confirm no legacy self-hosted service remains registered. |
+| Untrusted PR isolation | The workflows now use ephemeral GitHub-hosted `ubuntu-24.04` jobs with no secrets or write permissions for PRs; trusted `main` run `34239469164` passed. Verify a real fork PR and confirm no legacy self-hosted service remains registered. |
 | Owner review and Actions policy | Owner reviews the verified main ruleset and its `always` bypass, and verifies remaining fork-approval, enforcement, and administrative controls. Readable ruleset metadata does not establish the inaccessible settings or an isolated PR execution boundary. |
 | Private security intake | Enable and test GitHub private vulnerability reporting or document a working owner-approved private contact usable by a new contributor. An already-established private channel is not a complete public intake path. |
 | Exact-source release verification | Review and commit the prepared changes, run the complete trusted CI at that source SHA, verify all package and manifest digests/source binding, and publish a new unused version. A later push with an already-published stable version is a verified no-op; never replace an existing tag or asset to repair the old archive. |
