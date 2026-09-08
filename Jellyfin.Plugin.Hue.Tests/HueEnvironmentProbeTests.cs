@@ -53,9 +53,9 @@ public sealed class HueEnvironmentProbeTests
     [Fact]
     public async Task CheckAsync_ReportsVersionForAvailableExecutable()
     {
-        var processPath = Environment.ProcessPath;
-        Assert.False(string.IsNullOrWhiteSpace(processPath));
-        var probe = new HueEnvironmentProbe(processPath!, processPath!, "--version");
+        var versionExecutable = HueEnvironmentProbe.ResolveExecutable("dotnet");
+        Assert.False(string.IsNullOrWhiteSpace(versionExecutable));
+        var probe = new HueEnvironmentProbe(versionExecutable!, versionExecutable!, "--version");
 
         var result = await probe.CheckAsync();
 
@@ -87,7 +87,7 @@ public sealed class HueEnvironmentProbeTests
     [Fact]
     public async Task CheckAsync_UsesConfiguredMediaEncoderPathForFfmpeg()
     {
-        var processPath = Environment.ProcessPath;
+        var processPath = HueEnvironmentProbe.ResolveExecutable("dotnet");
         Assert.False(string.IsNullOrWhiteSpace(processPath));
 
         var mediaEncoder = new Mock<IMediaEncoder>();
