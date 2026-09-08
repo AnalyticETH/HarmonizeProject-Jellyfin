@@ -20,8 +20,9 @@ The executable runner policy is enforced by:
 
 The hosted runner health workflow checks the required Node, Python, jq, Docker,
 and pinned .NET SDK toolchain every 15 minutes. A successful local validation is
-not remote Actions evidence; after these changes are committed, verify a real
-fork pull request and a trusted `main` run before public launch.
+not remote Actions evidence; trusted `main` run `34239469164` passed for the
+workflow migration, while a real fork pull request remains required before
+public launch.
 
 Public production remains gated by physical Hue acceptance, upgrade/rollback,
 native Windows/macOS parity, private security intake, licensing/source authority,
