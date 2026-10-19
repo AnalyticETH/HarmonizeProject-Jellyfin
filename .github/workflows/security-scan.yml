@@ -105,7 +105,7 @@ jobs:
             echo "gitleaks failed or found potential secrets; see the gitleaks-report artifact" >&2
             exit "$scan_status"
           fi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: gitleaks-report
@@ -353,7 +353,7 @@ jobs:
             echo "Semgrep embedded administrator JavaScript scan found security findings, scanner errors, or analysis timeouts; see the semgrep-report artifact" >&2
             exit 1
           fi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: semgrep-report
